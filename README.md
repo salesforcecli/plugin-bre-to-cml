@@ -109,8 +109,8 @@ EXAMPLES
    Authenticate to target orgs:
 
    $ sf auth:web:login --instance-url https://sdb3.test1.pc-rnd.pc-aws.salesforce.com -a breSourceOrg
-   sf auth:web:login --instance-url https://sdb3.test2.pc-rnd.pc-aws.salesforce.com -a cmlTargetOrg
-   sf org list
+   $ sf auth:web:login --instance-url https://sdb3.test2.pc-rnd.pc-aws.salesforce.com -a cmlTargetOrg
+   $ sf org list
 
    Export Standard Configurator rules:
 
@@ -118,7 +118,7 @@ EXAMPLES
 
    Convert to CML:
 
-   $ sf cml convert prod-cfg-rules --pcr-file data/ProductConfigurationRules.json --cml-api MY_TEST --workspace-dir data --target-org breMigOrg
+   $ sf cml convert prod-cfg-rules --pcr-file data/ProductConfigurationRules.json --cml-api MY_TEST --workspace-dir data --target-org breSourceOrg
 ```
 _See code: [src/commands/cml/convert/prod-cfg-rules.ts](https://github.com/salesforcecli/plugin-bre-to-cml/blob/main/src/commands/cml/convert/prod-cfg-rules.ts)_
 
@@ -152,7 +152,7 @@ DESCRIPTION
   - Upload the CML blob
 
 EXAMPLES
-  $ sf cml import as-expression-set --cml-api MY_TEST --context-definition PricingTransactionCD2 --workspace-dir data --target-org tgtOrg
+  $ sf cml import as-expression-set --cml-api MY_TEST --context-definition PricingTransactionCD2 --workspace-dir data --target-org cmlTargetOrg
 ```
 _See code: [src/commands/cml/import/as-expression-set.ts](https://github.com/salesforcecli/plugin-bre-to-cml/blob/main/src/commands/cml/import/as-expression-set.ts)_
 
