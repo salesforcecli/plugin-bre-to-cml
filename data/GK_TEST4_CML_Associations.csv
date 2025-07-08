@@ -1,0 +1,16 @@
+ExpressionSet.ApiName,ConstraintModelTag,ConstraintModelTagType,ReferenceObjectId,$Product2ReferenceId,$ProductClassificationName,$ProductRelatedComponentKey
+GK_TEST4_CML,Laptop,Type,01tSB000004vmAXYAY,Laptop,,
+GK_TEST4_CML,Warranty,Type,01tSB000004vmAiYAI,Warranty,,
+GK_TEST4_CML,LaptopProBundle,Type,01tSB000004vmAaYAI,Laptop Pro Bundle,,
+GK_TEST4_CML,laptop,Port,0dSSB000000B77v2AC,,,Laptop Pro Bundle||Laptop||
+GK_TEST4_CML,Software,Type,11BSB00000NR7Lc2AL,,Software,
+GK_TEST4_CML,software,Port,0dSSB000000B77z2AC,,,Laptop Pro Bundle||||Software
+GK_TEST4_CML,warranty,Port,0dSSB000000B77y2AC,,,Laptop Pro Bundle||Warranty||
+GK_TEST4_CML,PrinterBundle,Type,01tSB000004vmAeYAI,Printer Bundle,,
+GK_TEST4_CML,printerbundle,Port,0dSSB000000B77x2AC,,,Laptop Pro Bundle||Printer Bundle||
+GK_TEST4_CML,Printer,Type,01tSB000004vmAdYAI,Printer,,
+GK_TEST4_CML,printer,Port,0dSSB000000B7802AC,,,Printer Bundle||Printer||
+GK_TEST4_CML,PrinterPaper,Type,01tSB000004vmAfYAI,Printer Paper,,
+GK_TEST4_CML,printerpaper,Port,0dSSB000000B7812AC,,,Printer Bundle||Printer Paper||
+GK_TEST4_CML,Mouse,Type,01tSB000004vmAcYAI,Mouse,,
+GK_TEST4_CML,mouse,Port,0dSSB000000B77w2AC,,,Laptop Pro Bundle||Mouse||
