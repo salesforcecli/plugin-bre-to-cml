@@ -1,0 +1,80 @@
+type LineItem;
+
+type Laptop : LineItem {
+    date Date;
+
+    @(defaultValue = "RAM 8GB")
+    string Memory = ["RAM 64GB", "RAM 32GB", "RAM 8GB", "RAM 16GB"];
+
+    @(defaultValue = "Intel Iris Xe Graphics")
+    string Graphics = ["Intel Iris Xe Graphics", "MSI Gaming GeForce RTX 3060"];
+
+    string Text;
+
+    decimal(2) Percent;
+
+    @(defaultValue = "13 Inch")
+    string Display_Size = ["24 Inch", "13 Inch", "15 Inch", "27 Inch"];
+
+    @(defaultValue = "1080p Built-in Display")
+    string Display = ["1080p Built-in Display", "4k Built-in Display", "2k Built-in Display"];
+
+    @(defaultValue = "SSD Hard Drive 256GB")
+    string Storage = ["SSD Hard Drive 2TB", "SSD Hard Drive 512GB", "SSD Hard Drive 1TB", "SSD Hard Drive 256GB", "Cloud Storage Enterprise - 6 TB", "Cloud Storage Enterprise - 2 TB"];
+
+    @(defaultValue = "i5-CPU 4.4GHz")
+    string Windows_Processor = ["i5-CPU 4.4GHz", "i7-CPU 4.7GHz", "Intel Core i9 5.2 GHz"];
+
+}
+
+type Warranty : LineItem;
+
+type LaptopProBundle : LineItem {
+    relation laptop : Laptop[1..9999];
+
+    relation software : Software;
+
+    relation warranty : Warranty;
+
+    relation printerbundle : PrinterBundle;
+
+    relation mouse : Mouse;
+
+    constraint gkTestBundle_criteria_1 = ((laptop[Laptop] > 0) && laptop[Laptop].Memory == "RAM 16GB");
+
+    @(sequence = 2)
+    require(gkTestBundle_criteria_1, warranty[Warranty]);
+
+    rule(gkTestBundle_criteria_1, "Disable", "relation", "warranty", "type", "Warranty");
+
+    message(gkTestBundle_criteria_1 == true, "AutoAdd: Ram 16 Auto added Warranty!", "Info");
+
+}
+
+type Software : LineItem;
+
+type PrinterBundle : LineItem {
+    relation printer : Printer[1..9999];
+
+    relation printerpaper : PrinterPaper[1..9999];
+
+}
+
+type Printer : LineItem {
+    @(defaultValue = "Laser")
+    string Printer = ["Inkjet", "Laser"];
+
+}
+
+type PrinterPaper : LineItem {
+    @(defaultValue = "A4")
+    string Printer_Paper = ["A4", "Letter"];
+
+}
+
+type Mouse : LineItem {
+    @(defaultValue = "false")
+    boolean Wireless;
+
+}
+

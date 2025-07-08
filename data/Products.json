@@ -1,0 +1,1782 @@
+{
+  "01tKF0000063l2FYAQ": {
+    "additionalFields": {},
+    "attributeCategory": [
+      {
+        "attributes": [
+          {
+            "additionalFields": {},
+            "attributeNameOverride": "Storage",
+            "dataType": "Picklist",
+            "defaultValue": "SSD Hard Drive 256GB",
+            "developerName": "Storage",
+            "id": "0tjKF0000008ONnYAM",
+            "isHidden": false,
+            "isPriceImpacting": false,
+            "isReadOnly": false,
+            "isRequired": true,
+            "label": "Storage",
+            "name": "Storage",
+            "picklist": {
+              "dataType": "Text",
+              "id": "0v5KF0000008ONkYAM",
+              "name": "Storage Picklist",
+              "values": [
+                {
+                  "code": "SSD Hard Drive 1TB",
+                  "displayValue": "SSD Hard Drive 1TB",
+                  "id": "0v6KF0000008OPWYA2",
+                  "name": "SSD Hard Drive 1TB",
+                  "sequence": "3",
+                  "status": "Draft",
+                  "value": "SSD Hard Drive 1TB"
+                },
+                {
+                  "code": "SSD Hard Drive 512GB",
+                  "displayValue": "SSD Hard Drive 512GB",
+                  "id": "0v6KF0000008OPVYA2",
+                  "name": "SSD Hard Drive 512GB",
+                  "sequence": "2",
+                  "status": "Draft",
+                  "value": "SSD Hard Drive 512GB"
+                },
+                {
+                  "code": "SSD Hard Drive 2TB",
+                  "displayValue": "SSD Hard Drive 2TB",
+                  "id": "0v6KF0000008OPUYA2",
+                  "name": "SSD Hard Drive 2TB",
+                  "sequence": "4",
+                  "status": "Draft",
+                  "value": "SSD Hard Drive 2TB"
+                },
+                {
+                  "code": "SSD Hard Drive 256GB",
+                  "displayValue": "SSD Hard Drive 256GB",
+                  "id": "0v6KF0000008OPXYA2",
+                  "name": "SSD Hard Drive 256GB",
+                  "sequence": "1",
+                  "status": "Draft",
+                  "value": "SSD Hard Drive 256GB"
+                },
+                {
+                  "code": "CSE-TB",
+                  "displayValue": "Cloud Storage Enterprise - 2 TB",
+                  "id": "0v6KF0000008OPlYAM",
+                  "name": "Cloud Storage Enterprise - 2 TB",
+                  "sequence": "5",
+                  "status": "Draft",
+                  "value": "Cloud Storage Enterprise - 2 TB"
+                },
+                {
+                  "code": "CSE - 6TB",
+                  "displayValue": "Cloud Storage Enterprise - 6 TB",
+                  "id": "0v6KF0000008OPeYAM",
+                  "name": "Cloud Storage Enterprise - 6 TB",
+                  "sequence": "6",
+                  "status": "Draft",
+                  "value": "Cloud Storage Enterprise - 6 TB"
+                }
+              ]
+            },
+            "status": "Active"
+          }
+        ],
+        "code": "STO",
+        "id": "0v3KF0000008OILYA2",
+        "name": "Storage"
+      },
+      {
+        "attributes": [
+          {
+            "additionalFields": {},
+            "attributeNameOverride": "Memory",
+            "dataType": "Picklist",
+            "defaultValue": "RAM 8GB",
+            "developerName": "Memory",
+            "id": "0tjKF0000008ONlYAM",
+            "isHidden": false,
+            "isPriceImpacting": false,
+            "isReadOnly": false,
+            "isRequired": true,
+            "label": "Memory",
+            "name": "Memory",
+            "picklist": {
+              "dataType": "Text",
+              "id": "0v5KF0000008ONiYAM",
+              "name": "Memory Picklist",
+              "values": [
+                {
+                  "code": "RAM 64GB",
+                  "displayValue": "RAM 64GB",
+                  "id": "0v6KF0000008OPQYA2",
+                  "name": "RAM 64GB",
+                  "sequence": "4",
+                  "status": "Draft",
+                  "value": "RAM 64GB"
+                },
+                {
+                  "code": "RAM 32GB",
+                  "displayValue": "RAM 32GB",
+                  "id": "0v6KF0000008OPRYA2",
+                  "name": "RAM 32GB",
+                  "sequence": "3",
+                  "status": "Draft",
+                  "value": "RAM 32GB"
+                },
+                {
+                  "code": "RAM 16GB",
+                  "displayValue": "RAM 16GB",
+                  "id": "0v6KF0000008OPfYAM",
+                  "name": "RAM 16GB",
+                  "sequence": "2",
+                  "status": "Draft",
+                  "value": "RAM 16GB"
+                },
+                {
+                  "code": "RAM 8GB",
+                  "displayValue": "RAM 8GB",
+                  "id": "0v6KF0000008OPZYA2",
+                  "name": "RAM 8GB",
+                  "sequence": "1",
+                  "status": "Draft",
+                  "value": "RAM 8GB"
+                }
+              ]
+            },
+            "status": "Active"
+          }
+        ],
+        "code": "MEM",
+        "id": "0v3KF0000008OIOYA2",
+        "name": "Memory"
+      },
+      {
+        "attributes": [
+          {
+            "additionalFields": {},
+            "attributeNameOverride": "Graphics",
+            "dataType": "Picklist",
+            "defaultValue": "Intel Iris Xe Graphics",
+            "developerName": "Graphics",
+            "id": "0tjKF0000008ONqYAM",
+            "isHidden": false,
+            "isPriceImpacting": true,
+            "isReadOnly": false,
+            "isRequired": false,
+            "label": "Graphics",
+            "name": "Graphics",
+            "picklist": {
+              "dataType": "Text",
+              "id": "0v5KF0000008ONnYAM",
+              "name": "Graphics Picklist",
+              "values": [
+                {
+                  "code": "Intel Iris Xe Graphics",
+                  "displayValue": "Intel Iris Xe Graphics",
+                  "id": "0v6KF0000008OPOYA2",
+                  "name": "Intel Iris Xe Graphics",
+                  "sequence": "1",
+                  "status": "Draft",
+                  "value": "Intel Iris Xe Graphics"
+                },
+                {
+                  "code": "MSI Gaming GeForce RTX 3060",
+                  "displayValue": "MSI Gaming GeForce RTX 3060",
+                  "id": "0v6KF0000008OPPYA2",
+                  "name": "MSI Gaming GeForce RTX 3060",
+                  "sequence": "2",
+                  "status": "Draft",
+                  "value": "MSI Gaming GeForce RTX 3060"
+                }
+              ]
+            },
+            "status": "Active"
+          }
+        ],
+        "code": "GRA",
+        "id": "0v3KF0000008OIPYA2",
+        "name": "Graphics"
+      },
+      {
+        "attributes": [
+          {
+            "additionalFields": {},
+            "attributeNameOverride": "Processor",
+            "dataType": "Picklist",
+            "defaultValue": "i5-CPU 4.4GHz",
+            "developerName": "Windows_Processor",
+            "id": "0tjKF0000008ONoYAM",
+            "isHidden": false,
+            "isPriceImpacting": true,
+            "isReadOnly": false,
+            "isRequired": true,
+            "label": "Processor",
+            "name": "Windows_Processor",
+            "picklist": {
+              "dataType": "Text",
+              "id": "0v5KF0000008ONlYAM",
+              "name": "Processor Picklist",
+              "values": [
+                {
+                  "code": "i5-CPU 4.4GHz",
+                  "displayValue": "i5-CPU 4.4GHz",
+                  "id": "0v6KF0000008OPSYA2",
+                  "name": "i5-CPU 4.4GHz",
+                  "sequence": "1",
+                  "status": "Draft",
+                  "value": "i5-CPU 4.4GHz"
+                },
+                {
+                  "code": "i7-CPU 4.7GHz",
+                  "displayValue": "i7-CPU 4.7GHz",
+                  "id": "0v6KF0000008OPTYA2",
+                  "name": "i7-CPU 4.7GHz",
+                  "sequence": "2",
+                  "status": "Draft",
+                  "value": "i7-CPU 4.7GHz"
+                },
+                {
+                  "code": "IC5.2",
+                  "displayValue": "Intel Core i9 5.2 GHz",
+                  "id": "0v6KF0000008OPmYAM",
+                  "name": "Intel Core i9 5.2 GHz",
+                  "sequence": "3",
+                  "status": "Draft",
+                  "value": "Intel Core i9 5.2 GHz"
+                }
+              ]
+            },
+            "status": "Active"
+          }
+        ],
+        "code": "PRO",
+        "id": "0v3KF0000008OIMYA2",
+        "name": "Processor"
+      },
+      {
+        "attributes": [
+          {
+            "additionalFields": {},
+            "attributeNameOverride": "Display",
+            "dataType": "Picklist",
+            "defaultValue": "1080p Built-in Display",
+            "developerName": "Display",
+            "id": "0tjKF0000008ONkYAM",
+            "isHidden": false,
+            "isPriceImpacting": true,
+            "isReadOnly": false,
+            "isRequired": true,
+            "label": "Display",
+            "name": "Display",
+            "picklist": {
+              "dataType": "Text",
+              "id": "0v5KF0000008ONhYAM",
+              "name": "Display Picklist",
+              "values": [
+                {
+                  "code": "2k Built-in Display",
+                  "displayValue": "2k Built-in Display",
+                  "id": "0v6KF0000008OPNYA2",
+                  "name": "2k Built-in Display",
+                  "sequence": "2",
+                  "status": "Draft",
+                  "value": "2k Built-in Display"
+                },
+                {
+                  "code": "4k Built-in Display",
+                  "displayValue": "4k Built-in Display",
+                  "id": "0v6KF0000008OPMYA2",
+                  "name": "4k Built-in Display",
+                  "sequence": "3",
+                  "status": "Draft",
+                  "value": "4k Built-in Display"
+                },
+                {
+                  "code": "1080p Built-in Display",
+                  "displayValue": "1080p Built-in Display",
+                  "id": "0v6KF0000008OPLYA2",
+                  "name": "1080p Built-in Display",
+                  "sequence": "1",
+                  "status": "Draft",
+                  "value": "1080p Built-in Display"
+                }
+              ]
+            },
+            "status": "Active"
+          },
+          {
+            "additionalFields": {},
+            "attributeNameOverride": "Screen Size",
+            "dataType": "Picklist",
+            "defaultValue": "13 Inch",
+            "developerName": "Display_Size",
+            "id": "0tjKF0000008ONsYAM",
+            "isHidden": false,
+            "isPriceImpacting": true,
+            "isReadOnly": false,
+            "isRequired": true,
+            "label": "Screen Size",
+            "name": "Display_Size",
+            "picklist": {
+              "dataType": "Text",
+              "id": "0v5KF0000008ONpYAM",
+              "name": "Display Size Picklist",
+              "values": [
+                {
+                  "code": "24IN",
+                  "displayValue": "24 Inch",
+                  "id": "0v6KF0000008OPaYAM",
+                  "name": "24 Inch",
+                  "sequence": "3",
+                  "status": "Draft",
+                  "value": "24 Inch"
+                },
+                {
+                  "code": "15IN",
+                  "displayValue": "15 Inch",
+                  "id": "0v6KF0000008OPgYAM",
+                  "name": "15 Inch",
+                  "sequence": "2",
+                  "status": "Draft",
+                  "value": "15 Inch"
+                },
+                {
+                  "code": "13IN",
+                  "displayValue": "13 Inch",
+                  "id": "0v6KF0000008OPcYAM",
+                  "name": "13 Inch",
+                  "sequence": "1",
+                  "status": "Draft",
+                  "value": "13 Inch"
+                },
+                {
+                  "code": "27IN",
+                  "displayValue": "27 Inch",
+                  "id": "0v6KF0000008OPhYAM",
+                  "name": "27 Inch",
+                  "sequence": "4",
+                  "status": "Draft",
+                  "value": "27 Inch"
+                }
+              ]
+            },
+            "status": "Active"
+          }
+        ],
+        "code": "DIS",
+        "id": "0v3KF0000008OIQYA2",
+        "name": "Display"
+      }
+    ],
+    "attributes": [],
+    "catalogs": [],
+    "categories": [],
+    "childProducts": [],
+    "configureDuringSale": "Allowed",
+    "description": "Battery- or AC-powered personal computer (PC) smaller than a briefcase",
+    "displayUrl": "https://media.istockphoto.com/id/1023428598/photo/3d-illustration-laptop-isolated-on-white-background-laptop-with-empty-space-screen-laptop-at.jpg?s=612x612&amp;w=0&amp;k=20&amp;c=ssK6er5v1fGpSghGiqySwoD8tn5blC7xgefQJI2xU38=",
+    "id": "01tKF0000063l2FYAQ",
+    "isActive": true,
+    "isAssetizable": true,
+    "isSoldOnlyWithOtherProds": false,
+    "name": "Laptop",
+    "nodeType": "simpleProduct",
+    "productClassification": {
+      "id": "11BKF0000008OMb2AM"
+    },
+    "productCode": "LP001",
+    "productComponentGroups": [],
+    "productSellingModelOptions": [
+      {
+        "id": "0iOKF000000Cbwi2AC",
+        "isDefault": true,
+        "productId": "01tKF0000063l2FYAQ",
+        "productSellingModel": {
+          "id": "0jPKF000000CaRR2A0",
+          "name": "One Time",
+          "sellingModelType": "OneTime",
+          "status": "Active"
+        }
+      },
+      {
+        "id": "0iOKF000000CbyJ2AS",
+        "isDefault": false,
+        "productId": "01tKF0000063l2FYAQ",
+        "productSellingModel": {
+          "id": "0jPKF000000CaRS2A0",
+          "name": "Term Based - Monthly",
+          "pricingTerm": 1,
+          "pricingTermUnit": "Months",
+          "sellingModelType": "TermDefined",
+          "status": "Active"
+        }
+      }
+    ]
+  },
+  "01tKF0000063l2QYAQ": {
+    "additionalFields": {},
+    "attributeCategory": [],
+    "attributes": [],
+    "catalogs": [],
+    "categories": [],
+    "childProducts": [],
+    "configureDuringSale": "NotAllowed",
+    "description": "Promise by manufacturer regarding the condition of their product",
+    "displayUrl": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcS268_nXXWpPWBN8xscScw-usavPnQ-Ym7Mn0dEwqk68w&amp;s",
+    "id": "01tKF0000063l2QYAQ",
+    "isActive": true,
+    "isAssetizable": true,
+    "isSoldOnlyWithOtherProds": false,
+    "name": "Warranty",
+    "nodeType": "simpleProduct",
+    "productCode": "W001",
+    "productComponentGroups": [],
+    "productSellingModelOptions": [
+      {
+        "id": "0iOKF000000Cbwd2AC",
+        "isDefault": true,
+        "productId": "01tKF0000063l2QYAQ",
+        "productSellingModel": {
+          "id": "0jPKF000000CaRT2A0",
+          "name": "Term Based - Yearly",
+          "pricingTerm": 1,
+          "pricingTermUnit": "Annual",
+          "sellingModelType": "TermDefined",
+          "status": "Active"
+        }
+      }
+    ]
+  },
+  "01tKF0000063l2NYAQ": {
+    "additionalFields": {},
+    "attributeCategory": [
+      {
+        "attributes": [
+          {
+            "additionalFields": {},
+            "attributeNameOverride": "Paper Size",
+            "dataType": "Picklist",
+            "defaultValue": "A4",
+            "developerName": "Printer_Paper",
+            "id": "0tjKF0000008ONmYAM",
+            "isHidden": false,
+            "isPriceImpacting": false,
+            "isReadOnly": false,
+            "isRequired": false,
+            "label": "Printer Paper",
+            "name": "Paper Size",
+            "picklist": {
+              "dataType": "Text",
+              "id": "0v5KF0000008ONjYAM",
+              "name": "Paper Size Picklist",
+              "values": [
+                {
+                  "code": "A4",
+                  "displayValue": "A4",
+                  "id": "0v6KF0000008OPYYA2",
+                  "name": "A4",
+                  "sequence": "2",
+                  "status": "Draft",
+                  "value": "A4"
+                },
+                {
+                  "code": "L001",
+                  "displayValue": "Letter",
+                  "id": "0v6KF0000008OPoYAM",
+                  "name": "Letter",
+                  "sequence": "1",
+                  "status": "Draft",
+                  "value": "Letter"
+                }
+              ]
+            },
+            "status": "Active"
+          }
+        ],
+        "code": "PP001",
+        "id": "0v3KF0000008OISYA2",
+        "name": "Paper"
+      }
+    ],
+    "attributes": [],
+    "catalogs": [],
+    "categories": [],
+    "childProducts": [],
+    "configureDuringSale": "Allowed",
+    "description": "High Quality Printer Papers of various sizes. Each pack of 500 papers.",
+    "displayUrl": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQylcHrD-KFEePiWUgmrL0fFj5Mmi5f1HgzUTeWxPr2ZQYU4G81KFCIzfDPRR6fDUmzOHE&amp;usqp=CAU",
+    "id": "01tKF0000063l2NYAQ",
+    "isActive": true,
+    "isAssetizable": true,
+    "isSoldOnlyWithOtherProds": false,
+    "name": "Printer Paper",
+    "nodeType": "simpleProduct",
+    "productClassification": {
+      "id": "11BKF0000008OMf2AM"
+    },
+    "productCode": "PP001",
+    "productComponentGroups": [],
+    "productSellingModelOptions": [
+      {
+        "id": "0iOKF000000Cbwj2AC",
+        "isDefault": true,
+        "productId": "01tKF0000063l2NYAQ",
+        "productSellingModel": {
+          "id": "0jPKF000000CaRR2A0",
+          "name": "One Time",
+          "sellingModelType": "OneTime",
+          "status": "Active"
+        }
+      }
+    ]
+  },
+  "01tKF0000063l2LYAQ": {
+    "additionalFields": {},
+    "attributeCategory": [
+      {
+        "attributes": [
+          {
+            "additionalFields": {},
+            "attributeNameOverride": "Printer Type",
+            "dataType": "Picklist",
+            "defaultValue": "Laser",
+            "developerName": "Printer",
+            "id": "0tjKF0000008ONpYAM",
+            "isHidden": false,
+            "isPriceImpacting": true,
+            "isReadOnly": false,
+            "isRequired": false,
+            "label": "Printer",
+            "name": "Printer",
+            "picklist": {
+              "dataType": "Text",
+              "id": "0v5KF0000008ONmYAM",
+              "name": "Printer Picklist",
+              "values": [
+                {
+                  "code": "IN001",
+                  "displayValue": "Inkjet",
+                  "id": "0v6KF0000008OPdYAM",
+                  "name": "Inkjet",
+                  "sequence": "2",
+                  "status": "Draft",
+                  "value": "Inkjet"
+                },
+                {
+                  "code": "LS001",
+                  "displayValue": "Laser",
+                  "id": "0v6KF0000008OPnYAM",
+                  "name": "Laser",
+                  "sequence": "1",
+                  "status": "Draft",
+                  "value": "Laser"
+                }
+              ]
+            },
+            "status": "Active"
+          }
+        ],
+        "code": "P001",
+        "id": "0v3KF0000008OIRYA2",
+        "name": "Printer"
+      }
+    ],
+    "attributes": [],
+    "catalogs": [],
+    "categories": [],
+    "childProducts": [],
+    "configureDuringSale": "Allowed",
+    "description": "Accepts text and graphic output from a computer and transfers the information to paper. Supports Wireless and Ethernet interface.",
+    "displayUrl": "https://in-media.apjonlinecdn.com/catalog/product/cache/b3b166914d87ce343d4dc5ec5117b502/5/4/54R58B-1_T1696992896.png",
+    "id": "01tKF0000063l2LYAQ",
+    "isActive": true,
+    "isAssetizable": true,
+    "isSoldOnlyWithOtherProds": false,
+    "name": "Printer",
+    "nodeType": "simpleProduct",
+    "productClassification": {
+      "id": "11BKF0000008OMe2AM"
+    },
+    "productCode": "PRN001",
+    "productComponentGroups": [],
+    "productSellingModelOptions": [
+      {
+        "id": "0iOKF000000Cbwl2AC",
+        "isDefault": true,
+        "productId": "01tKF0000063l2LYAQ",
+        "productSellingModel": {
+          "id": "0jPKF000000CaRR2A0",
+          "name": "One Time",
+          "sellingModelType": "OneTime",
+          "status": "Active"
+        }
+      }
+    ]
+  },
+  "01tKF0000063l2KYAQ": {
+    "additionalFields": {},
+    "attributeCategory": [
+      {
+        "attributes": [
+          {
+            "additionalFields": {},
+            "attributeNameOverride": "Wireless",
+            "dataType": "Checkbox",
+            "defaultValue": "false",
+            "developerName": "Wireless",
+            "id": "0tjKF0000008OO1YAM",
+            "isHidden": false,
+            "isPriceImpacting": true,
+            "isReadOnly": false,
+            "isRequired": false,
+            "label": "Wireless",
+            "name": "Wireless",
+            "status": "Active"
+          }
+        ],
+        "code": "CT001",
+        "id": "0v3KF0000008OINYA2",
+        "name": "Connection Type"
+      }
+    ],
+    "attributes": [],
+    "catalogs": [],
+    "categories": [],
+    "childProducts": [],
+    "configureDuringSale": "Allowed",
+    "description": "HeyMicky Mouse compatible comes with choice of USB or Wireless connectivity.",
+    "displayUrl": "https://5.imimg.com/data5/IS/JP/MY-58678879/computer-mouse.jpg",
+    "id": "01tKF0000063l2KYAQ",
+    "isActive": true,
+    "isAssetizable": true,
+    "isSoldOnlyWithOtherProds": false,
+    "name": "Mouse",
+    "nodeType": "simpleProduct",
+    "productClassification": {
+      "id": "11BKF0000008OMd2AM"
+    },
+    "productCode": "MOU001",
+    "productComponentGroups": [],
+    "productSellingModelOptions": [
+      {
+        "id": "0iOKF000000Cbwc2AC",
+        "isDefault": true,
+        "productId": "01tKF0000063l2KYAQ",
+        "productSellingModel": {
+          "id": "0jPKF000000CaRR2A0",
+          "name": "One Time",
+          "sellingModelType": "OneTime",
+          "status": "Active"
+        }
+      }
+    ]
+  },
+  "01tKF0000063l2MYAQ": {
+    "additionalFields": {},
+    "attributeCategory": [],
+    "attributes": [],
+    "catalogs": [],
+    "categories": [],
+    "childProducts": [],
+    "configureDuringSale": "Allowed",
+    "description": "The printer bundle includes various printer options, printer paper with various connectivity options",
+    "displayUrl": "https://images.unsplash.com/photo-1708793699492-5fa208f52dcb?q=80&amp;w=2071&amp;auto=format&amp;fit=crop&amp;ixlib=rb-4.0.3&amp;ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
+    "id": "01tKF0000063l2MYAQ",
+    "isActive": true,
+    "isAssetizable": true,
+    "isSoldOnlyWithOtherProds": false,
+    "name": "Printer Bundle",
+    "nodeType": "bundleProduct",
+    "productCode": "PB001",
+    "productComponentGroups": [
+      {
+        "childGroups": [],
+        "components": [
+          {
+            "additionalFields": {},
+            "attributeCategory": [
+              {
+                "attributes": [
+                  {
+                    "additionalFields": {},
+                    "attributeNameOverride": "Printer Type",
+                    "dataType": "Picklist",
+                    "defaultValue": "Laser",
+                    "developerName": "Printer",
+                    "id": "0tjKF0000008ONpYAM",
+                    "isHidden": false,
+                    "isPriceImpacting": true,
+                    "isReadOnly": false,
+                    "isRequired": false,
+                    "label": "Printer",
+                    "name": "Printer",
+                    "picklist": {
+                      "dataType": "Text",
+                      "id": "0v5KF0000008ONmYAM",
+                      "name": "Printer Picklist",
+                      "values": [
+                        {
+                          "code": "IN001",
+                          "displayValue": "Inkjet",
+                          "id": "0v6KF0000008OPdYAM",
+                          "name": "Inkjet",
+                          "sequence": "2",
+                          "status": "Draft",
+                          "value": "Inkjet"
+                        },
+                        {
+                          "code": "LS001",
+                          "displayValue": "Laser",
+                          "id": "0v6KF0000008OPnYAM",
+                          "name": "Laser",
+                          "sequence": "1",
+                          "status": "Draft",
+                          "value": "Laser"
+                        }
+                      ]
+                    },
+                    "status": "Active"
+                  }
+                ],
+                "code": "P001",
+                "id": "0v3KF0000008OIRYA2",
+                "name": "Printer"
+              }
+            ],
+            "attributes": [],
+            "catalogs": [],
+            "categories": [],
+            "childProducts": [],
+            "configureDuringSale": "Allowed",
+            "description": "Accepts text and graphic output from a computer and transfers the information to paper. Supports Wireless and Ethernet interface.",
+            "displayUrl": "https://in-media.apjonlinecdn.com/catalog/product/cache/b3b166914d87ce343d4dc5ec5117b502/5/4/54R58B-1_T1696992896.png",
+            "id": "01tKF0000063l2LYAQ",
+            "isActive": true,
+            "isAssetizable": true,
+            "isSoldOnlyWithOtherProds": true,
+            "name": "Printer",
+            "nodeType": "simpleProduct",
+            "productClassification": {
+              "id": "11BKF0000008OMe2AM"
+            },
+            "productCode": "PRN001",
+            "productComponentGroups": [],
+            "productRelatedComponent": {
+              "childProductId": "01tKF0000063l2LYAQ",
+              "doesBundlePriceIncludeChild": true,
+              "id": "0dSKF0000004CAm2AM",
+              "isComponentRequired": true,
+              "isDefaultComponent": true,
+              "isExcluded": false,
+              "isQuantityEditable": false,
+              "parentProductId": "01tKF0000063l2MYAQ",
+              "productRelationshipTypeId": "0yoKF0000004EHgYAM",
+              "quantity": 1,
+              "quantityScaleMethod": "Proportional"
+            },
+            "productSellingModelOptions": [
+              {
+                "id": "0iOKF000000Cbwl2AC",
+                "isDefault": true,
+                "productId": "01tKF0000063l2LYAQ",
+                "productSellingModel": {
+                  "id": "0jPKF000000CaRR2A0",
+                  "name": "One Time",
+                  "sellingModelType": "OneTime",
+                  "status": "Active"
+                }
+              }
+            ]
+          }
+        ],
+        "id": "0y7KF0000004C9WYAU",
+        "isExcluded": false,
+        "name": "Printer",
+        "parentProductId": "01tKF0000063l2MYAQ",
+        "sequence": 1
+      },
+      {
+        "childGroups": [],
+        "components": [
+          {
+            "additionalFields": {},
+            "attributeCategory": [
+              {
+                "attributes": [
+                  {
+                    "additionalFields": {},
+                    "attributeNameOverride": "Paper Size",
+                    "dataType": "Picklist",
+                    "defaultValue": "A4",
+                    "developerName": "Printer_Paper",
+                    "id": "0tjKF0000008ONmYAM",
+                    "isHidden": false,
+                    "isPriceImpacting": false,
+                    "isReadOnly": false,
+                    "isRequired": false,
+                    "label": "Printer Paper",
+                    "name": "Paper Size",
+                    "picklist": {
+                      "dataType": "Text",
+                      "id": "0v5KF0000008ONjYAM",
+                      "name": "Paper Size Picklist",
+                      "values": [
+                        {
+                          "code": "A4",
+                          "displayValue": "A4",
+                          "id": "0v6KF0000008OPYYA2",
+                          "name": "A4",
+                          "sequence": "2",
+                          "status": "Draft",
+                          "value": "A4"
+                        },
+                        {
+                          "code": "L001",
+                          "displayValue": "Letter",
+                          "id": "0v6KF0000008OPoYAM",
+                          "name": "Letter",
+                          "sequence": "1",
+                          "status": "Draft",
+                          "value": "Letter"
+                        }
+                      ]
+                    },
+                    "status": "Active"
+                  }
+                ],
+                "code": "PP001",
+                "id": "0v3KF0000008OISYA2",
+                "name": "Paper"
+              }
+            ],
+            "attributes": [],
+            "catalogs": [],
+            "categories": [],
+            "childProducts": [],
+            "configureDuringSale": "Allowed",
+            "description": "High Quality Printer Papers of various sizes. Each pack of 500 papers.",
+            "displayUrl": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQylcHrD-KFEePiWUgmrL0fFj5Mmi5f1HgzUTeWxPr2ZQYU4G81KFCIzfDPRR6fDUmzOHE&amp;usqp=CAU",
+            "id": "01tKF0000063l2NYAQ",
+            "isActive": true,
+            "isAssetizable": true,
+            "isSoldOnlyWithOtherProds": true,
+            "name": "Printer Paper",
+            "nodeType": "simpleProduct",
+            "productClassification": {
+              "id": "11BKF0000008OMf2AM"
+            },
+            "productCode": "PP001",
+            "productComponentGroups": [],
+            "productRelatedComponent": {
+              "childProductId": "01tKF0000063l2NYAQ",
+              "doesBundlePriceIncludeChild": false,
+              "id": "0dSKF0000004CAn2AM",
+              "isComponentRequired": true,
+              "isDefaultComponent": true,
+              "isExcluded": false,
+              "isQuantityEditable": true,
+              "parentProductId": "01tKF0000063l2MYAQ",
+              "productRelationshipTypeId": "0yoKF0000004EHgYAM",
+              "quantity": 1
+            },
+            "productSellingModelOptions": [
+              {
+                "id": "0iOKF000000Cbwj2AC",
+                "isDefault": true,
+                "productId": "01tKF0000063l2NYAQ",
+                "productSellingModel": {
+                  "id": "0jPKF000000CaRR2A0",
+                  "name": "One Time",
+                  "sellingModelType": "OneTime",
+                  "status": "Active"
+                }
+              }
+            ]
+          }
+        ],
+        "id": "0y7KF0000004C9XYAU",
+        "isExcluded": false,
+        "name": "Printer Accessories",
+        "parentProductId": "01tKF0000063l2MYAQ",
+        "sequence": 2
+      }
+    ],
+    "productSellingModelOptions": [
+      {
+        "id": "0iOKF000000Cbwp2AC",
+        "isDefault": true,
+        "productId": "01tKF0000063l2MYAQ",
+        "productSellingModel": {
+          "id": "0jPKF000000CaRR2A0",
+          "name": "One Time",
+          "sellingModelType": "OneTime",
+          "status": "Active"
+        }
+      }
+    ]
+  },
+  "01tKF0000063l2IYAQ": {
+    "additionalFields": {},
+    "attributeCategory": [],
+    "attributes": [],
+    "catalogs": [],
+    "categories": [],
+    "childProducts": [],
+    "configureDuringSale": "Allowed",
+    "description": "The laptop pro bundle includes a Laptop, mouse, warranty for 2 years, premium support and printer bundle",
+    "displayUrl": "https://www.incredible.co.za/api/catalog/product/l/e/lenovo_bundle_internet_cmyk_ecommerce_c288.png?store=incredibleconnection&amp;image-type=image",
+    "id": "01tKF0000063l2IYAQ",
+    "isActive": true,
+    "isAssetizable": true,
+    "isSoldOnlyWithOtherProds": false,
+    "name": "Laptop Pro Bundle",
+    "nodeType": "bundleProduct",
+    "productCode": "LPB001",
+    "productComponentGroups": [
+      {
+        "childGroups": [],
+        "code": "SFT001",
+        "components": [],
+        "id": "0y7KF0000004C9eYAE",
+        "isExcluded": false,
+        "name": "Software",
+        "parentProductId": "01tKF0000063l2IYAQ"
+      },
+      {
+        "childGroups": [],
+        "components": [
+          {
+            "additionalFields": {},
+            "attributeCategory": [
+              {
+                "attributes": [
+                  {
+                    "additionalFields": {},
+                    "attributeNameOverride": "Storage",
+                    "dataType": "Picklist",
+                    "defaultValue": "SSD Hard Drive 256GB",
+                    "developerName": "Storage",
+                    "id": "0tjKF0000008ONnYAM",
+                    "isHidden": false,
+                    "isPriceImpacting": false,
+                    "isReadOnly": false,
+                    "isRequired": true,
+                    "label": "Storage",
+                    "name": "Storage",
+                    "picklist": {
+                      "dataType": "Text",
+                      "id": "0v5KF0000008ONkYAM",
+                      "name": "Storage Picklist",
+                      "values": [
+                        {
+                          "code": "SSD Hard Drive 1TB",
+                          "displayValue": "SSD Hard Drive 1TB",
+                          "id": "0v6KF0000008OPWYA2",
+                          "name": "SSD Hard Drive 1TB",
+                          "sequence": "3",
+                          "status": "Draft",
+                          "value": "SSD Hard Drive 1TB"
+                        },
+                        {
+                          "code": "SSD Hard Drive 512GB",
+                          "displayValue": "SSD Hard Drive 512GB",
+                          "id": "0v6KF0000008OPVYA2",
+                          "name": "SSD Hard Drive 512GB",
+                          "sequence": "2",
+                          "status": "Draft",
+                          "value": "SSD Hard Drive 512GB"
+                        },
+                        {
+                          "code": "SSD Hard Drive 2TB",
+                          "displayValue": "SSD Hard Drive 2TB",
+                          "id": "0v6KF0000008OPUYA2",
+                          "name": "SSD Hard Drive 2TB",
+                          "sequence": "4",
+                          "status": "Draft",
+                          "value": "SSD Hard Drive 2TB"
+                        },
+                        {
+                          "code": "SSD Hard Drive 256GB",
+                          "displayValue": "SSD Hard Drive 256GB",
+                          "id": "0v6KF0000008OPXYA2",
+                          "name": "SSD Hard Drive 256GB",
+                          "sequence": "1",
+                          "status": "Draft",
+                          "value": "SSD Hard Drive 256GB"
+                        },
+                        {
+                          "code": "CSE-TB",
+                          "displayValue": "Cloud Storage Enterprise - 2 TB",
+                          "id": "0v6KF0000008OPlYAM",
+                          "name": "Cloud Storage Enterprise - 2 TB",
+                          "sequence": "5",
+                          "status": "Draft",
+                          "value": "Cloud Storage Enterprise - 2 TB"
+                        },
+                        {
+                          "code": "CSE - 6TB",
+                          "displayValue": "Cloud Storage Enterprise - 6 TB",
+                          "id": "0v6KF0000008OPeYAM",
+                          "name": "Cloud Storage Enterprise - 6 TB",
+                          "sequence": "6",
+                          "status": "Draft",
+                          "value": "Cloud Storage Enterprise - 6 TB"
+                        }
+                      ]
+                    },
+                    "status": "Active"
+                  }
+                ],
+                "code": "STO",
+                "id": "0v3KF0000008OILYA2",
+                "name": "Storage"
+              },
+              {
+                "attributes": [
+                  {
+                    "additionalFields": {},
+                    "attributeNameOverride": "Memory",
+                    "dataType": "Picklist",
+                    "defaultValue": "RAM 8GB",
+                    "developerName": "Memory",
+                    "id": "0tjKF0000008ONlYAM",
+                    "isHidden": false,
+                    "isPriceImpacting": false,
+                    "isReadOnly": false,
+                    "isRequired": true,
+                    "label": "Memory",
+                    "name": "Memory",
+                    "picklist": {
+                      "dataType": "Text",
+                      "id": "0v5KF0000008ONiYAM",
+                      "name": "Memory Picklist",
+                      "values": [
+                        {
+                          "code": "RAM 64GB",
+                          "displayValue": "RAM 64GB",
+                          "id": "0v6KF0000008OPQYA2",
+                          "name": "RAM 64GB",
+                          "sequence": "4",
+                          "status": "Draft",
+                          "value": "RAM 64GB"
+                        },
+                        {
+                          "code": "RAM 32GB",
+                          "displayValue": "RAM 32GB",
+                          "id": "0v6KF0000008OPRYA2",
+                          "name": "RAM 32GB",
+                          "sequence": "3",
+                          "status": "Draft",
+                          "value": "RAM 32GB"
+                        },
+                        {
+                          "code": "RAM 16GB",
+                          "displayValue": "RAM 16GB",
+                          "id": "0v6KF0000008OPfYAM",
+                          "name": "RAM 16GB",
+                          "sequence": "2",
+                          "status": "Draft",
+                          "value": "RAM 16GB"
+                        },
+                        {
+                          "code": "RAM 8GB",
+                          "displayValue": "RAM 8GB",
+                          "id": "0v6KF0000008OPZYA2",
+                          "name": "RAM 8GB",
+                          "sequence": "1",
+                          "status": "Draft",
+                          "value": "RAM 8GB"
+                        }
+                      ]
+                    },
+                    "status": "Active"
+                  }
+                ],
+                "code": "MEM",
+                "id": "0v3KF0000008OIOYA2",
+                "name": "Memory"
+              },
+              {
+                "attributes": [
+                  {
+                    "additionalFields": {},
+                    "attributeNameOverride": "Graphics",
+                    "dataType": "Picklist",
+                    "defaultValue": "Intel Iris Xe Graphics",
+                    "developerName": "Graphics",
+                    "id": "0tjKF0000008ONqYAM",
+                    "isHidden": false,
+                    "isPriceImpacting": true,
+                    "isReadOnly": false,
+                    "isRequired": false,
+                    "label": "Graphics",
+                    "name": "Graphics",
+                    "picklist": {
+                      "dataType": "Text",
+                      "id": "0v5KF0000008ONnYAM",
+                      "name": "Graphics Picklist",
+                      "values": [
+                        {
+                          "code": "Intel Iris Xe Graphics",
+                          "displayValue": "Intel Iris Xe Graphics",
+                          "id": "0v6KF0000008OPOYA2",
+                          "name": "Intel Iris Xe Graphics",
+                          "sequence": "1",
+                          "status": "Draft",
+                          "value": "Intel Iris Xe Graphics"
+                        },
+                        {
+                          "code": "MSI Gaming GeForce RTX 3060",
+                          "displayValue": "MSI Gaming GeForce RTX 3060",
+                          "id": "0v6KF0000008OPPYA2",
+                          "name": "MSI Gaming GeForce RTX 3060",
+                          "sequence": "2",
+                          "status": "Draft",
+                          "value": "MSI Gaming GeForce RTX 3060"
+                        }
+                      ]
+                    },
+                    "status": "Active"
+                  }
+                ],
+                "code": "GRA",
+                "id": "0v3KF0000008OIPYA2",
+                "name": "Graphics"
+              },
+              {
+                "attributes": [
+                  {
+                    "additionalFields": {},
+                    "attributeNameOverride": "Processor",
+                    "dataType": "Picklist",
+                    "defaultValue": "i5-CPU 4.4GHz",
+                    "developerName": "Windows_Processor",
+                    "id": "0tjKF0000008ONoYAM",
+                    "isHidden": false,
+                    "isPriceImpacting": true,
+                    "isReadOnly": false,
+                    "isRequired": true,
+                    "label": "Processor",
+                    "name": "Windows_Processor",
+                    "picklist": {
+                      "dataType": "Text",
+                      "id": "0v5KF0000008ONlYAM",
+                      "name": "Processor Picklist",
+                      "values": [
+                        {
+                          "code": "i5-CPU 4.4GHz",
+                          "displayValue": "i5-CPU 4.4GHz",
+                          "id": "0v6KF0000008OPSYA2",
+                          "name": "i5-CPU 4.4GHz",
+                          "sequence": "1",
+                          "status": "Draft",
+                          "value": "i5-CPU 4.4GHz"
+                        },
+                        {
+                          "code": "i7-CPU 4.7GHz",
+                          "displayValue": "i7-CPU 4.7GHz",
+                          "id": "0v6KF0000008OPTYA2",
+                          "name": "i7-CPU 4.7GHz",
+                          "sequence": "2",
+                          "status": "Draft",
+                          "value": "i7-CPU 4.7GHz"
+                        },
+                        {
+                          "code": "IC5.2",
+                          "displayValue": "Intel Core i9 5.2 GHz",
+                          "id": "0v6KF0000008OPmYAM",
+                          "name": "Intel Core i9 5.2 GHz",
+                          "sequence": "3",
+                          "status": "Draft",
+                          "value": "Intel Core i9 5.2 GHz"
+                        }
+                      ]
+                    },
+                    "status": "Active"
+                  }
+                ],
+                "code": "PRO",
+                "id": "0v3KF0000008OIMYA2",
+                "name": "Processor"
+              },
+              {
+                "attributes": [
+                  {
+                    "additionalFields": {},
+                    "attributeNameOverride": "Display",
+                    "dataType": "Picklist",
+                    "defaultValue": "1080p Built-in Display",
+                    "developerName": "Display",
+                    "id": "0tjKF0000008ONkYAM",
+                    "isHidden": false,
+                    "isPriceImpacting": true,
+                    "isReadOnly": false,
+                    "isRequired": true,
+                    "label": "Display",
+                    "name": "Display",
+                    "picklist": {
+                      "dataType": "Text",
+                      "id": "0v5KF0000008ONhYAM",
+                      "name": "Display Picklist",
+                      "values": [
+                        {
+                          "code": "2k Built-in Display",
+                          "displayValue": "2k Built-in Display",
+                          "id": "0v6KF0000008OPNYA2",
+                          "name": "2k Built-in Display",
+                          "sequence": "2",
+                          "status": "Draft",
+                          "value": "2k Built-in Display"
+                        },
+                        {
+                          "code": "4k Built-in Display",
+                          "displayValue": "4k Built-in Display",
+                          "id": "0v6KF0000008OPMYA2",
+                          "name": "4k Built-in Display",
+                          "sequence": "3",
+                          "status": "Draft",
+                          "value": "4k Built-in Display"
+                        },
+                        {
+                          "code": "1080p Built-in Display",
+                          "displayValue": "1080p Built-in Display",
+                          "id": "0v6KF0000008OPLYA2",
+                          "name": "1080p Built-in Display",
+                          "sequence": "1",
+                          "status": "Draft",
+                          "value": "1080p Built-in Display"
+                        }
+                      ]
+                    },
+                    "status": "Active"
+                  },
+                  {
+                    "additionalFields": {},
+                    "attributeNameOverride": "Screen Size",
+                    "dataType": "Picklist",
+                    "defaultValue": "13 Inch",
+                    "developerName": "Display_Size",
+                    "id": "0tjKF0000008ONsYAM",
+                    "isHidden": false,
+                    "isPriceImpacting": true,
+                    "isReadOnly": false,
+                    "isRequired": true,
+                    "label": "Screen Size",
+                    "name": "Display_Size",
+                    "picklist": {
+                      "dataType": "Text",
+                      "id": "0v5KF0000008ONpYAM",
+                      "name": "Display Size Picklist",
+                      "values": [
+                        {
+                          "code": "24IN",
+                          "displayValue": "24 Inch",
+                          "id": "0v6KF0000008OPaYAM",
+                          "name": "24 Inch",
+                          "sequence": "3",
+                          "status": "Draft",
+                          "value": "24 Inch"
+                        },
+                        {
+                          "code": "15IN",
+                          "displayValue": "15 Inch",
+                          "id": "0v6KF0000008OPgYAM",
+                          "name": "15 Inch",
+                          "sequence": "2",
+                          "status": "Draft",
+                          "value": "15 Inch"
+                        },
+                        {
+                          "code": "13IN",
+                          "displayValue": "13 Inch",
+                          "id": "0v6KF0000008OPcYAM",
+                          "name": "13 Inch",
+                          "sequence": "1",
+                          "status": "Draft",
+                          "value": "13 Inch"
+                        },
+                        {
+                          "code": "27IN",
+                          "displayValue": "27 Inch",
+                          "id": "0v6KF0000008OPhYAM",
+                          "name": "27 Inch",
+                          "sequence": "4",
+                          "status": "Draft",
+                          "value": "27 Inch"
+                        }
+                      ]
+                    },
+                    "status": "Active"
+                  }
+                ],
+                "code": "DIS",
+                "id": "0v3KF0000008OIQYA2",
+                "name": "Display"
+              }
+            ],
+            "attributes": [],
+            "catalogs": [],
+            "categories": [],
+            "childProducts": [],
+            "configureDuringSale": "Allowed",
+            "description": "Battery- or AC-powered personal computer (PC) smaller than a briefcase",
+            "displayUrl": "https://media.istockphoto.com/id/1023428598/photo/3d-illustration-laptop-isolated-on-white-background-laptop-with-empty-space-screen-laptop-at.jpg?s=612x612&amp;w=0&amp;k=20&amp;c=ssK6er5v1fGpSghGiqySwoD8tn5blC7xgefQJI2xU38=",
+            "id": "01tKF0000063l2FYAQ",
+            "isActive": true,
+            "isAssetizable": true,
+            "isSoldOnlyWithOtherProds": true,
+            "name": "Laptop",
+            "nodeType": "simpleProduct",
+            "productClassification": {
+              "id": "11BKF0000008OMb2AM"
+            },
+            "productCode": "LP001",
+            "productComponentGroups": [],
+            "productRelatedComponent": {
+              "childProductId": "01tKF0000063l2FYAQ",
+              "doesBundlePriceIncludeChild": true,
+              "id": "0dSKF0000004CAl2AM",
+              "isComponentRequired": true,
+              "isDefaultComponent": true,
+              "isExcluded": false,
+              "isQuantityEditable": false,
+              "parentProductId": "01tKF0000063l2IYAQ",
+              "productRelationshipTypeId": "0yoKF0000004EHgYAM",
+              "quantity": 1,
+              "quantityScaleMethod": "Proportional"
+            },
+            "productSellingModelOptions": [
+              {
+                "id": "0iOKF000000Cbwi2AC",
+                "isDefault": true,
+                "productId": "01tKF0000063l2FYAQ",
+                "productSellingModel": {
+                  "id": "0jPKF000000CaRR2A0",
+                  "name": "One Time",
+                  "sellingModelType": "OneTime",
+                  "status": "Active"
+                }
+              },
+              {
+                "id": "0iOKF000000CbyJ2AS",
+                "isDefault": false,
+                "productId": "01tKF0000063l2FYAQ",
+                "productSellingModel": {
+                  "id": "0jPKF000000CaRS2A0",
+                  "name": "Term Based - Monthly",
+                  "pricingTerm": 1,
+                  "pricingTermUnit": "Months",
+                  "sellingModelType": "TermDefined",
+                  "status": "Active"
+                }
+              }
+            ]
+          }
+        ],
+        "id": "0y7KF0000004C9UYAU",
+        "isExcluded": false,
+        "name": "Laptop",
+        "parentProductId": "01tKF0000063l2IYAQ",
+        "sequence": 1
+      },
+      {
+        "childGroups": [],
+        "components": [
+          {
+            "additionalFields": {},
+            "attributeCategory": [
+              {
+                "attributes": [
+                  {
+                    "additionalFields": {},
+                    "attributeNameOverride": "Wireless",
+                    "dataType": "Checkbox",
+                    "defaultValue": "false",
+                    "developerName": "Wireless",
+                    "id": "0tjKF0000008OO1YAM",
+                    "isHidden": false,
+                    "isPriceImpacting": true,
+                    "isReadOnly": false,
+                    "isRequired": false,
+                    "label": "Wireless",
+                    "name": "Wireless",
+                    "status": "Active"
+                  }
+                ],
+                "code": "CT001",
+                "id": "0v3KF0000008OINYA2",
+                "name": "Connection Type"
+              }
+            ],
+            "attributes": [],
+            "catalogs": [],
+            "categories": [],
+            "childProducts": [],
+            "configureDuringSale": "Allowed",
+            "description": "HeyMicky Mouse compatible comes with choice of USB or Wireless connectivity.",
+            "displayUrl": "https://5.imimg.com/data5/IS/JP/MY-58678879/computer-mouse.jpg",
+            "id": "01tKF0000063l2KYAQ",
+            "isActive": true,
+            "isAssetizable": true,
+            "isSoldOnlyWithOtherProds": true,
+            "name": "Mouse",
+            "nodeType": "simpleProduct",
+            "productClassification": {
+              "id": "11BKF0000008OMd2AM"
+            },
+            "productCode": "MOU001",
+            "productComponentGroups": [],
+            "productRelatedComponent": {
+              "childProductId": "01tKF0000063l2KYAQ",
+              "doesBundlePriceIncludeChild": true,
+              "id": "0dSKF0000004CAi2AM",
+              "isComponentRequired": false,
+              "isDefaultComponent": true,
+              "isExcluded": false,
+              "isQuantityEditable": false,
+              "parentProductId": "01tKF0000063l2IYAQ",
+              "productRelationshipTypeId": "0yoKF0000004EHgYAM",
+              "quantity": 1,
+              "quantityScaleMethod": "Proportional"
+            },
+            "productSellingModelOptions": [
+              {
+                "id": "0iOKF000000Cbwc2AC",
+                "isDefault": true,
+                "productId": "01tKF0000063l2KYAQ",
+                "productSellingModel": {
+                  "id": "0jPKF000000CaRR2A0",
+                  "name": "One Time",
+                  "sellingModelType": "OneTime",
+                  "status": "Active"
+                }
+              }
+            ]
+          },
+          {
+            "additionalFields": {},
+            "attributeCategory": [],
+            "attributes": [],
+            "catalogs": [],
+            "categories": [],
+            "childProducts": [],
+            "configureDuringSale": "Allowed",
+            "description": "The printer bundle includes various printer options, printer paper with various connectivity options",
+            "displayUrl": "https://images.unsplash.com/photo-1708793699492-5fa208f52dcb?q=80&amp;w=2071&amp;auto=format&amp;fit=crop&amp;ixlib=rb-4.0.3&amp;ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
+            "id": "01tKF0000063l2MYAQ",
+            "isActive": true,
+            "isAssetizable": true,
+            "isSoldOnlyWithOtherProds": true,
+            "name": "Printer Bundle",
+            "nodeType": "bundleProduct",
+            "productCode": "PB001",
+            "productComponentGroups": [
+              {
+                "childGroups": [],
+                "components": [
+                  {
+                    "additionalFields": {},
+                    "attributeCategory": [
+                      {
+                        "attributes": [
+                          {
+                            "additionalFields": {},
+                            "attributeNameOverride": "Printer Type",
+                            "dataType": "Picklist",
+                            "defaultValue": "Laser",
+                            "developerName": "Printer",
+                            "id": "0tjKF0000008ONpYAM",
+                            "isHidden": false,
+                            "isPriceImpacting": true,
+                            "isReadOnly": false,
+                            "isRequired": false,
+                            "label": "Printer",
+                            "name": "Printer",
+                            "picklist": {
+                              "dataType": "Text",
+                              "id": "0v5KF0000008ONmYAM",
+                              "name": "Printer Picklist",
+                              "values": [
+                                {
+                                  "code": "IN001",
+                                  "displayValue": "Inkjet",
+                                  "id": "0v6KF0000008OPdYAM",
+                                  "name": "Inkjet",
+                                  "sequence": "2",
+                                  "status": "Draft",
+                                  "value": "Inkjet"
+                                },
+                                {
+                                  "code": "LS001",
+                                  "displayValue": "Laser",
+                                  "id": "0v6KF0000008OPnYAM",
+                                  "name": "Laser",
+                                  "sequence": "1",
+                                  "status": "Draft",
+                                  "value": "Laser"
+                                }
+                              ]
+                            },
+                            "status": "Active"
+                          }
+                        ],
+                        "code": "P001",
+                        "id": "0v3KF0000008OIRYA2",
+                        "name": "Printer"
+                      }
+                    ],
+                    "attributes": [],
+                    "catalogs": [],
+                    "categories": [],
+                    "childProducts": [],
+                    "configureDuringSale": "Allowed",
+                    "description": "Accepts text and graphic output from a computer and transfers the information to paper. Supports Wireless and Ethernet interface.",
+                    "displayUrl": "https://in-media.apjonlinecdn.com/catalog/product/cache/b3b166914d87ce343d4dc5ec5117b502/5/4/54R58B-1_T1696992896.png",
+                    "id": "01tKF0000063l2LYAQ",
+                    "isActive": true,
+                    "isAssetizable": true,
+                    "isSoldOnlyWithOtherProds": true,
+                    "name": "Printer",
+                    "nodeType": "simpleProduct",
+                    "productClassification": {
+                      "id": "11BKF0000008OMe2AM"
+                    },
+                    "productCode": "PRN001",
+                    "productComponentGroups": [],
+                    "productRelatedComponent": {
+                      "childProductId": "01tKF0000063l2LYAQ",
+                      "doesBundlePriceIncludeChild": true,
+                      "id": "0dSKF0000004CAm2AM",
+                      "isComponentRequired": true,
+                      "isDefaultComponent": true,
+                      "isExcluded": false,
+                      "isQuantityEditable": false,
+                      "parentProductId": "01tKF0000063l2MYAQ",
+                      "productRelationshipTypeId": "0yoKF0000004EHgYAM",
+                      "quantity": 1,
+                      "quantityScaleMethod": "Proportional"
+                    },
+                    "productSellingModelOptions": [
+                      {
+                        "id": "0iOKF000000Cbwl2AC",
+                        "isDefault": true,
+                        "productId": "01tKF0000063l2LYAQ",
+                        "productSellingModel": {
+                          "id": "0jPKF000000CaRR2A0",
+                          "name": "One Time",
+                          "sellingModelType": "OneTime",
+                          "status": "Active"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "id": "0y7KF0000004C9WYAU",
+                "isExcluded": false,
+                "name": "Printer",
+                "parentProductId": "01tKF0000063l2MYAQ",
+                "sequence": 1
+              },
+              {
+                "childGroups": [],
+                "components": [
+                  {
+                    "additionalFields": {},
+                    "attributeCategory": [
+                      {
+                        "attributes": [
+                          {
+                            "additionalFields": {},
+                            "attributeNameOverride": "Paper Size",
+                            "dataType": "Picklist",
+                            "defaultValue": "A4",
+                            "developerName": "Printer_Paper",
+                            "id": "0tjKF0000008ONmYAM",
+                            "isHidden": false,
+                            "isPriceImpacting": false,
+                            "isReadOnly": false,
+                            "isRequired": false,
+                            "label": "Printer Paper",
+                            "name": "Paper Size",
+                            "picklist": {
+                              "dataType": "Text",
+                              "id": "0v5KF0000008ONjYAM",
+                              "name": "Paper Size Picklist",
+                              "values": [
+                                {
+                                  "code": "A4",
+                                  "displayValue": "A4",
+                                  "id": "0v6KF0000008OPYYA2",
+                                  "name": "A4",
+                                  "sequence": "2",
+                                  "status": "Draft",
+                                  "value": "A4"
+                                },
+                                {
+                                  "code": "L001",
+                                  "displayValue": "Letter",
+                                  "id": "0v6KF0000008OPoYAM",
+                                  "name": "Letter",
+                                  "sequence": "1",
+                                  "status": "Draft",
+                                  "value": "Letter"
+                                }
+                              ]
+                            },
+                            "status": "Active"
+                          }
+                        ],
+                        "code": "PP001",
+                        "id": "0v3KF0000008OISYA2",
+                        "name": "Paper"
+                      }
+                    ],
+                    "attributes": [],
+                    "catalogs": [],
+                    "categories": [],
+                    "childProducts": [],
+                    "configureDuringSale": "Allowed",
+                    "description": "High Quality Printer Papers of various sizes. Each pack of 500 papers.",
+                    "displayUrl": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQylcHrD-KFEePiWUgmrL0fFj5Mmi5f1HgzUTeWxPr2ZQYU4G81KFCIzfDPRR6fDUmzOHE&amp;usqp=CAU",
+                    "id": "01tKF0000063l2NYAQ",
+                    "isActive": true,
+                    "isAssetizable": true,
+                    "isSoldOnlyWithOtherProds": true,
+                    "name": "Printer Paper",
+                    "nodeType": "simpleProduct",
+                    "productClassification": {
+                      "id": "11BKF0000008OMf2AM"
+                    },
+                    "productCode": "PP001",
+                    "productComponentGroups": [],
+                    "productRelatedComponent": {
+                      "childProductId": "01tKF0000063l2NYAQ",
+                      "doesBundlePriceIncludeChild": false,
+                      "id": "0dSKF0000004CAn2AM",
+                      "isComponentRequired": true,
+                      "isDefaultComponent": true,
+                      "isExcluded": false,
+                      "isQuantityEditable": true,
+                      "parentProductId": "01tKF0000063l2MYAQ",
+                      "productRelationshipTypeId": "0yoKF0000004EHgYAM",
+                      "quantity": 1
+                    },
+                    "productSellingModelOptions": [
+                      {
+                        "id": "0iOKF000000Cbwj2AC",
+                        "isDefault": true,
+                        "productId": "01tKF0000063l2NYAQ",
+                        "productSellingModel": {
+                          "id": "0jPKF000000CaRR2A0",
+                          "name": "One Time",
+                          "sellingModelType": "OneTime",
+                          "status": "Active"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "id": "0y7KF0000004C9XYAU",
+                "isExcluded": false,
+                "name": "Printer Accessories",
+                "parentProductId": "01tKF0000063l2MYAQ",
+                "sequence": 2
+              }
+            ],
+            "productRelatedComponent": {
+              "childProductId": "01tKF0000063l2MYAQ",
+              "doesBundlePriceIncludeChild": false,
+              "id": "0dSKF0000004CAj2AM",
+              "isComponentRequired": false,
+              "isDefaultComponent": false,
+              "isExcluded": false,
+              "isQuantityEditable": false,
+              "parentProductId": "01tKF0000063l2IYAQ",
+              "productRelationshipTypeId": "0yoKF0000004EHgYAM",
+              "quantity": 1,
+              "quantityScaleMethod": "Constant"
+            },
+            "productSellingModelOptions": [
+              {
+                "id": "0iOKF000000Cbwp2AC",
+                "isDefault": true,
+                "productId": "01tKF0000063l2MYAQ",
+                "productSellingModel": {
+                  "id": "0jPKF000000CaRR2A0",
+                  "name": "One Time",
+                  "sellingModelType": "OneTime",
+                  "status": "Active"
+                }
+              }
+            ]
+          },
+          {
+            "additionalFields": {},
+            "attributeCategory": [],
+            "attributes": [],
+            "catalogs": [],
+            "categories": [],
+            "childProducts": [],
+            "configureDuringSale": "NotAllowed",
+            "description": "Promise by manufacturer regarding the condition of their product",
+            "displayUrl": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcS268_nXXWpPWBN8xscScw-usavPnQ-Ym7Mn0dEwqk68w&amp;s",
+            "id": "01tKF0000063l2QYAQ",
+            "isActive": true,
+            "isAssetizable": true,
+            "isSoldOnlyWithOtherProds": true,
+            "name": "Warranty",
+            "nodeType": "simpleProduct",
+            "productCode": "W001",
+            "productComponentGroups": [],
+            "productRelatedComponent": {
+              "childProductId": "01tKF0000063l2QYAQ",
+              "doesBundlePriceIncludeChild": false,
+              "id": "0dSKF0000004CAk2AM",
+              "isComponentRequired": false,
+              "isDefaultComponent": false,
+              "isExcluded": false,
+              "isQuantityEditable": false,
+              "parentProductId": "01tKF0000063l2IYAQ",
+              "productRelationshipTypeId": "0yoKF0000004EHgYAM",
+              "quantity": 1,
+              "quantityScaleMethod": "Proportional"
+            },
+            "productSellingModelOptions": [
+              {
+                "id": "0iOKF000000Cbwd2AC",
+                "isDefault": true,
+                "productId": "01tKF0000063l2QYAQ",
+                "productSellingModel": {
+                  "id": "0jPKF000000CaRT2A0",
+                  "name": "Term Based - Yearly",
+                  "pricingTerm": 1,
+                  "pricingTermUnit": "Annual",
+                  "sellingModelType": "TermDefined",
+                  "status": "Active"
+                }
+              }
+            ]
+          }
+        ],
+        "id": "0y7KF0000004C9VYAU",
+        "isExcluded": false,
+        "name": "Accessories",
+        "parentProductId": "01tKF0000063l2IYAQ",
+        "sequence": 2
+      }
+    ],
+    "productSellingModelOptions": [
+      {
+        "id": "0iOKF000000Cbwq2AC",
+        "isDefault": true,
+        "productId": "01tKF0000063l2IYAQ",
+        "productSellingModel": {
+          "id": "0jPKF000000CaRR2A0",
+          "name": "One Time",
+          "sellingModelType": "OneTime",
+          "status": "Active"
+        }
+      }
+    ]
+  }
+}
