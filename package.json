@@ -1,5 +1,5 @@
 {
-  "name": "my-first-plugin",
+  "name": "plugin-bre-to-cml",
   "description": "learning plugin dev",
   "version": "1.0.0",
   "dependencies": {

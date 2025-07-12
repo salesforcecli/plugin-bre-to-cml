@@ -5,7 +5,7 @@ import { parse as csvParse } from 'csv-parse/sync';
 import { ExpressionSetConstraintObj, ExpressionSetConstraintObjCustom } from '../../../shared/types/types.js';
 
 Messages.importMessagesDirectoryFromMetaUrl(import.meta.url);
-const messages = Messages.loadMessages('my-first-plugin', 'cml.import.as-expression-set');
+const messages = Messages.loadMessages('plugin-bre-to-cml', 'cml.import.as-expression-set');
 
 export type CmlImportAsExpressionSetResult = {
   path: string;
