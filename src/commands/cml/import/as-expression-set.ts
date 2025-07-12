@@ -78,7 +78,13 @@ export default class CmlImportAsExpressionSet extends SfCommand<CmlImportAsExpre
       (await conn.sobject('ExpressionSet').findOne({ ApiName: cmlApiName }, ['Id'])) ?? {};
     const { id: expressionSetId } = existingExpressionSetId
       ? { id: existingExpressionSetId }
-      : await conn.sobject('ExpressionSet').create({ ApiName: cmlApiName, Name: cmlApiName, UsageType: 'Constraint' });
+      : await conn.sobject('ExpressionSet').create({
+        ApiName: cmlApiName,
+        Name: cmlApiName,
+        UsageType: 'Constraint',
+        ResourceInitializationType: 'Off',
+        InterfaceSourceType: 'Constraint',
+      });
     const { Id: expressionSetDefinitionId } =
       (await conn.sobject('ExpressionSetDefinition').findOne({ DeveloperName: cmlApiName }, ['Id'])) ?? {};
     const { Id: expressionSetDefinitionVersionId } =
