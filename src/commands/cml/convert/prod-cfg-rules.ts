@@ -158,6 +158,8 @@ export default class CmlConvertProdCfgRules extends SfCommand<CmlConvertProdCfgR
 
     this.log(`✅ Wrote CML to ${fullPath}`);
 
+    this.log('✅ Done');
+
     return {
       path: 'src/commands/cml/convert/prod-cfg-rules.ts',
     };
