@@ -37,6 +37,7 @@ oclif.lock
 
 # -- CLEAN ALL
 *.tsbuildinfo
+.yarn/install-state.gz
 .eslintcache
 .wireit
 node_modules
