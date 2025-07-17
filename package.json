@@ -31,10 +31,10 @@
     "node": ">=18.0.0"
   },
   "files": [
-    "/lib",
-    "/messages",
-    "/oclif.manifest.json",
-    "/oclif.lock"
+    "lib",
+    "messages",
+    "oclif.manifest.json",
+    "oclif.lock"
   ],
   "keywords": [
     "force",
@@ -80,7 +80,7 @@
     "format": "wireit",
     "link-check": "wireit",
     "lint": "wireit",
-    "postinstall": "yarn husky install",
+    "postinstall": "test -d .git && yarn husky install || echo 'Skipping husky install'",
     "postpack": "sf-clean --ignore-signing-artifacts",
     "prepack": "sf-prepack",
     "prepare": "sf-install",
