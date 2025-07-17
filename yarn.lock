@@ -2019,6 +2019,32 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@salesforce/plugin-bre-to-cml@workspace:.":
+  version: 0.0.0-use.local
+  resolution: "@salesforce/plugin-bre-to-cml@workspace:."
+  dependencies:
+    "@commitlint/cli": "npm:^19.8.0"
+    "@commitlint/config-conventional": "npm:^19.8.0"
+    "@oclif/core": "npm:^4"
+    "@oclif/plugin-command-snapshot": "npm:^5.1.9"
+    "@salesforce/cli-plugins-testkit": "npm:^5.3.10"
+    "@salesforce/core": "npm:^8"
+    "@salesforce/dev-scripts": "npm:^10"
+    "@salesforce/sf-plugins-core": "npm:^12"
+    "@types/node": "npm:^22.14.1"
+    csv-parse: "npm:^5.6.0"
+    eslint-plugin-sf-plugin: "npm:^1.18.6"
+    got: "npm:12"
+    husky: "npm:^9.1.7"
+    oclif: "npm:^4.14.0"
+    prettier: "npm:^3.5.3"
+    pretty-quick: "npm:^4.1.1"
+    ts-node: "npm:^10.9.2"
+    typescript: "npm:^5.4.5"
+    wireit: "npm:^0.14.12"
+  languageName: unknown
+  linkType: soft
+
 "@salesforce/prettier-config@npm:^0.0.3":
   version: 0.0.3
   resolution: "@salesforce/prettier-config@npm:0.0.3"
@@ -8633,32 +8659,6 @@ __metadata:
   checksum: 10c0/c56bda7769e04907a88423feb320babaed0711af8c436ce3e56763ab1021ba107c7b0cafb11cde7529f669cfc22bffcaebffb573645cbd63842ea9fb17cd7728
   languageName: node
   linkType: hard
-
-"plugin-bre-to-cml@workspace:.":
-  version: 0.0.0-use.local
-  resolution: "plugin-bre-to-cml@workspace:."
-  dependencies:
-    "@commitlint/cli": "npm:^19.8.0"
-    "@commitlint/config-conventional": "npm:^19.8.0"
-    "@oclif/core": "npm:^4"
-    "@oclif/plugin-command-snapshot": "npm:^5.1.9"
-    "@salesforce/cli-plugins-testkit": "npm:^5.3.10"
-    "@salesforce/core": "npm:^8"
-    "@salesforce/dev-scripts": "npm:^10"
-    "@salesforce/sf-plugins-core": "npm:^12"
-    "@types/node": "npm:^22.14.1"
-    csv-parse: "npm:^5.6.0"
-    eslint-plugin-sf-plugin: "npm:^1.18.6"
-    got: "npm:12"
-    husky: "npm:^9.1.7"
-    oclif: "npm:^4.14.0"
-    prettier: "npm:^3.5.3"
-    pretty-quick: "npm:^4.1.1"
-    ts-node: "npm:^10.9.2"
-    typescript: "npm:^5.4.5"
-    wireit: "npm:^0.14.12"
-  languageName: unknown
-  linkType: soft
 
 "pluralize@npm:^8.0.0":
   version: 8.0.0

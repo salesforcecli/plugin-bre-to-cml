@@ -11,7 +11,7 @@ import { PCMProduct } from '../../../shared/pcm-products.types.js';
 import { generateCsvForAssociations } from '../../../shared/utils/association.utils.js';
 
 Messages.importMessagesDirectoryFromMetaUrl(import.meta.url);
-const messages = Messages.loadMessages('plugin-bre-to-cml', 'cml.convert.prod-cfg-rules');
+const messages = Messages.loadMessages('@salesforce/plugin-bre-to-cml', 'cml.convert.prod-cfg-rules');
 
 export type CmlConvertProdCfgRulesResult = {
   path: string;

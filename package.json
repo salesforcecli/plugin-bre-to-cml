@@ -1,9 +1,11 @@
 {
-  "name": "plugin-bre-to-cml",
-  "description": "learning plugin dev",
+  "name": "@salesforce/plugin-bre-to-cml",
+  "description": "Plugin for migrating BRE based configurator rules to CML.",
   "version": "1.0.0",
+  "salesforceRelease": "256.11",
   "dependencies": {
     "@oclif/core": "^4",
+    "@oclif/multi-stage-output": "^0.8.17",
     "@salesforce/core": "^8",
     "@salesforce/sf-plugins-core": "^12",
     "csv-parse": "^5.6.0",
@@ -13,6 +15,7 @@
     "@commitlint/cli": "^19.8.0",
     "@commitlint/config-conventional": "^19.8.0",
     "@oclif/plugin-command-snapshot": "^5.1.9",
+    "@oclif/test": "^4.1.0",
     "@salesforce/cli-plugins-testkit": "^5.3.10",
     "@salesforce/dev-scripts": "^10",
     "@types/node": "^22.14.1",
@@ -49,7 +52,9 @@
     "bin": "sf",
     "topicSeparator": " ",
     "devPlugins": [
-      "@oclif/plugin-help"
+      "@oclif/plugin-help",
+      "@oclif/plugin-command-snapshot",
+      "@salesforce/plugin-command-reference"
     ],
     "topics": {
       "cml": {
@@ -71,6 +76,7 @@
     "clean": "sf-clean",
     "clean-all": "sf-clean all",
     "compile": "wireit",
+    "dev.js": "./bin/dev.js cml convert prod-cfg-rules -o prism-dev -r ./data/ProductConfigurationRules3.json -v ./data/Products.json -c TestModel3 -d ./data/output",
     "docs": "sf-docs",
     "format": "wireit",
     "link-check": "wireit",
@@ -78,7 +84,7 @@
     "postinstall": "yarn husky install",
     "postpack": "sf-clean --ignore-signing-artifacts",
     "prepack": "sf-prepack",
-    "dev.js": "./bin/dev.js cml convert prod-cfg-rules -o prism-dev -r ./data/ProductConfigurationRules3.json -v ./data/Products.json -c TestModel3 -d ./data/output",
+    "prepare": "sf-install",
     "test": "wireit",
     "test:nuts": "nyc mocha \"**/*.nut.ts\" --slow 4500 --timeout 600000 --parallel",
     "test:only": "wireit",
@@ -91,7 +97,8 @@
     "build": {
       "dependencies": [
         "compile",
-        "lint"
+        "lint",
+        "gen-manifest"
       ]
     },
     "compile": {
@@ -128,6 +135,16 @@
         "**/tsconfig.json"
       ],
       "output": []
+    },
+    "gen-manifest": {
+      "command": "npx oclif manifest .",
+      "dependencies": ["compile"],
+      "files": [
+        "lib/commands/**/*.js"
+      ],
+      "output": [
+        "oclif.manifest.json"
+      ]
     },
     "test:compile": {
       "command": "tsc -p \"./test\" --pretty",
