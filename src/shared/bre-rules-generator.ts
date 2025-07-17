@@ -91,12 +91,7 @@ function handleAutoAddAction(
       (parentTargetType ?? targetType).addConstraint(constraint);
       if (behaviorTypeLock === true) {
         (parentTargetType ?? targetType).addConstraint(
-          CmlConstraint.createRuleConstraint(
-            declaration,
-            'lock',
-            'product',
-            targetType.productId!, // or PRC id ??
-          ),
+          CmlConstraint.createRuleConstraint(declaration, 'disable', 'relation', rel.name, 'type', [targetType.name]),
         );
       }
       if (message) {
@@ -175,12 +170,7 @@ function handleSetAttributeAction(
       (parentTargetType ?? targetType).addConstraint(constraint);
       if (behaviorTypeLock === true) {
         (parentTargetType ?? targetType).addConstraint(
-          CmlConstraint.createRuleConstraint(
-            declaration,
-            'lock',
-            'attribute',
-            targetAttribute.name, // or targetAttributeId ??
-          ),
+          CmlConstraint.createRuleConstraint(declaration, 'disable', 'attribute', targetAttribute.name),
         );
       }
     }
@@ -251,7 +241,7 @@ function handleHideAttributeAction(
     ({ type }) => type === 'Attribute',
   )) {
     if (targetAttributeId && targetAttributeName) {
-      const constraint = CmlConstraint.createRuleConstraint(declaration, 'hide', 'attribute', targetAttributeName); // or targetAttributeId ??
+      const constraint = CmlConstraint.createRuleConstraint(declaration, 'hide', 'attribute', targetAttributeName);
       const sequenceValue = (rule.sequence ?? 0) + (sequence ?? 0);
       constraint.setProperties({ sequence: sequenceValue });
       (parentTargetType ?? targetType).addConstraint(constraint);
@@ -274,7 +264,7 @@ function handleHideDisableAttributeValueAction(
         declaration,
         actionType === 'HideAttributeValue' ? 'hide' : 'disable',
         'attribute',
-        targetAttributeName, // or targetAttributeId ??
+        targetAttributeName,
         'value',
         targetAttributeValues,
       );
@@ -289,19 +279,33 @@ function handleHideDisableProductAction(
   parentTargetType: CmlType | null,
   targetType: CmlType,
   declaration: string,
-  { actionType, sequence, targetValues }: RuleAction,
+  { actionType, sequence }: RuleAction,
   rule: ConfiguratorRuleInput,
 ): void {
-  for (const targetValue of targetValues) {
-    const constraint = CmlConstraint.createRuleConstraint(
-      declaration,
-      actionType === 'HideProduct' ? 'hide' : 'disable',
-      'product',
-      targetValue, // Product2 ID or ProductClassification ID
+  if (!parentTargetType) {
+    targetType.addConstraint(
+      CmlConstraint.createMessageConstraint(
+        declaration,
+        doubleQuoted(`${actionType} (scope: ${rule.scope}): Parent type can't be null for ${actionType} action.`),
+        doubleQuoted('error'),
+      ),
     );
-    const sequenceValue = (rule.sequence ?? 0) + (sequence ?? 0);
-    constraint.setProperties({ sequence: sequenceValue });
-    (parentTargetType ?? targetType).addConstraint(constraint);
+    //    throw new Error("Parent type can't be null for Auto-Add action.");
+  } else {
+    const rel = findCmlRelation(parentTargetType, targetType);
+    if (rel) {
+      const constraint = CmlConstraint.createRuleConstraint(
+        declaration,
+        actionType === 'HideProduct' ? 'hide' : 'disable',
+        'relation',
+        rel.name,
+        'type',
+        [targetType.name],
+      );
+      const sequenceValue = (rule.sequence ?? 0) + (sequence ?? 0);
+      constraint.setProperties({ sequence: sequenceValue });
+      (parentTargetType ?? targetType).addConstraint(constraint);
+    }
   }
 }
 
@@ -524,15 +528,15 @@ export class BreRulesGenerator {
       throw new Error(`Can't find source CML type for criteria: ${rule.apiName}_criteria_${criteria.criteriaIndex}`);
     }
     const conditionExpressions: string[] = [];
-    if (rule.scope === 'Transaction') {
-      if (criteria.sourceOperator === 'Contains' || criteria.sourceOperator === 'DoesNotContain') {
+    if (['Bundle', 'Transaction'].includes(rule.scope)) {
+      if (['Contains', 'DoesNotContain', 'Equals'].includes(criteria.sourceOperator ?? '')) {
         const rels: IntermediateRelation[][] = this.xFindAllPaths(targetType.name, sourceType.name);
         const transactionCaseExpressions: string[] = rels.map(
           (rrs) => `${rrs.map((r) => `${r.rel}[${r.target}]`).join('.')}`,
         );
-        if (criteria.sourceOperator === 'Contains') {
+        if (['Contains', 'Equals'].includes(criteria.sourceOperator ?? '')) {
           conditionExpressions.push(`(${transactionCaseExpressions.map((e) => `${e} > 0`).join(' || ')})`);
-        } else if (criteria.sourceOperator === 'DoesNotContain') {
+        } else {
           conditionExpressions.push(`(${transactionCaseExpressions.map((e) => `${e} == 0`).join(' && ')})`);
         }
       }

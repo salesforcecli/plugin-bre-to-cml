@@ -148,7 +148,7 @@ export default class CmlImportAsExpressionSet extends SfCommand<CmlImportAsExpre
       );
     });
 
-    const associationtsToInsert = [
+    const newAssociations = [
       ...typeAssociations.map(
         (a) =>
           ({
@@ -161,11 +161,10 @@ export default class CmlImportAsExpressionSet extends SfCommand<CmlImportAsExpre
           }) as ExpressionSetConstraintObj,
       ),
       ...portAssociations.map((a) => {
-        const [parentProductName, childProductNameOrClassName] = a.$ProductRelatedComponentKey.split('||');
+        const [parentProductName, childProductName, childClassName] = a.$ProductRelatedComponentKey.split('||');
         const parentProductId = productNameToId.get(parentProductName) ?? 'unexpected';
         const childProductIdOrClassId =
-          productNameToId.get(childProductNameOrClassName) ??
-          classNameToId.get(childProductNameOrClassName) ??
+          (childProductName ? productNameToId.get(childProductName) : classNameToId.get(childClassName)) ??
           'unexpected';
         const prcId = parentAndChildToPrcId.get(parentProductId)?.get(childProductIdOrClassId);
         return {
@@ -177,9 +176,29 @@ export default class CmlImportAsExpressionSet extends SfCommand<CmlImportAsExpre
       }),
     ];
 
+    const escoSoql = `SELECT Id, ExpressionSetId, ConstraintModelTag, ConstraintModelTagType, ReferenceObjectId FROM ExpressionSetConstraintObj WHERE ExpressionSetId = '${expressionSetId}'`;
+    const escos = (await conn.query(escoSoql, { autoFetch: true })).records.map(
+      (esco) => esco as ExpressionSetConstraintObj,
+    );
+
     this.log('📦 Upload CML associations');
+    const associationtsToInsert = newAssociations.filter(
+      ({ ConstraintModelTag, ConstraintModelTagType, ReferenceObjectId }) =>
+        !escos.some(
+          (esco) =>
+            ConstraintModelTag === esco.ConstraintModelTag &&
+            ConstraintModelTagType === esco.ConstraintModelTagType &&
+            ReferenceObjectId === esco.ReferenceObjectId,
+        ),
+    );
     const saveResults = await conn.sobject('ExpressionSetConstraintObj').create(associationtsToInsert);
-    this.log(`✅ Uploaded CML associations: ${saveResults.map((r) => r.id).join(', ')}`);
+    this.log('✅ Uploaded CML associations:');
+    if (escos.length) {
+      this.log(`  existing associations: ${escos.map(({ Id }) => Id).join(', ')}`);
+    }
+    if (saveResults.length) {
+      this.log(`  new associations: ${saveResults.map((r) => r.id).join(', ')}`);
+    }
 
     this.log('✅ Done');
 

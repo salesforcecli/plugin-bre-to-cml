@@ -364,13 +364,18 @@ export class PcmGenerator {
       };
     }
 
+    let referenceObjectReferenceValue = `${parentProduct.name}||${childProductComponent.name}||`;
+    if (childProductComponent.nodeType === 'productClass') {
+      referenceObjectReferenceValue = `${parentProduct.name}||||${childProductComponent.productClassification.name}`;
+    }
+
     const association = new Association(
       null,
       relationName,
       ASSOCIATION_TYPES.RELATION,
       prc.id,
       'ProductRelatedComponent',
-      `${parentProduct.name}||${childProductComponent.name}`,
+      referenceObjectReferenceValue,
     );
 
     return {
