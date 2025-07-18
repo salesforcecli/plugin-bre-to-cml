@@ -99,7 +99,7 @@ function handleAutoAddAction(
           CmlConstraint.createMessageConstraint(
             declaration,
             doubleQuoted(`AutoAdd: ${message}`),
-            doubleQuoted(messageType?.toLowerCase()),
+            doubleQuoted(messageType?.toLowerCase() ?? 'info'),
           ),
         );
       }
@@ -140,7 +140,7 @@ function handleAutoRemoveAction(
           CmlConstraint.createMessageConstraint(
             declaration,
             doubleQuoted(`AutoRemove: ${message}`),
-            doubleQuoted(messageType?.toLowerCase()),
+            doubleQuoted(messageType?.toLowerCase() ?? 'info'),
           ),
         );
       }
@@ -159,11 +159,11 @@ function handleSetAttributeAction(
     ({ type }) => type === 'Attribute',
   )) {
     if (attributeName) {
-      const targetValue = values[0];
+      const targetValue = values[0] ?? '';
       const targetAttribute = getTargetAttribute(targetType, attributeId, attributeName, dataType ?? 'Text');
       const constraint = new CmlConstraint(
         CONSTRAINT_TYPES.CONSTRAINT,
-        `${declaration} && (${attributeName} == ${targetAttribute.type === 'string' ? doubleQuoted(targetValue) : targetValue})`,
+        `${declaration} && (${attributeName} == ${targetAttribute.type === 'string' ? doubleQuoted(targetValue) ?? '""' : targetValue})`,
       );
       const sequenceValue = (rule.sequence ?? 0) + (sequence ?? 0);
       constraint.setProperties({ sequence: sequenceValue });
@@ -187,9 +187,9 @@ function handleSetQuantityAction(
   const constraint = CmlConstraint.createMessageConstraint(
     declaration,
     doubleQuoted(
-      `[Not-Supported] SetQuantity: ${message}. Please set quantity ${actionParameters?.[0].values[0]} for type ${targetType.name}${parentTargetType ? ` of parent type ${parentTargetType.name}` : ''} manually.`,
+      `[Not-Supported] SetQuantity: ${message ?? ''}. Please set quantity ${actionParameters?.[0]?.values?.[0] ?? ''} for type ${targetType.name}${parentTargetType ? ` of parent type ${parentTargetType.name}` : ''} manually.`,
     ),
-    doubleQuoted(messageType?.toLowerCase()),
+    doubleQuoted(messageType?.toLowerCase() ?? 'info'),
   );
   const sequenceValue = (rule.sequence ?? 0) + (sequence ?? 0);
   constraint.setProperties({ sequence: sequenceValue });
@@ -205,8 +205,8 @@ function handleSetDefaultProductAction(
 ): void {
   const constraint = CmlConstraint.createMessageConstraint(
     declaration,
-    doubleQuoted(`[Not-Supported] SetDefaultProduct: ${message}`),
-    doubleQuoted(messageType?.toLowerCase()),
+    doubleQuoted(`[Not-Supported] SetDefaultProduct: ${message ?? ''}`),
+    doubleQuoted(messageType?.toLowerCase() ?? 'info'),
   );
   const sequenceValue = (rule.sequence ?? 0) + (sequence ?? 0);
   constraint.setProperties({ sequence: sequenceValue });
@@ -222,8 +222,8 @@ function handleSetDefaultAttributeValueAction(
 ): void {
   const constraint = CmlConstraint.createMessageConstraint(
     declaration,
-    doubleQuoted(`[Not-Supported] SetDefaultAttributeValue: ${message}`),
-    doubleQuoted(messageType?.toLowerCase()),
+    doubleQuoted(`[Not-Supported] SetDefaultAttributeValue: ${message ?? ''}`),
+    doubleQuoted(messageType?.toLowerCase() ?? 'info'),
   );
   const sequenceValue = (rule.sequence ?? 0) + (sequence ?? 0);
   constraint.setProperties({ sequence: sequenceValue });
@@ -401,7 +401,7 @@ function getTargetAttribute(
 }
 
 function doubleQuotedIfNeeded(value: string | undefined, dataType: string | undefined): string {
-  return `${dataType === 'string' ? doubleQuoted(value) : value}`;
+  return `${dataType === 'string' ? doubleQuoted(value) ?? '""' : value ?? ''}`;
 }
 
 function doubleQuoted(string: string | undefined): string | undefined {
@@ -417,31 +417,33 @@ function convertToCmlExpression(
   right?: string | string[],
   dataType?: string,
 ): string {
+  const rightValue = right as string | undefined ?? '';
+  
   switch (ruleExprOperator) {
     case 'Equals':
-      return `${left} == ${doubleQuotedIfNeeded(right as string | undefined, dataType)}`;
+      return `${left} == ${doubleQuotedIfNeeded(rightValue, dataType)}`;
     case 'NotEquals':
-      return `${left} != ${doubleQuotedIfNeeded(right as string | undefined, dataType)}`;
+      return `${left} != ${doubleQuotedIfNeeded(rightValue, dataType)}`;
     case 'LessThan':
-      return `${left} <= ${right as string | undefined}`;
+      return `${left} <= ${rightValue}`;
     case 'LessThanOrEquals':
-      return `${left} <= ${right as string | undefined}`;
+      return `${left} <= ${rightValue}`;
     case 'GreaterThan':
-      return `${left} > ${right as string | undefined}`;
+      return `${left} > ${rightValue}`;
     case 'GreaterThanOrEquals':
-      return `${left} >= ${right as string | undefined}`;
+      return `${left} >= ${rightValue}`;
     case 'IsNotNull':
       return `${left} != null`;
     case 'IsNull':
       return `${left} == null`;
     case 'Contains':
-      return `strcontain(${left}, ${doubleQuoted(right as string | undefined)})`;
+      return `strcontain(${left}, ${doubleQuoted(rightValue) ?? ''})`;
     case 'DoesNotContain':
-      return `!strcontain(${left}, ${doubleQuoted(right as string | undefined)})`;
+      return `!strcontain(${left}, ${doubleQuoted(rightValue) ?? ''})`;
     case 'In':
-      return `${left} in [${(Array.isArray(right) ? right : [right as string]).map((r) => doubleQuoted(r)).join(', ')}]`;
+      return `${left} in [${(Array.isArray(right) ? right : [rightValue]).map((r) => doubleQuoted(r)).join(', ')}]`;
     case 'NotIn':
-      return `!(${left} in [${(Array.isArray(right) ? right : [right as string]).map((r) => doubleQuoted(r)).join(', ')}])`;
+      return `!(${left} in [${(Array.isArray(right) ? right : [rightValue]).map((r) => doubleQuoted(r)).join(', ')}])`;
   }
 
   //  throw new Error(`Operator ${ruleExprOperator} is not supported.`);
@@ -520,12 +522,12 @@ export class BreRulesGenerator {
   private convertCriteria(rule: ConfiguratorRuleInput, criteria: RuleCriteria): CmlConstraint {
     const targetType = this.findTargetTypeForCriteria(rule, criteria);
     if (!targetType) {
-      throw new Error(`Can't find target CML type for criteria: ${rule.apiName}_criteria_${criteria.criteriaIndex}`);
+      throw new Error(`Can't find target CML type for criteria: ${rule.apiName}_criteria_${criteria.criteriaIndex ?? 0}`);
     }
-    const criteriaConstraintName = `${rule.apiName}_criteria_${criteria.criteriaIndex}`;
+    const criteriaConstraintName = `${rule.apiName}_criteria_${criteria.criteriaIndex ?? 0}`;
     const sourceType = this.#cmlModel.getTypeByProductId(criteria.sourceValues[0]);
     if (!sourceType) {
-      throw new Error(`Can't find source CML type for criteria: ${rule.apiName}_criteria_${criteria.criteriaIndex}`);
+      throw new Error(`Can't find source CML type for criteria: ${rule.apiName}_criteria_${criteria.criteriaIndex ?? 0}`);
     }
     const conditionExpressions: string[] = [];
     if (['Bundle', 'Transaction'].includes(rule.scope)) {
@@ -738,7 +740,7 @@ export class BreRulesGenerator {
           CmlConstraint.createMessageConstraint(
             declaration,
             doubleQuoted(`${ruleAction.actionType}: ${ruleAction.message}`),
-            doubleQuoted(ruleAction.messageType?.toLowerCase()),
+            doubleQuoted(ruleAction.messageType?.toLowerCase() ?? 'info'),
           ),
         );
       }
@@ -761,8 +763,8 @@ export class BreRulesGenerator {
     }
     const constraint = CmlConstraint.createMessageConstraint(
       `${declaration} && !(${validationParts.join(' || !')})`,
-      doubleQuoted(`Validate: ${message}`),
-      doubleQuoted(messageType?.toLowerCase()),
+      doubleQuoted(`Validate: ${message ?? ''}`),
+      doubleQuoted(messageType?.toLowerCase() ?? 'info'),
     );
     const sequenceValue = (rule.sequence ?? 0) + (sequence ?? 0);
     constraint.setProperties({ sequence: sequenceValue });

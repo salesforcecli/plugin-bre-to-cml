@@ -50,10 +50,10 @@ export default class CmlImportAsExpressionSet extends SfCommand<CmlImportAsExpre
     const targetOrg = flags['target-org'];
     const workspaceDir = flags['workspace-dir'];
 
-    this.log(`Using Target Org: ${targetOrg.getUsername()}`);
+    this.log(`Using Target Org: ${targetOrg.getUsername() ?? 'unknown'}`);
     this.log(`Using Context Definition: ${contextDefinitionName}`);
     this.log(`Using CML API: ${cmlApiName}`);
-    this.log(`Using Workspace Directory: ${workspaceDir}`);
+    this.log(`Using Workspace Directory: ${workspaceDir ?? 'not specified'}`);
 
     const conn = targetOrg.getConnection(flags['api-version']);
 
@@ -100,7 +100,7 @@ export default class CmlImportAsExpressionSet extends SfCommand<CmlImportAsExpre
     this.log('📦 Update ExpressionSetDefinitionVersion with CML content');
 
     const base64CmlContent = Buffer.from(cmlContent, 'binary').toString('base64');
-    await conn.requestPatch(`/sobjects/ExpressionSetDefinitionVersion/${expressionSetDefinitionVersionId}`, {
+    await conn.requestPatch(`/sobjects/ExpressionSetDefinitionVersion/${expressionSetDefinitionVersionId ?? ''}`, {
       ConstraintModel: base64CmlContent,
     });
 
@@ -120,7 +120,11 @@ export default class CmlImportAsExpressionSet extends SfCommand<CmlImportAsExpre
     if (productIdsStr?.length) {
       const productsSoql = `SELECT Id,Name FROM Product2 WHERE Name IN (${productIdsStr})`;
       const productsQuery = await conn.query(productsSoql, { autoFetch: true });
-      productsQuery.records.forEach((r) => productNameToId.set(`${r.Name}`, `${r.Id}`));
+      productsQuery.records.forEach((r) => {
+        const name = r.Name ? String(r.Name) : '';
+        const id = r.Id ? String(r.Id) : '';
+        productNameToId.set(name, id);
+      });
     }
 
     const classNameToId = new Map<string, string>();
@@ -131,21 +135,25 @@ export default class CmlImportAsExpressionSet extends SfCommand<CmlImportAsExpre
     if (classIdsStr?.length) {
       const classificationsSoql = `SELECT Id,Name FROM ProductClassification WHERE Name IN (${classIdsStr})`;
       const classificationsQuery = await conn.query(classificationsSoql, { autoFetch: true });
-      classificationsQuery.records.forEach((r) => classNameToId.set(`${r.Name}`, `${r.Id}`));
+      classificationsQuery.records.forEach((r) => {
+        const name = r.Name ? String(r.Name) : '';
+        const id = r.Id ? String(r.Id) : '';
+        classNameToId.set(name, id);
+      });
     }
 
     const parentAndChildToPrcId = new Map<string, Map<string, string>>();
     const parentProductIds: string[] = [...productNameToId.values()];
     const prcSoql = `SELECT Id, ParentProductId, ChildProductId, ChildProductClassificationId FROM ProductRelatedComponent WHERE ParentProductId IN (${parentProductIds.map((id) => `'${id}'`).join(',')})`;
     (await conn.query(prcSoql, { autoFetch: true })).records.forEach((r) => {
-      if (!parentAndChildToPrcId.has(r.ParentProductId as string)) {
-        parentAndChildToPrcId.set(r.ParentProductId as string, new Map<string, string>());
+      const parentProductId = (r.ParentProductId as string) ?? '';
+      if (!parentAndChildToPrcId.has(parentProductId)) {
+        parentAndChildToPrcId.set(parentProductId, new Map<string, string>());
       }
-      const childToPrcId = parentAndChildToPrcId.get(r.ParentProductId as string);
-      childToPrcId?.set(
-        (r.ChildProductId as string) ?? (r.ChildProductClassificationId as string) ?? 'unexpected',
-        (r.Id as string) ?? 'unexpected',
-      );
+      const childToPrcId = parentAndChildToPrcId.get(parentProductId);
+      const childProductId = (r.ChildProductId as string) ?? (r.ChildProductClassificationId as string) ?? 'unexpected';
+      const recordId = (r.Id as string) ?? 'unexpected';
+      childToPrcId?.set(childProductId, recordId);
     });
 
     const newAssociations = [
@@ -176,7 +184,7 @@ export default class CmlImportAsExpressionSet extends SfCommand<CmlImportAsExpre
       }),
     ];
 
-    const escoSoql = `SELECT Id, ExpressionSetId, ConstraintModelTag, ConstraintModelTagType, ReferenceObjectId FROM ExpressionSetConstraintObj WHERE ExpressionSetId = '${expressionSetId}'`;
+    const escoSoql = `SELECT Id, ExpressionSetId, ConstraintModelTag, ConstraintModelTagType, ReferenceObjectId FROM ExpressionSetConstraintObj WHERE ExpressionSetId = '${expressionSetId ?? ''}'`;
     const escos = (await conn.query(escoSoql, { autoFetch: true })).records.map(
       (esco) => esco as ExpressionSetConstraintObj,
     );

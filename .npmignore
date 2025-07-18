@@ -1,0 +1,16 @@
+# Yarn 4 / Berry
+.yarn/
+.yarnrc.yml
+.pnp.*
+.pnp.js
+
+# Build artifacts
+.tsbuildinfo
+
+# Sources not meant for publishing
+src/
+test/
+tsconfig.json
+.husky/
+.nyc_output/
+coverage/

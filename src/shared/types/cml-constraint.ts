@@ -284,8 +284,8 @@ export class CmlConstraint extends AnnotatedCmlElement {
     output += this.#declaration;
     output += ', ';
 
-    output += `${this.targetRelation}[`;
-    output += `${this.targetType}]`;
+    output += `${this.targetRelation ?? ''}[`;
+    output += `${this.targetType ?? ''}]`;
 
     if (this.targetAttributes && this.targetAttributes.length > 0) {
       output += ' { ';
@@ -298,10 +298,10 @@ export class CmlConstraint extends AnnotatedCmlElement {
     }
 
     if (this.targetQuantity !== 1) {
-      output += ` == ${this.#targetQuantity}`;
+      output += ` == ${this.#targetQuantity ?? 1}`;
     }
     if (this.#explanation) {
-      output += `, ${this.#explanation}`;
+      output += `, ${this.#explanation ?? ''}`;
     }
     output += ');';
     return output;
@@ -318,13 +318,13 @@ export class CmlConstraint extends AnnotatedCmlElement {
     output += this.declaration;
     output += ', ';
 
-    output += `"${this.action}"`;
+    output += `"${this.action ?? ''}"`;
     output += ', ';
-    output += `"${this.actionScope}"`;
+    output += `"${this.actionScope ?? ''}"`;
     output += ', ';
-    output += `"${this.actionTarget}"`;
+    output += `"${this.actionTarget ?? ''}"`;
     if (this.actionClassification) {
-      output += `, "${this.actionClassification}"`;
+      output += `, "${this.actionClassification ?? ''}"`;
     }
 
     if (this.actionTargetValues && this.actionTargetValues.length > 0) {
