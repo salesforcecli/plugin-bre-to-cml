@@ -72,8 +72,8 @@ export default class CmlConvertProdCfgRules extends SfCommand<CmlConvertProdCfgR
 
     this.log(`Using CML API: ${api}`);
     this.log(`Using PCR File: ${pcrFile}`);
-    this.log(`Using Workspace Directory: ${workspaceDir}`);
-    this.log(`Using Target Org: ${targetOrg.getUsername()}`);
+    this.log(`Using Workspace Directory: ${workspaceDir ?? 'not specified'}`);
+    this.log(`Using Target Org: ${targetOrg.getUsername() ?? 'unknown'}`);
 
     const pcrFileContents = await fs.readFile(pcrFile, 'utf8');
     const pcrData = JSON.parse(pcrFileContents) as Array<{

@@ -100,9 +100,9 @@ export class CmlRelation extends AnnotatedCmlElementWAttributes {
     // relations can have min/max cardinalities
     if (this.hasCardinality()) {
       if (this.cardinality.min === this.cardinality.max) {
-        output += `[${this.cardinality.min}]`;
+        output += `[${this.cardinality.min ?? 0}]`;
       } else {
-        output += `[${this.cardinality.min}..${this.cardinality.max}]`;
+        output += `[${this.cardinality.min ?? 0}..${this.cardinality.max ?? 0}]`;
       }
     }
 

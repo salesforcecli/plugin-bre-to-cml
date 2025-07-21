@@ -17,12 +17,6 @@ export default class CmlImportAsExpressionSet extends SfCommand<CmlImportAsExpre
   public static readonly examples = messages.getMessages('examples');
 
   public static readonly flags = {
-    name: Flags.string({
-      summary: messages.getMessage('flags.name.summary'),
-      description: messages.getMessage('flags.name.description'),
-      char: 'n',
-      required: false,
-    }),
     'target-org': Flags.requiredOrg(),
     'api-version': Flags.orgApiVersion(),
     'context-definition': Flags.string({
@@ -50,10 +44,10 @@ export default class CmlImportAsExpressionSet extends SfCommand<CmlImportAsExpre
     const targetOrg = flags['target-org'];
     const workspaceDir = flags['workspace-dir'];
 
-    this.log(`Using Target Org: ${targetOrg.getUsername()}`);
+    this.log(`Using Target Org: ${targetOrg.getUsername() ?? 'unknown'}`);
     this.log(`Using Context Definition: ${contextDefinitionName}`);
     this.log(`Using CML API: ${cmlApiName}`);
-    this.log(`Using Workspace Directory: ${workspaceDir}`);
+    this.log(`Using Workspace Directory: ${workspaceDir ?? 'not specified'}`);
 
     const conn = targetOrg.getConnection(flags['api-version']);
 
@@ -100,7 +94,7 @@ export default class CmlImportAsExpressionSet extends SfCommand<CmlImportAsExpre
     this.log('📦 Update ExpressionSetDefinitionVersion with CML content');
 
     const base64CmlContent = Buffer.from(cmlContent, 'binary').toString('base64');
-    await conn.requestPatch(`/sobjects/ExpressionSetDefinitionVersion/${expressionSetDefinitionVersionId}`, {
+    await conn.requestPatch(`/sobjects/ExpressionSetDefinitionVersion/${expressionSetDefinitionVersionId!}`, {
       ConstraintModel: base64CmlContent,
     });
 
@@ -120,7 +114,9 @@ export default class CmlImportAsExpressionSet extends SfCommand<CmlImportAsExpre
     if (productIdsStr?.length) {
       const productsSoql = `SELECT Id,Name FROM Product2 WHERE Name IN (${productIdsStr})`;
       const productsQuery = await conn.query(productsSoql, { autoFetch: true });
-      productsQuery.records.forEach((r) => productNameToId.set(`${r.Name}`, `${r.Id}`));
+      productsQuery.records.forEach((r) => 
+        productNameToId.set(`${r.Name as string}`, `${r.Id as string}`)
+      );
     }
 
     const classNameToId = new Map<string, string>();
@@ -131,7 +127,9 @@ export default class CmlImportAsExpressionSet extends SfCommand<CmlImportAsExpre
     if (classIdsStr?.length) {
       const classificationsSoql = `SELECT Id,Name FROM ProductClassification WHERE Name IN (${classIdsStr})`;
       const classificationsQuery = await conn.query(classificationsSoql, { autoFetch: true });
-      classificationsQuery.records.forEach((r) => classNameToId.set(`${r.Name}`, `${r.Id}`));
+      classificationsQuery.records.forEach((r) => 
+        classNameToId.set(`${r.Name as string}`, `${r.Id as string}`)
+      );
     }
 
     const parentAndChildToPrcId = new Map<string, Map<string, string>>();
@@ -176,7 +174,7 @@ export default class CmlImportAsExpressionSet extends SfCommand<CmlImportAsExpre
       }),
     ];
 
-    const escoSoql = `SELECT Id, ExpressionSetId, ConstraintModelTag, ConstraintModelTagType, ReferenceObjectId FROM ExpressionSetConstraintObj WHERE ExpressionSetId = '${expressionSetId}'`;
+    const escoSoql = `SELECT Id, ExpressionSetId, ConstraintModelTag, ConstraintModelTagType, ReferenceObjectId FROM ExpressionSetConstraintObj WHERE ExpressionSetId = '${expressionSetId!}'`;
     const escos = (await conn.query(escoSoql, { autoFetch: true })).records.map(
       (esco) => esco as ExpressionSetConstraintObj,
     );

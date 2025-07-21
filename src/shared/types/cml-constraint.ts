@@ -250,7 +250,7 @@ export class CmlConstraint extends AnnotatedCmlElement {
         }
 
         output += 'message(';
-        output += this.#declaration;
+        output += this.#declaration + ' == true';
         if (this.#explanation) {
           output += `, ${this.#explanation}`;
         }
@@ -284,8 +284,8 @@ export class CmlConstraint extends AnnotatedCmlElement {
     output += this.#declaration;
     output += ', ';
 
-    output += `${this.targetRelation}[`;
-    output += `${this.targetType}]`;
+    output += `${this.targetRelation ?? ''}[`;
+    output += `${this.targetType ?? ''}]`;
 
     if (this.targetAttributes && this.targetAttributes.length > 0) {
       output += ' { ';
@@ -298,7 +298,7 @@ export class CmlConstraint extends AnnotatedCmlElement {
     }
 
     if (this.targetQuantity !== 1) {
-      output += ` == ${this.#targetQuantity}`;
+      output += ` == ${this.#targetQuantity ?? 0}`;
     }
     if (this.#explanation) {
       output += `, ${this.#explanation}`;
@@ -318,11 +318,11 @@ export class CmlConstraint extends AnnotatedCmlElement {
     output += this.declaration;
     output += ', ';
 
-    output += `"${this.action}"`;
+    output += `"${this.action ?? ''}"`;
     output += ', ';
-    output += `"${this.actionScope}"`;
+    output += `"${this.actionScope ?? ''}"`;
     output += ', ';
-    output += `"${this.actionTarget}"`;
+    output += `"${this.actionTarget ?? ''}"`;
     if (this.actionClassification) {
       output += `, "${this.actionClassification}"`;
     }
@@ -331,7 +331,7 @@ export class CmlConstraint extends AnnotatedCmlElement {
       const value =
         this.actionTargetValues.length > 1
           ? `[${this.actionTargetValues.map((v) => `"${v}"`).join(', ')}]`
-          : `"${this.actionTargetValues[0]}"`;
+          : `"${this.actionTargetValues[0] ?? ''}"`;
       output += `, ${value}`;
     }
 

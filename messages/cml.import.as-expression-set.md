@@ -1,22 +1,19 @@
 # summary
 
-Summary of a command.
+Imports CML and associations to the target org
 
 # description
 
-More information about a command. Don't repeat the summary.
-
-# flags.name.summary
-
-Description of a flag.
-
-# flags.name.description
-
-More information about a flag. Don't repeat the summary.
+Review CM created by conversion command before doing import.  
+This command executes following logic:
+- Import one CML at a time
+- Upsert the Expression Set using the `cml-api` name
+- Read and upsert `ExpressionSetConstraintObj` rows from the `cml-api_associations.csv` file (resolving FKs)
+- Upload the CML blob
 
 # examples
 
-- <%= config.bin %> <%= command.id %>
+- <%= config.bin %> <%= command.id %> --cml-api MY_TEST --context-definition PricingTransactionCD2 --workspace-dir data --target-org tgtOrg
 
 # flags.context-definition.summary
 
@@ -28,4 +25,8 @@ Unique CML API Name to be created.
 
 # flags.workspace-dir.summary
 
-Directory where converted CML file is located.
+Directory where converted CML and assocciations csv files are located.
+
+# flags.target-org.summary
+
+Alias of the destination target org.

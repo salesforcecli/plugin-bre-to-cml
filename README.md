@@ -1,155 +1,12 @@
-# BRE to CML Spike
+# plugin-bre-to-cml
 
-Export SC rules via `sf data export bulk`, edit the file if desired to remove unwanted rules.  
-Run the two-part migration process:
-
-1. `sf cml convert prod-cfg-rules`
-2. `sf cml import as-expression-set`
-
-Review the output and CML blobs created by conversion before import.  
-Review the output of the import.
-
-Add debug logging to both conversion and import.
-
-When creating CMLs for bundles, use the `--full-bundles` flag (default: true) during conversion to indicate whether to include all bundles or just the subset referenced in the rules.
-
-## Conversion Flow
-
-- Read SC Rules from the file and build a list of `ConfiguratorRuleInput` to mimic the JSON structure of `ConfigurationRuleDefinition`
-- Group rules by non-intersecting `Product2` IDs (CMLs can’t share products)
-- For each group:
-  - Query PCM for related products (for bundle rules) or root definitions (others)
-  - Build an in-memory representation of the CML
-  - Apply logic to build constraints
-
-Serialize the in-memory CML to a blob for import as an Expression Set.  
-Create `ExpressionSetConstraintObj` association records pointing to the `cml-api` name and write them to `cml-api_associations.csv`.
-
-## Import Flow
-
-- Import one CML at a time
-- Upsert the Expression Set using the `cml-api` name
-- Read and upsert `ExpressionSetConstraintObj` rows from the CSV (resolving FKs)
-- Upload the CML blob
-
-## Open Questions
-
-- Is there a GitHub repo we should be using for this dev?
-- Where can we learn more about Functions and calling CML logic from Admin UI?
-- SF or SFDX preferred?
-- Any CPU, RAM, or other limits to know?
-- Is debug flag supported by default?
-- Can we call the Product Discovery API from an SF Plugin?
-
-## Setup Steps
-
-1. **Convert:**
-
-   ```bash
-   sf dev generate command --name cml:convert:prod-cfg-rules
-   sf dev generate flag (target-org, pcr-file, cml-api, full-bundles, workspace-dir)
-   ```
-
-2. **Import:**
-   ```bash
-   sf dev generate command --name cml:import:as-expression-set
-   sf dev generate flag (target-org, context-definition, cml-api, workspace-dir)
-   ```
-
-## Execution Steps
-
-1. **Authenticate to target org**
-
-   ```bash
-   sf auth:web:login --instance-url https://sdb3.test1.pc-rnd.pc-aws.salesforce.com -a breMigOrg
-   sf org list
-   ```
-
-2. **Export SC Rules**
-
-   ```bash
-   sf data export bulk -o breMigOrg --query "SELECT ApiName, ConfigurationRuleDefinition, Description, EffectiveFromDate, EffectiveToDate, Id, IsDeleted, Name, ProcessScope, RuleSubType, RuleType, Sequence, Status FROM ProductConfigurationRule WHERE RuleType = 'Configurator'" --output-file data/ProductConfigurationRules.json --result-format json --wait 10 --all-rows
-   ```
-
-3. **Convert to CML**
-
-   ```bash
-   sf cml convert prod-cfg-rules --pcr-file export-ProductConfigurationRules.json --cml-api MIG_CML --workspace-dir data --target-org breMigOrg
-   ```
-
-4. **Import Expression Set**
-   ```bash
-   sf cml import as-expression-set --cml-api MIG_CML --context-definition PricingTransactionCD2 --workspace-dir data --target-org breMigOrg
-   ```
-
-## Debug
-
-```bash
-export NODE_OPTIONS='--inspect-brk'
-unset NODE_OPTIONS
-```
-
-# my-first-plugin
-
-[![NPM](https://img.shields.io/npm/v/my-first-plugin.svg?label=my-first-plugin)](https://www.npmjs.com/package/my-first-plugin) [![Downloads/week](https://img.shields.io/npm/dw/my-first-plugin.svg)](https://npmjs.org/package/my-first-plugin) [![License](https://img.shields.io/badge/License-BSD%203--Clause-brightgreen.svg)](https://raw.githubusercontent.com/salesforcecli/my-first-plugin/main/LICENSE.txt)
-
-## Using the template
-
-This repository provides a template for creating a plugin for the Salesforce CLI. To convert this template to a working plugin:
-
-1. Please get in touch with the Platform CLI team. We want to help you develop your plugin.
-2. Generate your plugin:
-
-   ```
-   sf plugins install dev
-   sf dev generate plugin
-
-   git init -b main
-   git add . && git commit -m "chore: initial commit"
-   ```
-
-3. Create your plugin's repo in the salesforcecli github org
-4. When you're ready, replace the contents of this README with the information you want.
-
-## Learn about `sf` plugins
-
-Salesforce CLI plugins are based on the [oclif plugin framework](<(https://oclif.io/docs/introduction.html)>). Read the [plugin developer guide](https://developer.salesforce.com/docs/atlas.en-us.sfdx_cli_plugins.meta/sfdx_cli_plugins/cli_plugins_architecture_sf_cli.htm) to learn about Salesforce CLI plugin development.
-
-This repository contains a lot of additional scripts and tools to help with general Salesforce node development and enforce coding standards. You should familiarize yourself with some of the [node developer packages](#tooling) used by Salesforce.
-
-Additionally, there are some additional tests that the Salesforce CLI will enforce if this plugin is ever bundled with the CLI. These test are included by default under the `posttest` script and it is required to keep these tests active in your plugin if you plan to have it bundled.
-
-### Tooling
-
-- [@salesforce/core](https://github.com/forcedotcom/sfdx-core)
-- [@salesforce/kit](https://github.com/forcedotcom/kit)
-- [@salesforce/sf-plugins-core](https://github.com/salesforcecli/sf-plugins-core)
-- [@salesforce/ts-types](https://github.com/forcedotcom/ts-types)
-- [@salesforce/ts-sinon](https://github.com/forcedotcom/ts-sinon)
-- [@salesforce/dev-config](https://github.com/forcedotcom/dev-config)
-- [@salesforce/dev-scripts](https://github.com/forcedotcom/dev-scripts)
-
-### Hooks
-
-For cross clouds commands, e.g. `sf env list`, we utilize [oclif hooks](https://oclif.io/docs/hooks) to get the relevant information from installed plugins.
-
-This plugin includes sample hooks in the [src/hooks directory](src/hooks). You'll just need to add the appropriate logic. You can also delete any of the hooks if they aren't required for your plugin.
-
-# Everything past here is only a suggestion as to what should be in your specific plugin's description
-
-This plugin is bundled with the [Salesforce CLI](https://developer.salesforce.com/tools/sfdxcli). For more information on the CLI, read the [getting started guide](https://developer.salesforce.com/docs/atlas.en-us.sfdx_setup.meta/sfdx_setup/sfdx_setup_intro.htm).
-
-We always recommend using the latest version of these commands bundled with the CLI, however, you can install a specific version or tag if needed.
+[![NPM](https://img.shields.io/npm/v/@salesforce/plugin-agent.svg?label=@salesforce/plugin-agent)](https://www.npmjs.com/package/@salesforce/plugin-bre-to-cml) [![Downloads/week](https://img.shields.io/npm/dw/@salesforce/plugin-bre-to-cml.svg)](https://npmjs.org/package/@salesforce/plugin-bre-to-cml) [![License](https://img.shields.io/badge/License-BSD%203--Clause-brightgreen.svg)](https://raw.githubusercontent.com/salesforcecli/plugin-bre-to-cml/main/LICENSE.txt)
 
 ## Install
 
 ```bash
-sf plugins install my-first-plugin@x.y.z
+sf plugins install @salesforce/plugin-bre-to-cml@x.y.z
 ```
-
-## Issues
-
-Please report any issues at https://github.com/forcedotcom/cli/issues
 
 ## Contributing
 
@@ -165,6 +22,7 @@ Please report any issues at https://github.com/forcedotcom/cli/issues
 8. Sign CLA (see [CLA](#cla) below).
 9. Send us a pull request when you are done. We'll review your code, suggest any needed changes, and merge it in.
 
+
 ### CLA
 
 External contributors will be required to sign a Contributor's License
@@ -176,17 +34,18 @@ To build the plugin locally, make sure to have yarn installed and run the follow
 
 ```bash
 # Clone the repository
-git clone git@github.com:salesforcecli/my-first-plugin
+git clone git@github.com:salesforcecli/plugin-bre-to-cml
 
 # Install the dependencies and compile
-yarn && yarn build
+yarn install
+yarn build
 ```
 
-To use your plugin, run using the local `./bin/dev` or `./bin/dev.cmd` file.
+To use your plugin, run using the local `./bin/dev.js` or `./bin/dev.cmd` file.
 
 ```bash
 # Run using local run file.
-./bin/dev hello world
+./bin/dev cml
 ```
 
 There should be no differences when running via the Salesforce CLI or using the local run file. However, it can be useful to link the plugin to do some additional testing or run your commands from anywhere on your machine.
@@ -202,35 +61,99 @@ sf plugins
 
 <!-- commands -->
 
-- [`sf hello world`](#sf-hello-world)
+- [`sf cml convert prod-cfg-rules`](#sf-cml-convert-prod-cfg-rules)
+- [`sf cml import as-expression-set`](#sf-cml-import-as-expression-set)
 
-## `sf hello world`
 
-Say hello either to the world or someone you know.
+## `sf cml convert prod-cfg-rules`
+
+Converts BRE based Standard Configurator rules represented as JSON to CML and saves it as a pair of CML and association files.
 
 ```
 USAGE
-  $ sf hello world [--json] [-n <value>]
+  $ sf cml convert prod-cfg-rules -o <value> -r <value> -c <value> [--json] [--flags-dir <value>] [--api-version <value>] [-d <value>] [-x <value>] [-v <value>]
 
 FLAGS
-  -n, --name=<value>  [default: World] The name of the person you'd like to say hello to.
+  -c, --cml-api=<value>              (required) Unique CML API Name to be created.
+  -d, --workspace-dir=<value>        Directory where working files are located, exported rules JSON and where CMLs will be created.
+  -o, --target-org=<value>           (required) Username or alias of the target org. Not required if the `target-org` configuration variable is already set.
+  -r, --pcr-file=<value>             (required) Name of the JSON file that contain exported standard Product Configuration Rules.
+  -v, --products-file=<value>        Name of the JSON file that contain exported Products from PCM (if not present products will be fetched automatically).
+  -x, --additional-products=<value>  Comma-separated list of additional product IDs for which CML types should be generated.
+      --api-version=<value>          Override the api version used for api requests made by this command
 
 GLOBAL FLAGS
-  --json  Format output as json.
+  --flags-dir=<value>  Import flag values from a directory.
+  --json               Format output as json.
 
 DESCRIPTION
-  Say hello either to the world or someone you know.
+  Converts BRE based Standard Configurator rules represented as JSON to CML and saves it as a pair of CML and association files.
 
-  Say hello either to the world or someone you know.
+  Before you execute this command make sure to migrate you PCM or that you are performing migration of rules within the same org.
+
+  Authenticate to the orgs and export BRE based Standard Configurator rules using sf data export bulk plugin and save results in a JSON file, see examples.
+
+  This command executes following logic:
+
+  - Read SC Rules from the json file and build a list of `ConfiguratorRuleInput` to mimic the JSON structure of `ConfigurationRuleDefinition`
+  - Group rules by non-intersecting `Product2` IDs (CMLs can’t share products)
+  - For each group:
+  - Query PCM for related products (for bundle rules) or root definitions (for others)
+  - Build an in-memory representation of the CML
+  - Apply logic to build constraints
+  - Serialize the in-memory CML to a blob for import as an Expression Set, save it in a cml-api.cml file.
+  - Create `ExpressionSetConstraintObj` association records pointing to the `cml-api` name and write them to `cml-api_associations.csv` file.
+  - If multiple CML and association files are produced 1-N number will be appended to the names of files.
 
 EXAMPLES
-  Say hello to the world:
+   Authenticate to target orgs:
 
-    $ sf hello world
+   $ sf auth:web:login --instance-url https://sdb3.test1.pc-rnd.pc-aws.salesforce.com -a breSourceOrg
+   $ sf auth:web:login --instance-url https://sdb3.test2.pc-rnd.pc-aws.salesforce.com -a cmlTargetOrg
+   $ sf org list
 
-  Say hello to someone you know:
+   Export Standard Configurator rules:
 
-    $ sf hello world --name Astro
+   $ sf data export bulk -o breSourceOrg --query "SELECT ApiName, ConfigurationRuleDefinition, Description, EffectiveFromDate, EffectiveToDate, Id, IsDeleted, Name, ProcessScope, RuleSubType, RuleType, Sequence, Status FROM ProductConfigurationRule WHERE RuleType = 'Configurator'" --output-file data/ProductConfigurationRules.json --result-format json --wait 10 --all-rows
+
+   Convert to CML:
+
+   $ sf cml convert prod-cfg-rules --pcr-file data/ProductConfigurationRules.json --cml-api MY_TEST --workspace-dir data --target-org breSourceOrg
 ```
+_See code: [src/commands/cml/convert/prod-cfg-rules.ts](https://github.com/salesforcecli/plugin-bre-to-cml/blob/main/src/commands/cml/convert/prod-cfg-rules.ts)_
+
+## `sf cml import as-expression-set`
+
+Imports CML and associations to the target org
+
+```
+USAGE
+  $ sf cml import as-expression-set -o <value> -x <value> -c <value> [--json] [--flags-dir <value>] [--api-version <value>] [-d <value>]
+
+FLAGS
+  -c, --cml-api=<value>             (required) Unique CML API Name to be created.
+  -d, --workspace-dir=<value>       Directory where converted CML and assocciations csv files are located.
+  -o, --target-org=<value>          (required) Username or alias of the target org. Not required if the `target-org` configuration variable is already set.
+  -x, --context-definition=<value>  (required) Context Definition name to be assocciated with the CML.
+      --api-version=<value>         Override the api version used for api requests made by this command
+
+GLOBAL FLAGS
+  --flags-dir=<value>  Import flag values from a directory.
+  --json               Format output as json.
+
+DESCRIPTION
+  Imports CML and associations to the target org
+
+  Review CM created by conversion command before doing import.
+  This command executes following logic:
+  - Import one CML at a time
+  - Upsert the Expression Set using the `cml-api` name
+  - Read and upsert `ExpressionSetConstraintObj` rows from the `cml-api_associations.csv` file (resolving FKs)
+  - Upload the CML blob
+
+EXAMPLES
+  $ sf cml import as-expression-set --cml-api MY_TEST --context-definition PricingTransactionCD2 --workspace-dir data --target-org cmlTargetOrg
+```
+_See code: [src/commands/cml/import/as-expression-set.ts](https://github.com/salesforcecli/plugin-bre-to-cml/blob/main/src/commands/cml/import/as-expression-set.ts)_
 
 <!-- commandsstop -->
