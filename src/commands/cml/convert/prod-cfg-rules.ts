@@ -3,7 +3,7 @@ import { SfCommand, Flags } from '@salesforce/sf-plugins-core';
 import { Messages } from '@salesforce/core';
 import { ConfiguratorRuleInput } from '../../../shared/models.js';
 import { extractProductIds, groupByNonIntersectingProduct2 } from '../../../shared/grouping.js';
-import { fetchProductsFromPcm } from '../../../shared/pcm-products.js';
+import { fetchProductsFromPcm, ProductWithIds, reduceProducts } from '../../../shared/pcm-products.js';
 import { BreRulesGenerator } from '../../../shared/bre-rules-generator.js';
 import { PcmGenerator } from '../../../shared/pcm-generator.js';
 import { BASE_LINE_ITEM_TYPE_NAME, CmlModel, CmlType } from '../../../shared/types/types.js';
@@ -126,37 +126,98 @@ export default class CmlConvertProdCfgRules extends SfCommand<CmlConvertProdCfgR
 
     this.log('📦 Convert products and BRE rules to CML');
 
-    const cmlModel = newCmlModel();
-    const modelInfo = PcmGenerator.generateViewModels(cmlModel, Array.from(products.values()));
-    for (const type of modelInfo.types) {
-      modelInfo.attributes.get(type.name)?.forEach((attr) => type.addAttribute(attr));
-      modelInfo.relations.get(type.name)?.forEach((rel) => type.addRelation(rel));
-      cmlModel.addType(type);
+    const products2 = reduceProducts(products);
+
+    const isProductIdInProductWithIds = (productId: string, productWithIds: ProductWithIds): boolean => {
+      return (
+        productWithIds.productIds.includes(productId) ||
+        productWithIds.productIds.some((pId) => pId.startsWith(productId) || productId.startsWith(pId))
+      );
+    };
+
+    const findProductWithIdsByProductIds = (
+      productIds: string[],
+      productsWithIds: ProductWithIds[],
+    ): Array<ProductWithIds> => {
+      const result = new Set<ProductWithIds>();
+      for (const productId of productIds) {
+        for (const productWithIds of productsWithIds) {
+          if (isProductIdInProductWithIds(productId, productWithIds)) {
+            result.add(productWithIds);
+            break;
+          }
+        }
+      }
+      return Array.from(result);
+    };
+
+    const productsWithRules = new Map<ProductWithIds[], ConfiguratorRuleInput[]>();
+    for (const [group, rules] of groups) {
+      const productIdsInGroup = group.split(',');
+      const productsForRulesInGroup = findProductWithIdsByProductIds(
+        Array.from(productIdsInGroup),
+        Array.from(products2.values()),
+      );
+      let found = false;
+      for (const [pp, rr] of productsWithRules) {
+        if (
+          pp.some((pwi) =>
+            productsForRulesInGroup.some((pwiInGroup) => isProductIdInProductWithIds(pwiInGroup.product.id, pwi)),
+          )
+        ) {
+          rr.push(...rules);
+          productsForRulesInGroup
+            .filter((pwiInGroup) => !pp.some((pwi) => isProductIdInProductWithIds(pwiInGroup.product.id, pwi)))
+            .forEach((pwiInGroup) => pp.push(pwiInGroup));
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        productsWithRules.set(productsForRulesInGroup, rules);
+      }
     }
-    for (const association of modelInfo.associations) {
-      cmlModel.addAssociation(association);
+
+    let index = 0;
+    for (const [productsWithIds, rulesInGroup] of productsWithRules) {
+      this.log(`📦 Generating CML model for rules ${rulesInGroup.map(({ apiName }) => apiName).join(', ')}`);
+
+      const cmlModel = newCmlModel();
+      const modelInfo = PcmGenerator.generateViewModels(
+        cmlModel,
+        productsWithIds.map(({ product }) => product),
+      );
+      for (const type of modelInfo.types) {
+        modelInfo.attributes.get(type.name)?.forEach((attr) => type.addAttribute(attr));
+        modelInfo.relations.get(type.name)?.forEach((rel) => type.addRelation(rel));
+        cmlModel.addType(type);
+      }
+      for (const association of modelInfo.associations) {
+        cmlModel.addAssociation(association);
+      }
+
+      BreRulesGenerator.generateConstraints(cmlModel, rulesInGroup, {
+        info: (msg) => this.log(msg),
+        warn: (msg) => this.warn(msg),
+        error: (msg) => this.error(msg),
+      });
+
+      const cmlContent = cmlModel.generateCml();
+      const associationsCsvContent = generateCsvForAssociations(safeApi, cmlModel.associations);
+
+      const cmlFileName = `${safeApi}_${index}.cml`;
+      const associationsFileName = `${safeApi}_${index}_Associations.csv`;
+      const fullPath = workspaceDir ? `${workspaceDir}/${cmlFileName}` : cmlFileName;
+      const associationsFullPath = workspaceDir ? `${workspaceDir}/${associationsFileName}` : associationsFileName;
+
+      this.log(`📦 Writing CML content to ${cmlFileName}`);
+
+      await fs.writeFile(fullPath, cmlContent, 'utf8');
+      await fs.writeFile(associationsFullPath, associationsCsvContent, 'utf8');
+
+      this.log(`✅ Wrote CML to ${fullPath} with related associations to ${associationsFullPath}`);
+      index++;
     }
-
-    BreRulesGenerator.generateConstraints(cmlModel, groups, {
-      info: (msg) => this.log(msg),
-      warn: (msg) => this.warn(msg),
-      error: (msg) => this.error(msg),
-    });
-
-    const cmlContent = cmlModel.generateCml();
-    const associationsCsvContent = generateCsvForAssociations(safeApi, cmlModel.associations);
-
-    const cmlFileName = `${safeApi}.cml`;
-    const associationsFileName = `${safeApi}_Associations.csv`;
-    const fullPath = workspaceDir ? `${workspaceDir}/${cmlFileName}` : cmlFileName;
-    const associationsFullPath = workspaceDir ? `${workspaceDir}/${associationsFileName}` : associationsFileName;
-
-    this.log(`📦 Writing CML content to ${cmlFileName}`);
-
-    await fs.writeFile(fullPath, cmlContent, 'utf8');
-    await fs.writeFile(associationsFullPath, associationsCsvContent, 'utf8');
-
-    this.log(`✅ Wrote CML to ${fullPath}`);
 
     this.log('✅ Done');
 

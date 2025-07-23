@@ -455,14 +455,14 @@ export class BreRulesGenerator {
   readonly #logger: Logger;
   readonly #virtualRoot: CmlType;
   readonly #cmlModel: CmlModel;
-  readonly #breRulesGroups: Map<string, ConfiguratorRuleInput[]>;
+  readonly #breRulesGroup: ConfiguratorRuleInput[];
 
   readonly #intermediateRelations: IntermediateRelation[];
 
-  private constructor(cmlModel: CmlModel, breRulesGroups: Map<string, ConfiguratorRuleInput[]>, logger: Logger) {
+  private constructor(cmlModel: CmlModel, breRulesGroup: ConfiguratorRuleInput[], logger: Logger) {
     this.#logger = logger;
     this.#cmlModel = cmlModel;
-    this.#breRulesGroups = breRulesGroups;
+    this.#breRulesGroup = breRulesGroup;
 
     this.#virtualRoot = new CmlType(VIRTUAL_QUOTE_TYPE_NAME, undefined, undefined);
     this.#virtualRoot.setProperties({ virtual: true });
@@ -476,10 +476,10 @@ export class BreRulesGenerator {
 
   public static generateConstraints(
     cmlModel: CmlModel,
-    breRulesGroups: Map<string, ConfiguratorRuleInput[]>,
+    breRulesGroup: ConfiguratorRuleInput[],
     logger: Logger,
   ): void {
-    new BreRulesGenerator(cmlModel, breRulesGroups, logger).generate();
+    new BreRulesGenerator(cmlModel, breRulesGroup, logger).generate();
   }
 
   //  private info(msg: string): void {
@@ -495,24 +495,22 @@ export class BreRulesGenerator {
   //  }
 
   private generate(): void {
-    for (const rules of this.#breRulesGroups.values()) {
-      for (const rule of rules) {
-        try {
-          const ruleProductIds = extractProductIds(rule);
-          if (ruleProductIds.size < 1) {
-            continue;
-          }
-          const criteriaConstraints: CmlConstraint[] = [];
-          for (const criterion of rule.criteria) {
-            const criteriaConstraint = this.convertCriteria(rule, criterion);
-            criteriaConstraints.push(criteriaConstraint);
-          }
-          for (const action of rule.actions) {
-            this.convertAction(rule, action, criteriaConstraints);
-          }
-        } catch (e) {
-          this.warn(`❌  Failed to convert rule ${rule.apiName}. Error: ${(e as Error)?.message}\nSkip it.`);
+    for (const rule of this.#breRulesGroup) {
+      try {
+        const ruleProductIds = extractProductIds(rule);
+        if (ruleProductIds.size < 1) {
+          continue;
         }
+        const criteriaConstraints: CmlConstraint[] = [];
+        for (const criterion of rule.criteria) {
+          const criteriaConstraint = this.convertCriteria(rule, criterion);
+          criteriaConstraints.push(criteriaConstraint);
+        }
+        for (const action of rule.actions) {
+          this.convertAction(rule, action, criteriaConstraints);
+        }
+      } catch (e) {
+        this.warn(`❌  Failed to convert rule ${rule.apiName}. Error: ${(e as Error)?.message}\nSkip it.`);
       }
     }
 

@@ -95,11 +95,10 @@ export function groupByNonIntersectingProduct2(rules: ConfiguratorRuleInput[]): 
   }
 
   const result = new Map<string, ConfiguratorRuleInput[]>();
-  let groupCounter = 1;
 
   for (const group of rootToGroup.values()) {
     const ids = [...(ruleToProducts.get(group[0]) ?? [])];
-    const key = ids[0] || `group_${groupCounter++}`;
+    const key = ids.join(',');
     result.set(key, group);
   }
 
