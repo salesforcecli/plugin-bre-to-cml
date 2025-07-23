@@ -128,17 +128,14 @@ export default class CmlConvertProdCfgRules extends SfCommand<CmlConvertProdCfgR
 
     const products2 = reduceProducts(products);
 
-    const isProductIdInProductWithIds = (productId: string, productWithIds: ProductWithIds): boolean => {
-      return (
-        productWithIds.productIds.includes(productId) ||
-        productWithIds.productIds.some((pId) => pId.startsWith(productId) || productId.startsWith(pId))
-      );
-    };
+    const isProductIdInProductWithIds = (productId: string, productWithIds: ProductWithIds): boolean =>
+      productWithIds.productIds.includes(productId) ||
+      productWithIds.productIds.some((pId) => pId.startsWith(productId) || productId.startsWith(pId));
 
     const findProductWithIdsByProductIds = (
       productIds: string[],
       productsWithIds: ProductWithIds[],
-    ): Array<ProductWithIds> => {
+    ): ProductWithIds[] => {
       const result = new Set<ProductWithIds>();
       for (const productId of productIds) {
         for (const productWithIds of productsWithIds) {
@@ -152,7 +149,7 @@ export default class CmlConvertProdCfgRules extends SfCommand<CmlConvertProdCfgR
     };
 
     const productsWithRules = new Map<ProductWithIds[], ConfiguratorRuleInput[]>();
-    for (const [group, rules] of groups) {
+    for (const [group, rulesInGroup] of groups) {
       const productIdsInGroup = group.split(',');
       const productsForRulesInGroup = findProductWithIdsByProductIds(
         Array.from(productIdsInGroup),
@@ -165,7 +162,9 @@ export default class CmlConvertProdCfgRules extends SfCommand<CmlConvertProdCfgR
             productsForRulesInGroup.some((pwiInGroup) => isProductIdInProductWithIds(pwiInGroup.product.id, pwi)),
           )
         ) {
-          rr.push(...rules);
+          rulesInGroup
+            .filter((ruleInGroup) => !rr.some(({ apiName }) => apiName === ruleInGroup.apiName))
+            .forEach((ruleInGroup) => rr.push(ruleInGroup));
           productsForRulesInGroup
             .filter((pwiInGroup) => !pp.some((pwi) => isProductIdInProductWithIds(pwiInGroup.product.id, pwi)))
             .forEach((pwiInGroup) => pp.push(pwiInGroup));
@@ -174,55 +173,66 @@ export default class CmlConvertProdCfgRules extends SfCommand<CmlConvertProdCfgR
         }
       }
       if (!found) {
-        productsWithRules.set(productsForRulesInGroup, rules);
+        productsWithRules.set(productsForRulesInGroup, rulesInGroup);
       }
     }
 
     let index = 0;
-    for (const [productsWithIds, rulesInGroup] of productsWithRules) {
-      this.log(`📦 Generating CML model for rules ${rulesInGroup.map(({ apiName }) => apiName).join(', ')}`);
+    const genCmlPromises = Array.from(productsWithRules.entries()).map(([productsWithIds, rulesInGroup]) =>
+      this.generateCmlForProductsAndRulesGroup(rulesInGroup, productsWithIds, safeApi, index++, workspaceDir),
+    );
 
-      const cmlModel = newCmlModel();
-      const modelInfo = PcmGenerator.generateViewModels(
-        cmlModel,
-        productsWithIds.map(({ product }) => product),
-      );
-      for (const type of modelInfo.types) {
-        modelInfo.attributes.get(type.name)?.forEach((attr) => type.addAttribute(attr));
-        modelInfo.relations.get(type.name)?.forEach((rel) => type.addRelation(rel));
-        cmlModel.addType(type);
-      }
-      for (const association of modelInfo.associations) {
-        cmlModel.addAssociation(association);
-      }
-
-      BreRulesGenerator.generateConstraints(cmlModel, rulesInGroup, {
-        info: (msg) => this.log(msg),
-        warn: (msg) => this.warn(msg),
-        error: (msg) => this.error(msg),
-      });
-
-      const cmlContent = cmlModel.generateCml();
-      const associationsCsvContent = generateCsvForAssociations(safeApi, cmlModel.associations);
-
-      const cmlFileName = `${safeApi}_${index}.cml`;
-      const associationsFileName = `${safeApi}_${index}_Associations.csv`;
-      const fullPath = workspaceDir ? `${workspaceDir}/${cmlFileName}` : cmlFileName;
-      const associationsFullPath = workspaceDir ? `${workspaceDir}/${associationsFileName}` : associationsFileName;
-
-      this.log(`📦 Writing CML content to ${cmlFileName}`);
-
-      await fs.writeFile(fullPath, cmlContent, 'utf8');
-      await fs.writeFile(associationsFullPath, associationsCsvContent, 'utf8');
-
-      this.log(`✅ Wrote CML to ${fullPath} with related associations to ${associationsFullPath}`);
-      index++;
-    }
+    await Promise.all(genCmlPromises);
 
     this.log('✅ Done');
 
     return {
       path: 'src/commands/cml/convert/prod-cfg-rules.ts',
     };
+  }
+
+  private async generateCmlForProductsAndRulesGroup(
+    rulesInGroup: ConfiguratorRuleInput[],
+    productsWithIds: ProductWithIds[],
+    safeApi: string,
+    index: number,
+    workspaceDir: string | undefined,
+  ): Promise<void> {
+    this.log(`📦 Generating CML model for rules ${rulesInGroup.map(({ apiName }) => apiName).join(', ')}`);
+
+    const cmlModel = newCmlModel();
+    const modelInfo = PcmGenerator.generateViewModels(
+      cmlModel,
+      productsWithIds.map(({ product }) => product),
+    );
+    for (const type of modelInfo.types) {
+      modelInfo.attributes.get(type.name)?.forEach((attr) => type.addAttribute(attr));
+      modelInfo.relations.get(type.name)?.forEach((rel) => type.addRelation(rel));
+      cmlModel.addType(type);
+    }
+    for (const association of modelInfo.associations) {
+      cmlModel.addAssociation(association);
+    }
+
+    BreRulesGenerator.generateConstraints(cmlModel, rulesInGroup, {
+      info: (msg) => this.log(msg),
+      warn: (msg) => this.warn(msg),
+      error: (msg) => this.error(msg),
+    });
+
+    const cmlContent = cmlModel.generateCml();
+    const associationsCsvContent = generateCsvForAssociations(safeApi, cmlModel.associations);
+
+    const cmlFileName = `${safeApi}_${index}.cml`;
+    const associationsFileName = `${safeApi}_${index}_Associations.csv`;
+    const fullPath = workspaceDir ? `${workspaceDir}/${cmlFileName}` : cmlFileName;
+    const associationsFullPath = workspaceDir ? `${workspaceDir}/${associationsFileName}` : associationsFileName;
+
+    this.log(`📦 Writing CML content to ${cmlFileName}`);
+
+    await fs.writeFile(fullPath, cmlContent, 'utf8');
+    await fs.writeFile(associationsFullPath, associationsCsvContent, 'utf8');
+
+    this.log(`✅ Wrote CML to ${fullPath} with related associations to ${associationsFullPath}`);
   }
 }
