@@ -126,19 +126,30 @@ export default class CmlConvertProdCfgRules extends SfCommand<CmlConvertProdCfgR
 
     this.log('📦 Convert products and BRE rules to CML');
 
+    /*
+     * We need to reduce the products to have on top level only bundle products and simple products
+     * that are not contained in any other bundle product structure.
+     *
+     * In example, we have products in map:
+     * - Laptop Pro Bundle
+     * - Laptop
+     * - Printer Bundle
+     * - "Some Product Not From Laptop Pro Bundle"
+     *
+     * We need to reduce it to:
+     * - Laptop Pro Bundle
+     * - "Some Product Not From Laptop Pro Bundle"
+     */
     const products2 = reduceProducts(products);
 
     const isProductIdInProductWithIds = (productId: string, productWithIds: ProductWithIds): boolean =>
       productWithIds.productIds.includes(productId) ||
       productWithIds.productIds.some((pId) => pId.startsWith(productId) || productId.startsWith(pId));
 
-    const findProductWithIdsByProductIds = (
-      productIds: string[],
-      productsWithIds: ProductWithIds[],
-    ): ProductWithIds[] => {
+    const findProductWithIdsByProductIds = (productIds: string[]): ProductWithIds[] => {
       const result = new Set<ProductWithIds>();
       for (const productId of productIds) {
-        for (const productWithIds of productsWithIds) {
+        for (const productWithIds of products2.values()) {
           if (isProductIdInProductWithIds(productId, productWithIds)) {
             result.add(productWithIds);
             break;
@@ -148,20 +159,33 @@ export default class CmlConvertProdCfgRules extends SfCommand<CmlConvertProdCfgR
       return Array.from(result);
     };
 
+    /*
+     * Group non-intersecting rules groups by top-level products.
+     *
+     * In example, we have rules for products:
+     * - Rule1 - for Laptop and Mouse
+     * - Rule2 - for Printer and Printer Paper
+     * - Rule3 - for Mouse
+     * - Rule4 - for "Some Product Not From Laptop Pro Bundle"
+     *
+     * These rules will be grouped by top-level products:
+     * - Laptop Pro Bundle - Rule1, Rule2, Rule3
+     * - "Some Product Not From Laptop Pro Bundle" - Rule4
+     */
     const productsWithRules = new Map<ProductWithIds[], ConfiguratorRuleInput[]>();
     for (const [group, rulesInGroup] of groups) {
       const productIdsInGroup = group.split(',');
-      const productsForRulesInGroup = findProductWithIdsByProductIds(
-        Array.from(productIdsInGroup),
-        Array.from(products2.values()),
-      );
+      // Find top-level products for given rules group.
+      const productsForRulesInGroup = findProductWithIdsByProductIds(Array.from(productIdsInGroup));
       let found = false;
       for (const [pp, rr] of productsWithRules) {
+        // If there is any product that is in both groups, then we can merge them.
         if (
           pp.some((pwi) =>
             productsForRulesInGroup.some((pwiInGroup) => isProductIdInProductWithIds(pwiInGroup.product.id, pwi)),
           )
         ) {
+          // Merge rules and products.
           rulesInGroup
             .filter((ruleInGroup) => !rr.some(({ apiName }) => apiName === ruleInGroup.apiName))
             .forEach((ruleInGroup) => rr.push(ruleInGroup));
@@ -172,11 +196,13 @@ export default class CmlConvertProdCfgRules extends SfCommand<CmlConvertProdCfgR
           break;
         }
       }
+      // If no product was found, then we can add new group.
       if (!found) {
         productsWithRules.set(productsForRulesInGroup, rulesInGroup);
       }
     }
 
+    // Generate CML for each group of products and rules.
     let index = 0;
     const genCmlPromises = Array.from(productsWithRules.entries()).map(([productsWithIds, rulesInGroup]) =>
       this.generateCmlForProductsAndRulesGroup(rulesInGroup, productsWithIds, safeApi, index++, workspaceDir),
@@ -191,6 +217,15 @@ export default class CmlConvertProdCfgRules extends SfCommand<CmlConvertProdCfgR
     };
   }
 
+  /**
+   * Generates CML model for given products and rules.
+   *
+   * @param {Array} rulesInGroup - Array of rules for given products.
+   * @param {Array} productsWithIds - Array of products with ids.
+   * @param {string} safeApi - Safe API name of target CML.
+   * @param {number} index - Index of the group.
+   * @param {string | undefined} workspaceDir - Workspace directory.
+   */
   private async generateCmlForProductsAndRulesGroup(
     rulesInGroup: ConfiguratorRuleInput[],
     productsWithIds: ProductWithIds[],
