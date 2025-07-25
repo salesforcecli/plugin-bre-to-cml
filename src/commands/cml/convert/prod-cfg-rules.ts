@@ -3,7 +3,7 @@ import { SfCommand, Flags } from '@salesforce/sf-plugins-core';
 import { Messages } from '@salesforce/core';
 import { ConfiguratorRuleInput } from '../../../shared/models.js';
 import { extractProductIds, groupByNonIntersectingProduct2 } from '../../../shared/grouping.js';
-import { fetchProductsFromPcm } from '../../../shared/pcm-products.js';
+import { fetchProductsFromPcm, ProductWithIds, reduceProducts } from '../../../shared/pcm-products.js';
 import { BreRulesGenerator } from '../../../shared/bre-rules-generator.js';
 import { PcmGenerator } from '../../../shared/pcm-generator.js';
 import { BASE_LINE_ITEM_TYPE_NAME, CmlModel, CmlType } from '../../../shared/types/types.js';
@@ -126,8 +126,120 @@ export default class CmlConvertProdCfgRules extends SfCommand<CmlConvertProdCfgR
 
     this.log('📦 Convert products and BRE rules to CML');
 
+    /*
+     * We need to reduce the products to have on top level only bundle products and simple products
+     * that are not contained in any other bundle product structure.
+     *
+     * In example, we have products in map:
+     * - Laptop Pro Bundle
+     * - Laptop
+     * - Printer Bundle
+     * - "Some Product Not From Laptop Pro Bundle"
+     *
+     * We need to reduce it to:
+     * - Laptop Pro Bundle
+     * - "Some Product Not From Laptop Pro Bundle"
+     */
+    const products2 = reduceProducts(products);
+
+    const isProductIdInProductWithIds = (productId: string, productWithIds: ProductWithIds): boolean =>
+      productWithIds.productIds.includes(productId) ||
+      productWithIds.productIds.some((pId) => pId.startsWith(productId) || productId.startsWith(pId));
+
+    const findProductWithIdsByProductIds = (productIds: string[]): ProductWithIds[] => {
+      const result = new Set<ProductWithIds>();
+      for (const productId of productIds) {
+        for (const productWithIds of products2.values()) {
+          if (isProductIdInProductWithIds(productId, productWithIds)) {
+            result.add(productWithIds);
+            break;
+          }
+        }
+      }
+      return Array.from(result);
+    };
+
+    /*
+     * Group non-intersecting rules groups by top-level products.
+     *
+     * In example, we have rules for products:
+     * - Rule1 - for Laptop and Mouse
+     * - Rule2 - for Printer and Printer Paper
+     * - Rule3 - for Mouse
+     * - Rule4 - for "Some Product Not From Laptop Pro Bundle"
+     *
+     * These rules will be grouped by top-level products:
+     * - Laptop Pro Bundle - Rule1, Rule2, Rule3
+     * - "Some Product Not From Laptop Pro Bundle" - Rule4
+     */
+    const productsWithRules = new Map<ProductWithIds[], ConfiguratorRuleInput[]>();
+    for (const [group, rulesInGroup] of groups) {
+      const productIdsInGroup = group.split(',');
+      // Find top-level products for given rules group.
+      const productsForRulesInGroup = findProductWithIdsByProductIds(Array.from(productIdsInGroup));
+      let found = false;
+      for (const [pp, rr] of productsWithRules) {
+        // If there is any product that is in both groups, then we can merge them.
+        if (
+          pp.some((pwi) =>
+            productsForRulesInGroup.some((pwiInGroup) => isProductIdInProductWithIds(pwiInGroup.product.id, pwi)),
+          )
+        ) {
+          // Merge rules and products.
+          rulesInGroup
+            .filter((ruleInGroup) => !rr.some(({ apiName }) => apiName === ruleInGroup.apiName))
+            .forEach((ruleInGroup) => rr.push(ruleInGroup));
+          productsForRulesInGroup
+            .filter((pwiInGroup) => !pp.some((pwi) => isProductIdInProductWithIds(pwiInGroup.product.id, pwi)))
+            .forEach((pwiInGroup) => pp.push(pwiInGroup));
+          found = true;
+          break;
+        }
+      }
+      // If no product was found, then we can add new group.
+      if (!found) {
+        productsWithRules.set(productsForRulesInGroup, rulesInGroup);
+      }
+    }
+
+    // Generate CML for each group of products and rules.
+    let index = 0;
+    const genCmlPromises = Array.from(productsWithRules.entries()).map(([productsWithIds, rulesInGroup]) =>
+      this.generateCmlForProductsAndRulesGroup(rulesInGroup, productsWithIds, safeApi, index++, workspaceDir),
+    );
+
+    await Promise.all(genCmlPromises);
+
+    this.log('✅ Done');
+
+    return {
+      path: 'src/commands/cml/convert/prod-cfg-rules.ts',
+    };
+  }
+
+  /**
+   * Generates CML model for given products and rules.
+   *
+   * @param {Array} rulesInGroup - Array of rules for given products.
+   * @param {Array} productsWithIds - Array of products with ids.
+   * @param {string} safeApi - Safe API name of target CML.
+   * @param {number} index - Index of the group.
+   * @param {string | undefined} workspaceDir - Workspace directory.
+   */
+  private async generateCmlForProductsAndRulesGroup(
+    rulesInGroup: ConfiguratorRuleInput[],
+    productsWithIds: ProductWithIds[],
+    safeApi: string,
+    index: number,
+    workspaceDir: string | undefined,
+  ): Promise<void> {
+    this.log(`📦 Generating CML model for rules ${rulesInGroup.map(({ apiName }) => apiName).join(', ')}`);
+
     const cmlModel = newCmlModel();
-    const modelInfo = PcmGenerator.generateViewModels(cmlModel, Array.from(products.values()));
+    const modelInfo = PcmGenerator.generateViewModels(
+      cmlModel,
+      productsWithIds.map(({ product }) => product),
+    );
     for (const type of modelInfo.types) {
       modelInfo.attributes.get(type.name)?.forEach((attr) => type.addAttribute(attr));
       modelInfo.relations.get(type.name)?.forEach((rel) => type.addRelation(rel));
@@ -137,7 +249,7 @@ export default class CmlConvertProdCfgRules extends SfCommand<CmlConvertProdCfgR
       cmlModel.addAssociation(association);
     }
 
-    BreRulesGenerator.generateConstraints(cmlModel, groups, {
+    BreRulesGenerator.generateConstraints(cmlModel, rulesInGroup, {
       info: (msg) => this.log(msg),
       warn: (msg) => this.warn(msg),
       error: (msg) => this.error(msg),
@@ -146,8 +258,8 @@ export default class CmlConvertProdCfgRules extends SfCommand<CmlConvertProdCfgR
     const cmlContent = cmlModel.generateCml();
     const associationsCsvContent = generateCsvForAssociations(safeApi, cmlModel.associations);
 
-    const cmlFileName = `${safeApi}.cml`;
-    const associationsFileName = `${safeApi}_Associations.csv`;
+    const cmlFileName = `${safeApi}_${index}.cml`;
+    const associationsFileName = `${safeApi}_${index}_Associations.csv`;
     const fullPath = workspaceDir ? `${workspaceDir}/${cmlFileName}` : cmlFileName;
     const associationsFullPath = workspaceDir ? `${workspaceDir}/${associationsFileName}` : associationsFileName;
 
@@ -156,12 +268,6 @@ export default class CmlConvertProdCfgRules extends SfCommand<CmlConvertProdCfgR
     await fs.writeFile(fullPath, cmlContent, 'utf8');
     await fs.writeFile(associationsFullPath, associationsCsvContent, 'utf8');
 
-    this.log(`✅ Wrote CML to ${fullPath}`);
-
-    this.log('✅ Done');
-
-    return {
-      path: 'src/commands/cml/convert/prod-cfg-rules.ts',
-    };
+    this.log(`✅ Wrote CML to ${fullPath} with related associations to ${associationsFullPath}`);
   }
 }
