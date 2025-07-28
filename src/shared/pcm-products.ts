@@ -1,3 +1,4 @@
+import lodash from 'lodash';
 import { Connection } from '@salesforce/core';
 import { PCMProduct, PCMProductComponentGroup } from './pcm-products.types.js';
 
@@ -32,8 +33,30 @@ export async function fetchProductsFromPcm(
     conn.requestPost<{ products: PCMProduct[] }>(PCM_PRODUCTS_BULK_URI, getPostBulkBody(productIds)),
   );
   const allProducts = new Map<string, PCMProduct>();
-  (await Promise.all(fetchPromises)).flatMap((resp) => resp.products).forEach((p) => allProducts.set(p.id, p));
+  (await Promise.all(fetchPromises))
+    .flatMap((resp) => resp.products)
+    .forEach((p) => allProducts.set(p.id, unescapeProductName(p)));
   return allProducts;
+}
+
+/**
+ * Do unescape of PCMProduct.name recursively.
+ * - &amp; -> &
+ *
+ * @param {PCMProduct} product - PCM product.
+ * @returns {PCMProduct} PCM Product with unescaped name.
+ */
+function unescapeProductName(product: PCMProduct): PCMProduct {
+  product.name = lodash.unescape(product.name);
+  product.childProducts?.forEach((childProduct) => unescapeProductName(childProduct));
+  product.productComponentGroups?.forEach((group) => unescapeProductNameInPCGroup(group));
+  return product;
+}
+
+// helper function for unescapeProductName
+function unescapeProductNameInPCGroup(productComponentGroup: PCMProductComponentGroup): void {
+  productComponentGroup.childGroups?.forEach((childGroup) => unescapeProductNameInPCGroup(childGroup));
+  productComponentGroup.components?.forEach((component) => unescapeProductName(component));
 }
 
 /**
@@ -42,7 +65,7 @@ export async function fetchProductsFromPcm(
  * @param {Map} productMap - Map of PCM products.
  * @returns {Map} Reduced map of PCM products with all ids presented in PCM products structure.
  */
-export function reduceProducts(productMap: Map<string, PCMProduct>): Map<string, ProductWithIds> {
+export function reduceProductsToRootLevelOnly(productMap: Map<string, PCMProduct>): Map<string, ProductWithIds> {
   const newMap = new Map<string, ProductWithIds>();
   for (const [productId, product] of productMap) {
     newMap.set(productId, { product, productIds: collectProductIds(product) });
