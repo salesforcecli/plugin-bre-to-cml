@@ -114,7 +114,7 @@ export default class CmlImportAsExpressionSet extends SfCommand<CmlImportAsExpre
     if (productIdsStr?.length) {
       const productsSoql = `SELECT Id,Name FROM Product2 WHERE Name IN (${productIdsStr})`;
       const productsQuery = await conn.query(productsSoql, { autoFetch: true });
-      productsQuery.records.forEach((r) => 
+      productsQuery.records.forEach((r) =>
         productNameToId.set(`${r.Name as string}`, `${r.Id as string}`)
       );
     }
@@ -127,24 +127,26 @@ export default class CmlImportAsExpressionSet extends SfCommand<CmlImportAsExpre
     if (classIdsStr?.length) {
       const classificationsSoql = `SELECT Id,Name FROM ProductClassification WHERE Name IN (${classIdsStr})`;
       const classificationsQuery = await conn.query(classificationsSoql, { autoFetch: true });
-      classificationsQuery.records.forEach((r) => 
+      classificationsQuery.records.forEach((r) =>
         classNameToId.set(`${r.Name as string}`, `${r.Id as string}`)
       );
     }
 
     const parentAndChildToPrcId = new Map<string, Map<string, string>>();
     const parentProductIds: string[] = [...productNameToId.values()];
-    const prcSoql = `SELECT Id, ParentProductId, ChildProductId, ChildProductClassificationId FROM ProductRelatedComponent WHERE ParentProductId IN (${parentProductIds.map((id) => `'${id}'`).join(',')})`;
-    (await conn.query(prcSoql, { autoFetch: true })).records.forEach((r) => {
-      if (!parentAndChildToPrcId.has(r.ParentProductId as string)) {
-        parentAndChildToPrcId.set(r.ParentProductId as string, new Map<string, string>());
-      }
-      const childToPrcId = parentAndChildToPrcId.get(r.ParentProductId as string);
-      childToPrcId?.set(
-        (r.ChildProductId as string) ?? (r.ChildProductClassificationId as string) ?? 'unexpected',
-        (r.Id as string) ?? 'unexpected',
-      );
-    });
+    if (parentProductIds.length > 0) {
+      const prcSoql = `SELECT Id, ParentProductId, ChildProductId, ChildProductClassificationId FROM ProductRelatedComponent WHERE ParentProductId IN (${parentProductIds.map((id) => `'${id}'`).join(',')})`;
+      (await conn.query(prcSoql, { autoFetch: true })).records.forEach((r) => {
+        if (!parentAndChildToPrcId.has(r.ParentProductId as string)) {
+          parentAndChildToPrcId.set(r.ParentProductId as string, new Map<string, string>());
+        }
+        const childToPrcId = parentAndChildToPrcId.get(r.ParentProductId as string);
+        childToPrcId?.set(
+          (r.ChildProductId as string) ?? (r.ChildProductClassificationId as string) ?? 'unexpected',
+          (r.Id as string) ?? 'unexpected',
+        );
+      });
+    }
 
     const newAssociations = [
       ...typeAssociations.map(

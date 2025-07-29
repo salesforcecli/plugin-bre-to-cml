@@ -3,7 +3,7 @@ import { SfCommand, Flags } from '@salesforce/sf-plugins-core';
 import { Messages } from '@salesforce/core';
 import { ConfiguratorRuleInput } from '../../../shared/models.js';
 import { extractProductIds, groupByNonIntersectingProduct2 } from '../../../shared/grouping.js';
-import { fetchProductsFromPcm, ProductWithIds, reduceProducts } from '../../../shared/pcm-products.js';
+import { fetchProductsFromPcm, ProductWithIds, reduceProductsToRootLevelOnly } from '../../../shared/pcm-products.js';
 import { BreRulesGenerator } from '../../../shared/bre-rules-generator.js';
 import { PcmGenerator } from '../../../shared/pcm-generator.js';
 import { BASE_LINE_ITEM_TYPE_NAME, CmlModel, CmlType } from '../../../shared/types/types.js';
@@ -140,7 +140,7 @@ export default class CmlConvertProdCfgRules extends SfCommand<CmlConvertProdCfgR
      * - Laptop Pro Bundle
      * - "Some Product Not From Laptop Pro Bundle"
      */
-    const products2 = reduceProducts(products);
+    const rootLevelProducts = reduceProductsToRootLevelOnly(products);
 
     const isProductIdInProductWithIds = (productId: string, productWithIds: ProductWithIds): boolean =>
       productWithIds.productIds.includes(productId) ||
@@ -149,7 +149,7 @@ export default class CmlConvertProdCfgRules extends SfCommand<CmlConvertProdCfgR
     const findProductWithIdsByProductIds = (productIds: string[]): ProductWithIds[] => {
       const result = new Set<ProductWithIds>();
       for (const productId of productIds) {
-        for (const productWithIds of products2.values()) {
+        for (const productWithIds of rootLevelProducts.values()) {
           if (isProductIdInProductWithIds(productId, productWithIds)) {
             result.add(productWithIds);
             break;
@@ -178,20 +178,20 @@ export default class CmlConvertProdCfgRules extends SfCommand<CmlConvertProdCfgR
       // Find top-level products for given rules group.
       const productsForRulesInGroup = findProductWithIdsByProductIds(Array.from(productIdsInGroup));
       let found = false;
-      for (const [pp, rr] of productsWithRules) {
+      for (const [targetGroupProducts, targetGroupRules] of productsWithRules) {
         // If there is any product that is in both groups, then we can merge them.
         if (
-          pp.some((pwi) =>
+          targetGroupProducts.some((pwi) =>
             productsForRulesInGroup.some((pwiInGroup) => isProductIdInProductWithIds(pwiInGroup.product.id, pwi)),
           )
         ) {
           // Merge rules and products.
           rulesInGroup
-            .filter((ruleInGroup) => !rr.some(({ apiName }) => apiName === ruleInGroup.apiName))
-            .forEach((ruleInGroup) => rr.push(ruleInGroup));
+            .filter((ruleInGroup) => !targetGroupRules.some(({ apiName }) => apiName === ruleInGroup.apiName))
+            .forEach((ruleInGroup) => targetGroupRules.push(ruleInGroup));
           productsForRulesInGroup
-            .filter((pwiInGroup) => !pp.some((pwi) => isProductIdInProductWithIds(pwiInGroup.product.id, pwi)))
-            .forEach((pwiInGroup) => pp.push(pwiInGroup));
+            .filter((pwiInGroup) => !targetGroupProducts.some((pwi) => isProductIdInProductWithIds(pwiInGroup.product.id, pwi)))
+            .forEach((pwiInGroup) => targetGroupProducts.push(pwiInGroup));
           found = true;
           break;
         }
