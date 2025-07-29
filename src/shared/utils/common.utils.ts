@@ -357,9 +357,9 @@ export function formatToDisplayDate(date: Date): string {
  */
 export function unescapeHtml(source: string): string {
   return source
-    .replaceAll('&amp;', '&')
-    .replaceAll('&gt;', '>')
-    .replaceAll('&lt;', '<')
-    .replaceAll('&quot;', '"')
-    .replaceAll('&#39;', "'");
+    .replace(/&amp;/g, '&')
+    .replace(/&gt;/g, '>')
+    .replace(/&lt;/g, '<')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
 }
