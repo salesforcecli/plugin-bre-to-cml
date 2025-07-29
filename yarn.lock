@@ -2116,13 +2116,11 @@ __metadata:
     "@salesforce/core": "npm:^8"
     "@salesforce/dev-scripts": "npm:^10"
     "@salesforce/sf-plugins-core": "npm:^12"
-    "@types/lodash": "npm:^4.17.20"
     "@types/node": "npm:^22.14.1"
     csv-parse: "npm:^5.6.0"
     eslint-plugin-sf-plugin: "npm:^1.18.6"
     got: "npm:12"
     husky: "npm:^9.1.7"
-    lodash: "npm:^4.17.21"
     oclif: "npm:^4.14.0"
     prettier: "npm:^3.5.3"
     pretty-quick: "npm:^4.1.1"
@@ -3005,13 +3003,6 @@ __metadata:
   version: 0.0.29
   resolution: "@types/json5@npm:0.0.29"
   checksum: 10c0/6bf5337bc447b706bb5b4431d37686aa2ea6d07cfd6f79cc31de80170d6ff9b1c7384a9c0ccbc45b3f512bae9e9f75c2e12109806a15331dc94e8a8db6dbb4ac
-  languageName: node
-  linkType: hard
-
-"@types/lodash@npm:^4.17.20":
-  version: 4.17.20
-  resolution: "@types/lodash@npm:4.17.20"
-  checksum: 10c0/98cdd0faae22cbb8079a01a3bb65aa8f8c41143367486c1cbf5adc83f16c9272a2a5d2c1f541f61d0d73da543c16ee1d21cf2ef86cb93cd0cc0ac3bced6dd88f
   languageName: node
   linkType: hard
 

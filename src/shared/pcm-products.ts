@@ -1,6 +1,6 @@
-import lodash from 'lodash';
 import { Connection } from '@salesforce/core';
 import { PCMProduct, PCMProductComponentGroup } from './pcm-products.types.js';
+import { unescapeHtml } from './utils/common.utils.js';
 
 const PCM_PRODUCTS_BULK_LIMIT = 20;
 const PCM_PRODUCTS_BULK_URI = '/connect/pcm/products/bulk';
@@ -47,7 +47,7 @@ export async function fetchProductsFromPcm(
  * @returns {PCMProduct} PCM Product with unescaped name.
  */
 function unescapeProductName(product: PCMProduct): PCMProduct {
-  product.name = lodash.unescape(product.name);
+  product.name = unescapeHtml(product.name);
   product.childProducts?.forEach((childProduct) => unescapeProductName(childProduct));
   product.productComponentGroups?.forEach((group) => unescapeProductNameInPCGroup(group));
   return product;

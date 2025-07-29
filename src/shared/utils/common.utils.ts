@@ -348,3 +348,18 @@ export function formatToCmlDate(date: Date): string {
 export function formatToDisplayDate(date: Date): string {
   return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 }
+
+/**
+ * Converts the HTML entities &amp;, &lt;, &gt;, &quot;, and &#39; in string to their corresponding characters.
+ *
+ * @param {string} source - The source string
+ * @returns {string} The string with unescaped HTML characters.
+ */
+export function unescapeHtml(source: string): string {
+  return source
+    .replaceAll('&amp;', '&')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&#39;', "'");
+}
