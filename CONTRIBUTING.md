@@ -5,7 +5,7 @@
 1. Follow the [Environment Setup](DEVELOPING.md#environment-setup) docs for instructions on configuring your machine.
 1. Follow the [Development Cycle](DEVELOPING.md#development-cycle) docs for details on the development process.
 1. The CLI team will review your pull request and provide feedback.
-1. Once merged, a new release of the `NPM_PACKAGE_NAME` plugin will be published to [npm](https://www.npmjs.com/package/NPM_PACKAGE_NAME).
+1. Once merged, a new release of the `plugin-bre-to-cml` plugin will be published to [npm](https://www.npmjs.com/package/plugin-bre-to-cml).
 
 ### CLA
 
@@ -30,4 +30,4 @@ Agreement. You can do so by going to https://cla.salesforce.com/sign-cla.
 
 ## Releasing
 
-- A new version of this plugin (`NPM_PACKAGE_NAME`) will be published upon merging PRs to `main`, with the version number increment based on commitizen rules.
+- A new version of this plugin (`plugin-bre-to-cml`) will be published upon merging PRs to `main`, with the version number increment based on commitizen rules.
