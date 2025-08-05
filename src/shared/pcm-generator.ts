@@ -1,3 +1,18 @@
+/*
+ * Copyright 2025, Salesforce, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 import { ASSOCIATION_TYPES, CML_DATA_TYPES, CML_VARIABLE_VALUE_TYPES } from './constants/constants.js';
 import {
   getRelationAssociationForRelationAndReferenceObjectId,
@@ -28,7 +43,7 @@ export class PcmGenerator {
   public static generateType(
     model: CmlModel,
     product: PCMProduct,
-    existingProductIdsToTypes: Map<string, CmlType>,
+    existingProductIdsToTypes: Map<string, CmlType>
   ): { type: CmlType; association?: Association } {
     const existingTypeName = getTypeNameForRelatedObjectId(model.associations, product.id);
     if (existingTypeName) {
@@ -60,7 +75,7 @@ export class PcmGenerator {
       ASSOCIATION_TYPES.TYPE,
       referenceObjectId,
       referenceObjectType,
-      referenceObjectReferenceValue,
+      referenceObjectReferenceValue
     );
 
     return {
@@ -82,7 +97,7 @@ export class PcmGenerator {
     model: CmlModel,
     type: CmlType,
     rootProduct: PCMProduct,
-    childProducts: PCMProduct[],
+    childProducts: PCMProduct[]
   ): { associations: Association[]; relations: CmlRelation[]; types: CmlType[] } {
     const relations: CmlRelation[] = [];
     const types: CmlType[] = [];
@@ -95,7 +110,7 @@ export class PcmGenerator {
     const existingAssociation = getTypeAssociationForTypeAndReferenceObjectId(model.associations, type, rootProductId);
     if (!existingAssociation) {
       associations.push(
-        new Association(null, type.name, ASSOCIATION_TYPES.TYPE, rootProductId, 'Product2', rootProduct.name),
+        new Association(null, type.name, ASSOCIATION_TYPES.TYPE, rootProductId, 'Product2', rootProduct.name)
       );
     }
 
@@ -118,7 +133,7 @@ export class PcmGenerator {
         childProduct,
         rootProduct,
         prc,
-        existingPrcIdsToRelations,
+        existingPrcIdsToRelations
       );
       relations.push(childRelationResult.relation);
       existingPrcIdsToRelations.set(prc.id, childRelationResult.relation);
@@ -136,7 +151,7 @@ export class PcmGenerator {
   // generate types, attributes, relations, associations
   public static generateViewModels(
     model: CmlModel,
-    productsToAdd: PCMProduct[],
+    productsToAdd: PCMProduct[]
   ): {
     types: CmlType[];
     associations: Association[];
@@ -186,7 +201,7 @@ export class PcmGenerator {
           product,
           productComponents,
           existingProductIdsToTypes,
-          existingPrcIdsToRelations,
+          existingPrcIdsToRelations
         );
         if (childTypesInfo.types && childTypesInfo.types.length > 0) {
           types.push(...childTypesInfo.types);
@@ -224,7 +239,7 @@ export class PcmGenerator {
     types: CmlType[] = [],
     associations: Association[] = [],
     relations: Map<string, CmlRelation[]> = new Map<string, CmlRelation[]>(),
-    attributes: Map<string, CmlAttribute[]> = new Map<string, CmlAttribute[]>(),
+    attributes: Map<string, CmlAttribute[]> = new Map<string, CmlAttribute[]>()
   ): {
     associations: Association[];
     relations: Map<string, CmlRelation[]>;
@@ -267,7 +282,7 @@ export class PcmGenerator {
           childProduct,
           parentProduct,
           prc,
-          existingPrcIdsToRelations,
+          existingPrcIdsToRelations
         );
         const relationsForTypeId = relations.get(type.name) ?? [];
         if (!relationsForTypeId.includes(childRelationInfo.relation)) {
@@ -293,7 +308,7 @@ export class PcmGenerator {
           types,
           associations,
           relations,
-          attributes,
+          attributes
         );
       }
     }
@@ -312,7 +327,7 @@ export class PcmGenerator {
     childProductComponent: PCMProduct,
     parentProduct: PCMProduct,
     prc: PCMProductRelatedComponent,
-    existingPrcIdsToRelations: Map<string, CmlRelation>,
+    existingPrcIdsToRelations: Map<string, CmlRelation>
   ): { association?: Association; relation: CmlRelation } {
     const existingRelationName = getRelationNameForRelatedObjectId(model.associations, prc.id);
     if (existingRelationName) {
@@ -329,7 +344,7 @@ export class PcmGenerator {
     const relationName = generateUniqueRelationName(
       parentProductType,
       childProductType.name,
-      existingPrcIdsToRelations,
+      existingPrcIdsToRelations
     );
     const relation = new CmlRelation(relationName, childProductType.name);
 
@@ -357,7 +372,7 @@ export class PcmGenerator {
     const hasExistingAssociation = getRelationAssociationForRelationAndReferenceObjectId(
       model.associations,
       relation,
-      prc.id,
+      prc.id
     );
     if (hasExistingAssociation) {
       return {
@@ -376,7 +391,7 @@ export class PcmGenerator {
       ASSOCIATION_TYPES.RELATION,
       prc.id,
       'ProductRelatedComponent',
-      referenceObjectReferenceValue,
+      referenceObjectReferenceValue
     );
 
     return {
@@ -512,7 +527,7 @@ export function generateDomain(attribute: PCMProductAttribute): CmlDomain | null
 export function generateUniqueTypeName(
   model: CmlModel,
   productName: string,
-  existingProductIdsToTypes: Map<string, CmlType>,
+  existingProductIdsToTypes: Map<string, CmlType>
 ): string {
   // Remove invalid characters and ensure the name starts with an alphabetic character
   let name = productName
@@ -554,7 +569,7 @@ export function generateUniqueTypeName(
 export function generateUniqueRelationName(
   parentProductType: CmlType,
   childProductTypeName: string,
-  existingPrcIdsToRelations: Map<string, CmlRelation>,
+  existingPrcIdsToRelations: Map<string, CmlRelation>
 ): string {
   // product type name
   const baseName = childProductTypeName.toLowerCase(); // lowercased child

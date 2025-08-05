@@ -1,3 +1,18 @@
+/*
+ * Copyright 2025, Salesforce, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 import { CML_DATA_TYPES, CONSTRAINT_TYPES } from './constants/constants.js';
 import { extractProductIds } from './grouping.js';
 import {
@@ -36,7 +51,7 @@ function generatePath(arc: Arc): IntermediateRelation[] {
 function calculateItermediateRelations(cmlModel: CmlModel): IntermediateRelation[] {
   const cmlTypes = cmlModel.types;
   const relations: IntermediateRelation[] = cmlTypes.flatMap((t) =>
-    t.relations.map((r) => ({ parent: t.name, rel: r.name, target: r.type, neighbors: [] })),
+    t.relations.map((r) => ({ parent: t.name, rel: r.name, target: r.type, neighbors: [] }))
   );
   relations.push(
     ...cmlTypes
@@ -45,9 +60,9 @@ function calculateItermediateRelations(cmlModel: CmlModel): IntermediateRelation
         t.relations.flatMap((r) =>
           cmlTypes
             .filter((tt) => tt.parentType?.name === r.type)
-            .map((tt) => ({ parent: t.name, rel: r.name, target: tt.name, neighbors: [] })),
-        ),
-      ),
+            .map((tt) => ({ parent: t.name, rel: r.name, target: tt.name, neighbors: [] }))
+        )
+      )
   );
 
   for (const r1 of relations) {
@@ -66,15 +81,15 @@ function handleAutoAddAction(
   targetType: CmlType,
   declaration: string,
   { behaviorTypeLock, message, messageType, sequence }: RuleAction,
-  rule: ConfiguratorRuleInput,
+  rule: ConfiguratorRuleInput
 ): void {
   if (!parentTargetType) {
     targetType.addConstraint(
       CmlConstraint.createMessageConstraint(
         declaration,
         doubleQuoted(`AutoAdd (scope: ${rule.scope}): Parent type can't be null for Auto-Add action.`),
-        doubleQuoted('error'),
-      ),
+        doubleQuoted('error')
+      )
     );
     //    throw new Error("Parent type can't be null for Auto-Add action.");
   } else {
@@ -84,14 +99,14 @@ function handleAutoAddAction(
         CONSTRAINT_TYPES.REQUIRE,
         declaration,
         rel.name,
-        targetType.name,
+        targetType.name
       );
       const sequenceValue = (rule.sequence ?? 0) + (sequence ?? 0);
       constraint.setProperties({ sequence: sequenceValue });
       (parentTargetType ?? targetType).addConstraint(constraint);
       if (behaviorTypeLock === true) {
         (parentTargetType ?? targetType).addConstraint(
-          CmlConstraint.createRuleConstraint(declaration, 'Disable', 'relation', rel.name, 'type', [targetType.name]),
+          CmlConstraint.createRuleConstraint(declaration, 'Disable', 'relation', rel.name, 'type', [targetType.name])
         );
       }
       if (message) {
@@ -99,8 +114,8 @@ function handleAutoAddAction(
           CmlConstraint.createMessageConstraint(
             declaration,
             doubleQuoted(`AutoAdd: ${message}`),
-            doubleQuoted(messageType),
-          ),
+            doubleQuoted(messageType)
+          )
         );
       }
     }
@@ -112,15 +127,15 @@ function handleAutoRemoveAction(
   targetType: CmlType,
   declaration: string,
   { message, messageType, sequence }: RuleAction,
-  rule: ConfiguratorRuleInput,
+  rule: ConfiguratorRuleInput
 ): void {
   if (!parentTargetType) {
     targetType.addConstraint(
       CmlConstraint.createMessageConstraint(
         declaration,
         doubleQuoted(`AutoRemove (scope: ${rule.scope}): Parent type can't be null for Auto-Add action.`),
-        doubleQuoted('error'),
-      ),
+        doubleQuoted('error')
+      )
     );
     //    throw new Error("Parent type can't be null for Auto-Add action.");
   } else {
@@ -130,7 +145,7 @@ function handleAutoRemoveAction(
         CONSTRAINT_TYPES.EXCLUDE,
         declaration,
         rel.name,
-        targetType.name,
+        targetType.name
       );
       const sequenceValue = (rule.sequence ?? 0) + (sequence ?? 0);
       constraint.setProperties({ sequence: sequenceValue });
@@ -140,8 +155,8 @@ function handleAutoRemoveAction(
           CmlConstraint.createMessageConstraint(
             declaration,
             doubleQuoted(`AutoRemove: ${message}`),
-            doubleQuoted(messageType),
-          ),
+            doubleQuoted(messageType)
+          )
         );
       }
     }
@@ -153,10 +168,10 @@ function handleSetAttributeAction(
   targetType: CmlType,
   declaration: string,
   { actionParameters, behaviorTypeLock, sequence }: RuleAction,
-  rule: ConfiguratorRuleInput,
+  rule: ConfiguratorRuleInput
 ): void {
   for (const { attributeId, attributeName, dataType, values } of (actionParameters ?? []).filter(
-    ({ type }) => type === 'Attribute',
+    ({ type }) => type === 'Attribute'
   )) {
     if (attributeName) {
       const targetValue = values[0];
@@ -164,7 +179,7 @@ function handleSetAttributeAction(
       const constraint = new CmlConstraint(
         CONSTRAINT_TYPES.CONSTRAINT,
         `${declaration} && (${attributeName} == ${
-          targetAttribute.type === 'string' ? doubleQuoted(targetValue) : (targetValue ?? '')
+          targetAttribute.type === 'string' ? doubleQuoted(targetValue) : targetValue ?? ''
         })`
       );
       const sequenceValue = (rule.sequence ?? 0) + (sequence ?? 0);
@@ -172,7 +187,7 @@ function handleSetAttributeAction(
       (parentTargetType ?? targetType).addConstraint(constraint);
       if (behaviorTypeLock === true) {
         (parentTargetType ?? targetType).addConstraint(
-          CmlConstraint.createRuleConstraint(declaration, 'Disable', 'attribute', targetAttribute.name),
+          CmlConstraint.createRuleConstraint(declaration, 'Disable', 'attribute', targetAttribute.name)
         );
       }
     }
@@ -184,7 +199,7 @@ function handleSetQuantityAction(
   targetType: CmlType,
   declaration: string,
   { actionParameters, message, messageType, sequence }: RuleAction,
-  rule: ConfiguratorRuleInput,
+  rule: ConfiguratorRuleInput
 ): void {
   const constraint = CmlConstraint.createMessageConstraint(
     declaration,
@@ -193,7 +208,7 @@ function handleSetQuantityAction(
         actionParameters?.[0]?.values?.[0] ?? ''
       } for type ${targetType.name}${parentTargetType ? ` of parent type ${parentTargetType.name}` : ''} manually.`
     ),
-    doubleQuoted(messageType),
+    doubleQuoted(messageType)
   );
   const sequenceValue = (rule.sequence ?? 0) + (sequence ?? 0);
   constraint.setProperties({ sequence: sequenceValue });
@@ -205,7 +220,7 @@ function handleSetDefaultProductAction(
   targetType: CmlType,
   declaration: string,
   { message, messageType, sequence }: RuleAction,
-  rule: ConfiguratorRuleInput,
+  rule: ConfiguratorRuleInput
 ): void {
   const constraint = CmlConstraint.createMessageConstraint(
     declaration,
@@ -222,7 +237,7 @@ function handleSetDefaultAttributeValueAction(
   targetType: CmlType,
   declaration: string,
   { message, messageType, sequence }: RuleAction,
-  rule: ConfiguratorRuleInput,
+  rule: ConfiguratorRuleInput
 ): void {
   const constraint = CmlConstraint.createMessageConstraint(
     declaration,
@@ -239,10 +254,10 @@ function handleHideAttributeAction(
   targetType: CmlType,
   declaration: string,
   { actionParameters, sequence }: RuleAction,
-  rule: ConfiguratorRuleInput,
+  rule: ConfiguratorRuleInput
 ): void {
   for (const { attributeId: targetAttributeId, attributeName: targetAttributeName } of (actionParameters ?? []).filter(
-    ({ type }) => type === 'Attribute',
+    ({ type }) => type === 'Attribute'
   )) {
     if (targetAttributeId && targetAttributeName) {
       const constraint = CmlConstraint.createRuleConstraint(declaration, 'Hide', 'attribute', targetAttributeName);
@@ -258,7 +273,7 @@ function handleHideDisableAttributeValueAction(
   targetType: CmlType,
   declaration: string,
   { actionParameters, actionType, sequence }: RuleAction,
-  rule: ConfiguratorRuleInput,
+  rule: ConfiguratorRuleInput
 ): void {
   for (const { attributeId: targetAttributeId, attributeName: targetAttributeName, values: targetAttributeValues } of (
     actionParameters ?? []
@@ -270,7 +285,7 @@ function handleHideDisableAttributeValueAction(
         'attribute',
         targetAttributeName,
         'value',
-        targetAttributeValues,
+        targetAttributeValues
       );
       const sequenceValue = (rule.sequence ?? 0) + (sequence ?? 0);
       constraint.setProperties({ sequence: sequenceValue });
@@ -284,15 +299,15 @@ function handleHideDisableProductAction(
   targetType: CmlType,
   declaration: string,
   { actionType, sequence }: RuleAction,
-  rule: ConfiguratorRuleInput,
+  rule: ConfiguratorRuleInput
 ): void {
   if (!parentTargetType) {
     targetType.addConstraint(
       CmlConstraint.createMessageConstraint(
         declaration,
         doubleQuoted(`${actionType} (scope: ${rule.scope}): Parent type can't be null for ${actionType} action.`),
-        doubleQuoted('error'),
-      ),
+        doubleQuoted('error')
+      )
     );
     //    throw new Error("Parent type can't be null for Auto-Add action.");
   } else {
@@ -304,7 +319,7 @@ function handleHideDisableProductAction(
         'relation',
         rel.name,
         'type',
-        [targetType.name],
+        [targetType.name]
       );
       const sequenceValue = (rule.sequence ?? 0) + (sequence ?? 0);
       constraint.setProperties({ sequence: sequenceValue });
@@ -318,15 +333,15 @@ function handleExcludesRequiresAction(
   targetType: CmlType,
   declaration: string,
   { actionType, sequence, targetInformation }: RuleAction,
-  rule: ConfiguratorRuleInput,
+  rule: ConfiguratorRuleInput
 ): void {
   if (!parentTargetType) {
     (parentTargetType ?? targetType).addConstraint(
       CmlConstraint.createMessageConstraint(
         declaration,
         doubleQuoted(`${actionType}: Parent type can't be null for ${actionType} action.`),
-        doubleQuoted('error'),
-      ),
+        doubleQuoted('error')
+      )
     );
     //    throw new Error("Parent type can't be null for Auto-Add action.");
   } else {
@@ -336,9 +351,11 @@ function handleExcludesRequiresAction(
       const constraint = CmlConstraint.createMessageConstraint(
         declaration,
         doubleQuoted(
-          `Product with ID ${productId ?? '{ID NOT FOUND}'} ${actionType === 'Requires' ? 'should be added' : 'is excluded'}`,
+          `Product with ID ${productId ?? '{ID NOT FOUND}'} ${
+            actionType === 'Requires' ? 'should be added' : 'is excluded'
+          }`
         ),
-        doubleQuoted('error'),
+        doubleQuoted('error')
       );
       const sequenceValue = (rule.sequence ?? 0) + (sequence ?? 0);
       constraint.setProperties({ sequence: sequenceValue });
@@ -350,7 +367,7 @@ function handleExcludesRequiresAction(
 function findCmlRelation(
   parentType: CmlType,
   targetType: CmlType,
-  includeVirtualParent: boolean = false,
+  includeVirtualParent: boolean = false
 ): CmlRelation | null {
   //    if (targetType.parentType?.name !== parentType.name) {
   //      throw new Error(`Type ${targetType.name} isn't a child of ${parentType.name}.`);
@@ -370,7 +387,7 @@ function findCmlRelation(
 function acceptCriteriaConstraints(
   parentTargetType: CmlType | null,
   targetType: CmlType,
-  criteriaConstraints: CmlConstraint[],
+  criteriaConstraints: CmlConstraint[]
 ): string {
   if (parentTargetType) {
     criteriaConstraints.forEach((c) => parentTargetType.addConstraint(c));
@@ -385,7 +402,7 @@ function getTargetAttribute(
   targetType: CmlType,
   targetAttributeId: string | null | undefined,
   targetAttributeName: string,
-  targetDataType: string,
+  targetDataType: string
 ): CmlAttribute {
   let targetAttribute =
     (targetAttributeId && targetType.findAttributeById(targetAttributeId)) ??
@@ -397,15 +414,15 @@ function getTargetAttribute(
         targetAttributeName,
         INT_TAGS.includes(targetAttributeName)
           ? CML_DATA_TYPES.INTEGER
-          : PcmGenerator.dataTypeNameToCmlDataType(targetDataType),
-      )),
+          : PcmGenerator.dataTypeNameToCmlDataType(targetDataType)
+      ))
     );
   }
   return targetAttribute;
 }
 
 function doubleQuotedIfNeeded(value: string | undefined, dataType: string | undefined): string {
-  return `${dataType === 'string' ? (doubleQuoted(value) ?? '') : (value ?? "''")}`;
+  return `${dataType === 'string' ? doubleQuoted(value) ?? '' : value ?? "''"}`;
 }
 
 function doubleQuoted(string: string | undefined): string {
@@ -419,7 +436,7 @@ function convertToCmlExpression(
   left: string,
   ruleExprOperator: RuleConditionOperator,
   right?: string | string[],
-  dataType?: string,
+  dataType?: string
 ): string {
   switch (ruleExprOperator) {
     case 'Equals':
@@ -443,9 +460,13 @@ function convertToCmlExpression(
     case 'DoesNotContain':
       return `!strcontain(${left}, ${doubleQuoted(right as string | undefined)})`;
     case 'In':
-      return `${left} in [${(Array.isArray(right) ? right : [right as string]).map((r) => doubleQuoted(r)).join(', ')}]`;
+      return `${left} in [${(Array.isArray(right) ? right : [right as string])
+        .map((r) => doubleQuoted(r))
+        .join(', ')}]`;
     case 'NotIn':
-      return `!(${left} in [${(Array.isArray(right) ? right : [right as string]).map((r) => doubleQuoted(r)).join(', ')}])`;
+      return `!(${left} in [${(Array.isArray(right) ? right : [right as string])
+        .map((r) => doubleQuoted(r))
+        .join(', ')}])`;
   }
 
   //  throw new Error(`Operator ${ruleExprOperator} is not supported.`);
@@ -474,11 +495,7 @@ export class BreRulesGenerator {
     this.#intermediateRelations = calculateItermediateRelations(this.#cmlModel);
   }
 
-  public static generateConstraints(
-    cmlModel: CmlModel,
-    breRulesGroup: ConfiguratorRuleInput[],
-    logger: Logger,
-  ): void {
+  public static generateConstraints(cmlModel: CmlModel, breRulesGroup: ConfiguratorRuleInput[], logger: Logger): void {
     new BreRulesGenerator(cmlModel, breRulesGroup, logger).generate();
   }
 
@@ -522,19 +539,23 @@ export class BreRulesGenerator {
   private convertCriteria(rule: ConfiguratorRuleInput, criteria: RuleCriteria): CmlConstraint {
     const targetType = this.findTargetTypeForCriteria(rule, criteria);
     if (!targetType) {
-      throw new Error(`Can't find target CML type for criteria: ${rule.apiName}_criteria_${criteria.criteriaIndex ?? 0}`);
+      throw new Error(
+        `Can't find target CML type for criteria: ${rule.apiName}_criteria_${criteria.criteriaIndex ?? 0}`
+      );
     }
     const criteriaConstraintName = `${rule.apiName}_criteria_${criteria.criteriaIndex ?? 0}`;
     const sourceType = this.#cmlModel.getTypeByProductId(criteria.sourceValues[0]);
     if (!sourceType) {
-      throw new Error(`Can't find source CML type for criteria: ${rule.apiName}_criteria_${criteria.criteriaIndex ?? 0}`);
+      throw new Error(
+        `Can't find source CML type for criteria: ${rule.apiName}_criteria_${criteria.criteriaIndex ?? 0}`
+      );
     }
     const conditionExpressions: string[] = [];
     if (['Bundle', 'Transaction'].includes(rule.scope)) {
       if (['Contains', 'DoesNotContain', 'Equals'].includes(criteria.sourceOperator ?? '')) {
         const rels: IntermediateRelation[][] = this.xFindAllPaths(targetType.name, sourceType.name);
         const transactionCaseExpressions: string[] = rels.map(
-          (rrs) => `${rrs.map((r) => `${r.rel}[${r.target}]`).join('.')}`,
+          (rrs) => `${rrs.map((r) => `${r.rel}[${r.target}]`).join('.')}`
         );
         if (['Contains', 'Equals'].includes(criteria.sourceOperator ?? '')) {
           conditionExpressions.push(`(${transactionCaseExpressions.map((e) => `${e} > 0`).join(' || ')})`);
@@ -551,7 +572,7 @@ export class BreRulesGenerator {
     }
     const constraint = new CmlConstraint(
       CONSTRAINT_TYPES.CONSTRAINT,
-      conditionExpressions.length ? `${conditionExpressions.join(' && ')}` : 'true',
+      conditionExpressions.length ? `${conditionExpressions.join(' && ')}` : 'true'
     );
     constraint.name = criteriaConstraintName;
     return constraint;
@@ -577,7 +598,7 @@ export class BreRulesGenerator {
   private xFindPath(
     relations: IntermediateRelation[],
     start: IntermediateRelation,
-    end: IntermediateRelation,
+    end: IntermediateRelation
   ): IntermediateRelation[] {
     this.#cmlModel.getType(start.parent);
     const rels = relations.map((r) => ({ ...r }));
@@ -627,7 +648,7 @@ export class BreRulesGenerator {
   private convertRuleConditionToCmlExpression(
     condition: Condition,
     targetType: CmlType,
-    parentType?: CmlType | null,
+    parentType?: CmlType | null
   ): string | null {
     const leftPrefix = (parentType && this.getExprLeftPrefix(parentType, targetType)) ?? '';
     if (condition.type === 'Attribute') {
@@ -660,7 +681,7 @@ export class BreRulesGenerator {
 
   private findTargetTypeForAction(
     rule: ConfiguratorRuleInput,
-    ruleAction: RuleAction,
+    ruleAction: RuleAction
   ): { parentTargetType: CmlType | null; targetType: CmlType | null } | null {
     const productId = ruleAction.targetInformation.find((ti) => ti.name === 'Product')?.values.values[0];
     if (productId) {
@@ -668,9 +689,9 @@ export class BreRulesGenerator {
         rule.scope === 'Transaction'
           ? this.#virtualRoot
           : rule.scope === 'Bundle'
-            ? (this.findParentTargetType(ruleAction) ??
-              rule.criteria.map((c) => this.findTargetTypeForCriteria(rule, c))[0])
-            : null;
+          ? this.findParentTargetType(ruleAction) ??
+            rule.criteria.map((c) => this.findTargetTypeForCriteria(rule, c))[0]
+          : null;
       const targetType = this.#cmlModel.getTypeByProductId(productId) ?? null;
       return { parentTargetType, targetType };
     }
@@ -690,7 +711,7 @@ export class BreRulesGenerator {
   private convertAction(
     rule: ConfiguratorRuleInput,
     ruleAction: RuleAction,
-    criteriaConstraints: CmlConstraint[],
+    criteriaConstraints: CmlConstraint[]
   ): void {
     const { parentTargetType, targetType } = this.findTargetTypeForAction(rule, ruleAction) ?? {
       parentTargetType: null,
@@ -740,8 +761,8 @@ export class BreRulesGenerator {
           CmlConstraint.createMessageConstraint(
             declaration,
             doubleQuoted(`${ruleAction.actionType}: ${ruleAction.message}`),
-            doubleQuoted(ruleAction.messageType),
-          ),
+            doubleQuoted(ruleAction.messageType)
+          )
         );
       }
     }
@@ -752,7 +773,7 @@ export class BreRulesGenerator {
     targetType: CmlType,
     declaration: string,
     { actionParameters, message, messageType, sequence }: RuleAction,
-    rule: ConfiguratorRuleInput,
+    rule: ConfiguratorRuleInput
   ): void {
     const validationParts: string[] = [];
     for (const ap of actionParameters ?? []) {
@@ -764,7 +785,7 @@ export class BreRulesGenerator {
     const constraint = CmlConstraint.createMessageConstraint(
       `${declaration} && !(${validationParts.join(' || !')})`,
       doubleQuoted(`Validate: ${message ?? ''}`),
-      doubleQuoted(messageType),
+      doubleQuoted(messageType)
     );
     const sequenceValue = (rule.sequence ?? 0) + (sequence ?? 0);
     constraint.setProperties({ sequence: sequenceValue });

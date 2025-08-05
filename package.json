@@ -11,14 +11,17 @@
     "got": "12"
   },
   "devDependencies": {
-    "@oclif/plugin-command-snapshot": "^5.2.3",
+    "@oclif/plugin-command-snapshot": "^5.3.5",
+    "@salesforce/plugin-command-reference": "^3.1.61",
     "@oclif/test": "^4.1.0",
     "@salesforce/cli-plugins-testkit": "^5.3.20",
-    "@salesforce/dev-scripts": "^10",
+    "@salesforce/dev-scripts": "^11.0.2",
+    "@types/node": "^22.17.0",
+    "eslint-config-salesforce-license": "^1.0.1",
     "eslint-plugin-sf-plugin": "^1.18.8",
     "oclif": "^4.14.0",
     "ts-node": "^10.9.2",
-    "typescript": "^5.5.4"
+    "typescript": "^5.9.2"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -38,7 +41,7 @@
     "sfdx",
     "sfdx-plugin"
   ],
-  "license": "BSD-3-Clause",
+  "license": "Apache-2.0",
   "oclif": {
     "commands": "./lib/commands",
     "bin": "sf",
@@ -70,6 +73,7 @@
     "compile": "wireit",
     "dev.js": "./bin/dev.js cml convert prod-cfg-rules -o prism-dev -r ./data/ProductConfigurationRules3.json -v ./data/Products.json -c TestModel3 -d ./data/output",
     "docs": "sf-docs",
+    "fix-license": "eslint src test --fix --rule \"header/header: [2]\"",
     "format": "wireit",
     "link-check": "wireit",
     "lint": "wireit",
@@ -129,7 +133,7 @@
       "output": []
     },
     "gen-manifest": {
-      "command": "npx oclif manifest .",
+      "command": "yarn oclif manifest .",
       "dependencies": [
         "compile"
       ],
@@ -152,7 +156,11 @@
       "dependencies": [
         "test:compile",
         "test:only",
-        "lint"
+        "test:command-reference",
+        "test:deprecation-policy",
+        "lint",
+        "test:json-schema",
+        "link-check"
       ]
     },
     "test:only": {
@@ -200,7 +208,7 @@
       "output": []
     },
     "link-check": {
-      "command": "node -e \"process.exit(process.env.CI ? 0 : 1)\" || linkinator \"**/*.md\" --skip \"CHANGELOG.md|node_modules|test/|confluence.internal.salesforce.com|my.salesforce.com|%s\" --markdown --retry --directory-listing --verbosity error",
+      "command": "node -e \"process.exit(process.env.CI ? 0 : 1)\" || linkinator \"**/*.md\" --skip \"CHANGELOG.md|node_modules|test/|confluence.internal.salesforce.com|my.salesforce.com|localhost|%s\" --markdown --retry --directory-listing --verbosity error",
       "files": [
         "./*.md",
         "./!(CHANGELOG).md",

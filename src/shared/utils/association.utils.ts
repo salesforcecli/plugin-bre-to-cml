@@ -1,3 +1,18 @@
+/*
+ * Copyright 2025, Salesforce, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 import { ASSOCIATION_TYPES } from '../constants/constants.js';
 import { Association, CmlRelation, CmlType } from '../types/types.js';
 
@@ -29,7 +44,7 @@ export function getTypeAssociationsForType(associations: Association[], typeName
 export function getTypeAssociationForTypeAndReferenceObjectId(
   associations: Association[],
   type: CmlType,
-  referenceObjectId: string,
+  referenceObjectId: string
 ): Association | undefined {
   const typeAssociations = getTypeAssociationsForType(associations, type.name);
   const isForReferenceObjectId = (a: Association): boolean => a.referenceObjectId === referenceObjectId;
@@ -50,7 +65,7 @@ export function getTypeAssociationForTypeAndReferenceObjectId(
 export function getRelationAssociationForRelationAndReferenceObjectId(
   associations: Association[],
   relation: CmlRelation,
-  referenceObjectId: string,
+  referenceObjectId: string
 ): Association | undefined {
   const relationAssociations = getRelationAssociationsForRelation(associations, relation);
   const isForReferenceObjectId = (a: Association): boolean => a.referenceObjectId === referenceObjectId;
@@ -114,7 +129,7 @@ export function getRelationAssociationsForRelation(associations: Association[], 
  */
 export function getTypeNameForRelatedObjectId(
   associations: Association[],
-  referenceObjectId: string,
+  referenceObjectId: string
 ): string | undefined {
   const isTypeAssociation = (a: Association): boolean => a.type === ASSOCIATION_TYPES.TYPE;
   const isRelatedObjectMatch = (a: Association): boolean => a.referenceObjectId === referenceObjectId;
@@ -133,7 +148,7 @@ export function getTypeNameForRelatedObjectId(
  */
 export function getRelationNameForRelatedObjectId(
   associations: Association[],
-  referenceObjectId: string,
+  referenceObjectId: string
 ): string | undefined {
   const isRelationAssociation = (a: Association): boolean => a.type === ASSOCIATION_TYPES.RELATION;
   const isRelatedObjectMatch = (a: Association): boolean => a.referenceObjectId === referenceObjectId;
@@ -176,7 +191,7 @@ export function getAssociationRecordsToUpdate(associations: Association[]): Asso
 export function isDuplicateAssociationRecord(
   associations: Association[],
   tag: string,
-  referenceObjectId: string,
+  referenceObjectId: string
 ): boolean {
   return associations.some((a) => a.tag === tag && a.referenceObjectId === referenceObjectId);
 }
