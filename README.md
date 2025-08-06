@@ -1,6 +1,6 @@
 # plugin-bre-to-cml
 
-[![NPM](https://img.shields.io/npm/v/@salesforce/plugin-agent.svg?label=@salesforce/plugin-agent)](https://www.npmjs.com/package/@salesforce/plugin-bre-to-cml) [![Downloads/week](https://img.shields.io/npm/dw/@salesforce/plugin-bre-to-cml.svg)](https://npmjs.org/package/@salesforce/plugin-bre-to-cml) [![License](https://img.shields.io/badge/License-BSD%203--Clause-brightgreen.svg)](https://raw.githubusercontent.com/salesforcecli/plugin-bre-to-cml/main/LICENSE.txt)
+[![NPM](https://img.shields.io/npm/v/@salesforce/plugin-agent.svg?label=@salesforce/plugin-agent)](https://www.npmjs.com/package/@salesforce/plugin-bre-to-cml) [![Downloads/week](https://img.shields.io/npm/dw/@salesforce/plugin-bre-to-cml.svg)](https://npmjs.org/package/@salesforce/plugin-bre-to-cml) [![License](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](https://opensource.org/license/apache-2-0)
 
 ## Install
 
@@ -21,7 +21,6 @@ sf plugins install @salesforce/plugin-bre-to-cml@x.y.z
 7. Write appropriate tests for your changes. Try to achieve at least 95% code coverage on any new code. No pull request will be accepted without unit tests.
 8. Sign CLA (see [CLA](#cla) below).
 9. Send us a pull request when you are done. We'll review your code, suggest any needed changes, and merge it in.
-
 
 ### CLA
 
@@ -63,7 +62,6 @@ sf plugins
 
 - [`sf cml convert prod-cfg-rules`](#sf-cml-convert-prod-cfg-rules)
 - [`sf cml import as-expression-set`](#sf-cml-import-as-expression-set)
-
 
 ## `sf cml convert prod-cfg-rules`
 
@@ -120,6 +118,7 @@ EXAMPLES
 
    $ sf cml convert prod-cfg-rules --pcr-file data/ProductConfigurationRules.json --cml-api MY_TEST --workspace-dir data --target-org breSourceOrg
 ```
+
 _See code: [src/commands/cml/convert/prod-cfg-rules.ts](https://github.com/salesforcecli/plugin-bre-to-cml/blob/main/src/commands/cml/convert/prod-cfg-rules.ts)_
 
 ## `sf cml import as-expression-set`
@@ -154,6 +153,7 @@ DESCRIPTION
 EXAMPLES
   $ sf cml import as-expression-set --cml-api MY_TEST --context-definition PricingTransactionCD2 --workspace-dir data --target-org cmlTargetOrg
 ```
+
 _See code: [src/commands/cml/import/as-expression-set.ts](https://github.com/salesforcecli/plugin-bre-to-cml/blob/main/src/commands/cml/import/as-expression-set.ts)_
 
 <!-- commandsstop -->

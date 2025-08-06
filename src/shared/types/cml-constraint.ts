@@ -1,3 +1,18 @@
+/*
+ * Copyright 2025, Salesforce, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 import { CONSTRAINT_TYPES } from '../constants/constants.js';
 import { isEmpty } from '../utils/common.utils.js';
 import { AnnotatedCmlElement } from './base/types.js';
@@ -108,7 +123,7 @@ export class CmlConstraint extends AnnotatedCmlElement {
     targetType: string,
     explanation?: string,
     targetAttributes: CmlConstraintAttribute[] = [],
-    targetQuantity = 1,
+    targetQuantity = 1
   ): CmlConstraint {
     const requireConstraint = new CmlConstraint(type, declaration, explanation);
     requireConstraint.setTargetRelation(targetRelation);
@@ -124,7 +139,7 @@ export class CmlConstraint extends AnnotatedCmlElement {
     actionScope: string,
     actionTarget: string,
     actionClassification?: string,
-    actionTargetValues: string[] = [],
+    actionTargetValues: string[] = []
   ): CmlConstraint {
     const ruleConstraint = new CmlConstraint(CONSTRAINT_TYPES.RULE, declaration);
     ruleConstraint.setAction(action);
@@ -139,7 +154,7 @@ export class CmlConstraint extends AnnotatedCmlElement {
     declaration: string,
     explanation?: string,
     explanationType?: string,
-    additiveExpressions?: string[],
+    additiveExpressions?: string[]
   ): CmlConstraint {
     const messageConstraint = new CmlConstraint(CONSTRAINT_TYPES.MESSAGE, declaration, explanation, explanationType);
     messageConstraint.#additiveExpressions = additiveExpressions;
