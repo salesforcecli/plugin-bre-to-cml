@@ -1,6 +1,6 @@
 # plugin-bre-to-cml
 
-[![NPM](https://img.shields.io/npm/v/@salesforce/plugin-agent.svg?label=@salesforce/plugin-agent)](https://www.npmjs.com/package/@salesforce/plugin-bre-to-cml) [![Downloads/week](https://img.shields.io/npm/dw/@salesforce/plugin-bre-to-cml.svg)](https://npmjs.org/package/@salesforce/plugin-bre-to-cml) [![License](https://img.shields.io/badge/License-BSD%203--Clause-brightgreen.svg)](https://raw.githubusercontent.com/salesforcecli/plugin-bre-to-cml/main/LICENSE.txt)
+[![NPM](https://img.shields.io/npm/v/@salesforce/plugin-agent.svg?label=@salesforce/plugin-agent)](https://www.npmjs.com/package/@salesforce/plugin-bre-to-cml) [![Downloads/week](https://img.shields.io/npm/dw/@salesforce/plugin-bre-to-cml.svg)](https://npmjs.org/package/@salesforce/plugin-bre-to-cml) [![License](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](https://opensource.org/license/apache-2-0)
 
 ## Install
 
@@ -21,7 +21,6 @@ sf plugins install @salesforce/plugin-bre-to-cml@x.y.z
 7. Write appropriate tests for your changes. Try to achieve at least 95% code coverage on any new code. No pull request will be accepted without unit tests.
 8. Sign CLA (see [CLA](#cla) below).
 9. Send us a pull request when you are done. We'll review your code, suggest any needed changes, and merge it in.
-
 
 ### CLA
 
@@ -64,22 +63,27 @@ sf plugins
 - [`sf cml convert prod-cfg-rules`](#sf-cml-convert-prod-cfg-rules)
 - [`sf cml import as-expression-set`](#sf-cml-import-as-expression-set)
 
-
 ## `sf cml convert prod-cfg-rules`
 
 Converts BRE based Standard Configurator rules represented as JSON to CML and saves it as a pair of CML and association files.
 
 ```
 USAGE
-  $ sf cml convert prod-cfg-rules -o <value> -r <value> -c <value> [--json] [--flags-dir <value>] [--api-version <value>] [-d <value>] [-x <value>] [-v <value>]
+  $ sf cml convert prod-cfg-rules -o <value> -r <value> -c <value> [--json] [--flags-dir <value>] [--api-version <value>] [-d
+    <value>] [-x <value>] [-v <value>]
 
 FLAGS
   -c, --cml-api=<value>              (required) Unique CML API Name to be created.
-  -d, --workspace-dir=<value>        Directory where working files are located, exported rules JSON and where CMLs will be created.
-  -o, --target-org=<value>           (required) Username or alias of the target org. Not required if the `target-org` configuration variable is already set.
-  -r, --pcr-file=<value>             (required) Name of the JSON file that contain exported standard Product Configuration Rules.
-  -v, --products-file=<value>        Name of the JSON file that contain exported Products from PCM (if not present products will be fetched automatically).
-  -x, --additional-products=<value>  Comma-separated list of additional product IDs for which CML types should be generated.
+  -d, --workspace-dir=<value>        Directory where working files are located, exported rules JSON and where CMLs will
+                                     be created.
+  -o, --target-org=<value>           (required) Username or alias of the target org. Not required if the `target-org`
+                                     configuration variable is already set.
+  -r, --pcr-file=<value>             (required) Name of the JSON file that contain exported standard Product
+                                     Configuration Rules.
+  -v, --products-file=<value>        Name of the JSON file that contain exported Products from PCM (if not present
+                                     products will be fetched automatically).
+  -x, --additional-products=<value>  Comma-separated list of additional product IDs for which CML types should be
+                                     generated.
       --api-version=<value>          Override the api version used for api requests made by this command
 
 GLOBAL FLAGS
@@ -87,40 +91,34 @@ GLOBAL FLAGS
   --json               Format output as json.
 
 DESCRIPTION
-  Converts BRE based Standard Configurator rules represented as JSON to CML and saves it as a pair of CML and association files.
+  Converts BRE based Standard Configurator rules represented as JSON to CML and saves it as a pair of CML and
+  association files.
 
-  Before you execute this command make sure to migrate you PCM or that you are performing migration of rules within the same org.
+  Before you execute this command make sure to migrate you PCM or perform migration of rules within the same org.
 
-  Authenticate to the orgs and export BRE based Standard Configurator rules using sf data export bulk plugin and save results in a JSON file, see examples.
+  Export BRE based Standard Configurator rules using sf data export bulk plugin and save results in a JSON file:
+  sf data export bulk -o breMigOrg --query "SELECT ApiName, ConfigurationRuleDefinition,Description, EffectiveFromDate,
+  EffectiveToDate, Id, IsDeleted, Name, ProcessScope, RuleSubType, RuleType, Sequence, Status FROM
+  ProductConfigurationRule WHERE RuleType = 'Configurator' AND ApiName = 'myTestBundle'" --output-file
+  ./data/ProductConfigurationRules.json --result-format json --wait 10 --all-rows
 
   This command executes following logic:
 
-  - Read SC Rules from the json file and build a list of `ConfiguratorRuleInput` to mimic the JSON structure of `ConfigurationRuleDefinition`
+  - Read SC Rules from the json file and build a list of `ConfiguratorRuleInput` to mimic the JSON structure of
+  `ConfigurationRuleDefinition`
   - Group rules by non-intersecting `Product2` IDs (CMLs can’t share products)
   - For each group:
   - Query PCM for related products (for bundle rules) or root definitions (for others)
   - Build an in-memory representation of the CML
   - Apply logic to build constraints
   - Serialize the in-memory CML to a blob for import as an Expression Set, save it in a cml-api.cml file.
-  - Create `ExpressionSetConstraintObj` association records pointing to the `cml-api` name and write them to `cml-api_associations.csv` file.
+  - Create `ExpressionSetConstraintObj` association records pointing to the `cml-api` name and write them to
+  `cml-api_associations.csv` file.
   - If multiple CML and association files are produced 1-N number will be appended to the names of files.
 
 EXAMPLES
-   Authenticate to target orgs:
-
-   $ sf auth:web:login --instance-url https://sdb3.test1.pc-rnd.pc-aws.salesforce.com -a breSourceOrg
-   $ sf auth:web:login --instance-url https://sdb3.test2.pc-rnd.pc-aws.salesforce.com -a cmlTargetOrg
-   $ sf org list
-
-   Export Standard Configurator rules:
-
-   $ sf data export bulk -o breSourceOrg --query "SELECT ApiName, ConfigurationRuleDefinition, Description, EffectiveFromDate, EffectiveToDate, Id, IsDeleted, Name, ProcessScope, RuleSubType, RuleType, Sequence, Status FROM ProductConfigurationRule WHERE RuleType = 'Configurator'" --output-file data/ProductConfigurationRules.json --result-format json --wait 10 --all-rows
-
-   Convert to CML:
-
-   $ sf cml convert prod-cfg-rules --pcr-file data/ProductConfigurationRules.json --cml-api MY_TEST --workspace-dir data --target-org breSourceOrg
+  $ sf cml convert prod-cfg-rules --pcr-file data/ProductConfigurationRules.json --cml-api MY_TEST --workspace-dir data --target-org breMigOrg
 ```
-_See code: [src/commands/cml/convert/prod-cfg-rules.ts](https://github.com/salesforcecli/plugin-bre-to-cml/blob/main/src/commands/cml/convert/prod-cfg-rules.ts)_
 
 ## `sf cml import as-expression-set`
 
@@ -128,12 +126,14 @@ Imports CML and associations to the target org
 
 ```
 USAGE
-  $ sf cml import as-expression-set -o <value> -x <value> -c <value> [--json] [--flags-dir <value>] [--api-version <value>] [-d <value>]
+  $ sf cml import as-expression-set -o <value> -x <value> -c <value> [--json] [--flags-dir <value>] [--api-version <value>] [-d
+    <value>]
 
 FLAGS
   -c, --cml-api=<value>             (required) Unique CML API Name to be created.
   -d, --workspace-dir=<value>       Directory where converted CML and assocciations csv files are located.
-  -o, --target-org=<value>          (required) Username or alias of the target org. Not required if the `target-org` configuration variable is already set.
+  -o, --target-org=<value>          (required) Username or alias of the target org. Not required if the `target-org`
+                                    configuration variable is already set.
   -x, --context-definition=<value>  (required) Context Definition name to be assocciated with the CML.
       --api-version=<value>         Override the api version used for api requests made by this command
 
@@ -152,8 +152,7 @@ DESCRIPTION
   - Upload the CML blob
 
 EXAMPLES
-  $ sf cml import as-expression-set --cml-api MY_TEST --context-definition PricingTransactionCD2 --workspace-dir data --target-org cmlTargetOrg
+  $ sf cml import as-expression-set --cml-api MY_TEST --context-definition PricingTransactionCD2 --workspace-dir data --target-org tgtOrg
 ```
-_See code: [src/commands/cml/import/as-expression-set.ts](https://github.com/salesforcecli/plugin-bre-to-cml/blob/main/src/commands/cml/import/as-expression-set.ts)_
 
 <!-- commandsstop -->

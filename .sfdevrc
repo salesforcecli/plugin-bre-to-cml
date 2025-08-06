@@ -1,0 +1,12 @@
+{
+  "devDepOverrides": ["eslint-config-salesforce-license", "@types/node"],
+  "wireit": {
+    "build": {
+      "dependencies": [
+        "compile",
+        "lint",
+        "gen-manifest"
+      ]
+    }
+  }
+}

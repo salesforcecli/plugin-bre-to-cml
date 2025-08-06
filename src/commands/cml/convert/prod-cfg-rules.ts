@@ -1,3 +1,18 @@
+/*
+ * Copyright 2025, Salesforce, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 import * as fs from 'node:fs/promises';
 import { SfCommand, Flags } from '@salesforce/sf-plugins-core';
 import { Messages } from '@salesforce/core';
@@ -182,7 +197,7 @@ export default class CmlConvertProdCfgRules extends SfCommand<CmlConvertProdCfgR
         // If there is any product that is in both groups, then we can merge them.
         if (
           targetGroupProducts.some((pwi) =>
-            productsForRulesInGroup.some((pwiInGroup) => isProductIdInProductWithIds(pwiInGroup.product.id, pwi)),
+            productsForRulesInGroup.some((pwiInGroup) => isProductIdInProductWithIds(pwiInGroup.product.id, pwi))
           )
         ) {
           // Merge rules and products.
@@ -190,7 +205,10 @@ export default class CmlConvertProdCfgRules extends SfCommand<CmlConvertProdCfgR
             .filter((ruleInGroup) => !targetGroupRules.some(({ apiName }) => apiName === ruleInGroup.apiName))
             .forEach((ruleInGroup) => targetGroupRules.push(ruleInGroup));
           productsForRulesInGroup
-            .filter((pwiInGroup) => !targetGroupProducts.some((pwi) => isProductIdInProductWithIds(pwiInGroup.product.id, pwi)))
+            .filter(
+              (pwiInGroup) =>
+                !targetGroupProducts.some((pwi) => isProductIdInProductWithIds(pwiInGroup.product.id, pwi))
+            )
             .forEach((pwiInGroup) => targetGroupProducts.push(pwiInGroup));
           found = true;
           break;
@@ -205,7 +223,7 @@ export default class CmlConvertProdCfgRules extends SfCommand<CmlConvertProdCfgR
     // Generate CML for each group of products and rules.
     let index = 0;
     const genCmlPromises = Array.from(productsWithRules.entries()).map(([productsWithIds, rulesInGroup]) =>
-      this.generateCmlForProductsAndRulesGroup(rulesInGroup, productsWithIds, safeApi, index++, workspaceDir),
+      this.generateCmlForProductsAndRulesGroup(rulesInGroup, productsWithIds, safeApi, index++, workspaceDir)
     );
 
     await Promise.all(genCmlPromises);
@@ -231,14 +249,14 @@ export default class CmlConvertProdCfgRules extends SfCommand<CmlConvertProdCfgR
     productsWithIds: ProductWithIds[],
     safeApi: string,
     index: number,
-    workspaceDir: string | undefined,
+    workspaceDir: string | undefined
   ): Promise<void> {
     this.log(`📦 Generating CML model for rules ${rulesInGroup.map(({ apiName }) => apiName).join(', ')}`);
 
     const cmlModel = newCmlModel();
     const modelInfo = PcmGenerator.generateViewModels(
       cmlModel,
-      productsWithIds.map(({ product }) => product),
+      productsWithIds.map(({ product }) => product)
     );
     for (const type of modelInfo.types) {
       modelInfo.attributes.get(type.name)?.forEach((attr) => type.addAttribute(attr));
