@@ -113,126 +113,135 @@ export default class CmlConvertProdCfgRules extends SfCommand<CmlConvertProdCfgR
       }
     }
 
-    this.log(`Parsed ${rules.length} valid configuration rules`);
+    try {
+      this.log(`Parsed ${rules.length} valid configuration rules`);
 
-    rules.sort((l, r) => (l.sequence ?? 0) - (r.sequence ?? 0));
-    const groups = groupByNonIntersectingProduct2(rules);
-    this.log(`Found ${groups.size} non-intersecting Product2 groups`);
+      rules.sort((l, r) => (l.sequence ?? 0) - (r.sequence ?? 0));
+      const groups = groupByNonIntersectingProduct2(rules);
+      this.log(`Found ${groups.size} non-intersecting Product2 groups`);
 
-    const safeApi = api.replace(/[^a-zA-Z0-9_-]/g, '_');
+      if (!api || typeof api !== 'string') {
+        throw new Error(`Expected non-empty --cml-api string, got: ${api}`);
+      }
+      const safeApi = api.replace(/[^a-zA-Z0-9_-]/g, '_');
 
-    const uniqProductIds: Set<string> = new Set();
-    const additionalProductIds = flags['additional-products']?.split(',')?.map((p) => p.trim()) ?? [];
-    rules
-      .map(extractProductIds)
-      .flatMap((set) => [...set])
-      .forEach((p) => uniqProductIds.add(p));
-    additionalProductIds.forEach((p) => uniqProductIds.add(p));
+      const uniqProductIds: Set<string> = new Set();
+      const additionalProductIds = flags['additional-products']?.split(',')?.map((p) => p.trim()) ?? [];
+      rules
+        .map(extractProductIds)
+        .flatMap((set) => [...set])
+        .forEach((p) => uniqProductIds.add(p));
+      additionalProductIds.forEach((p) => uniqProductIds.add(p));
 
-    let products: Map<string, PCMProduct>;
-    const productsFile = flags['products-file'];
-    if (productsFile) {
-      const prods = JSON.parse(await fs.readFile(productsFile, 'utf8')) as { [k: string]: PCMProduct };
-      products = new Map<string, PCMProduct>(Object.entries(prods));
-    } else {
-      const conn = targetOrg.getConnection(flags['api-version']);
-      products = await fetchProductsFromPcm(conn, Array.from(uniqProductIds));
-    }
+      let products: Map<string, PCMProduct>;
+      const productsFile = flags['products-file'];
+      if (productsFile) {
+        const prods = JSON.parse(await fs.readFile(productsFile, 'utf8')) as { [k: string]: PCMProduct };
+        products = new Map<string, PCMProduct>(Object.entries(prods));
+      } else {
+        const conn = targetOrg.getConnection(flags['api-version']);
+        products = await fetchProductsFromPcm(conn, Array.from(uniqProductIds));
+      }
 
-    this.log('📦 Convert products and BRE rules to CML');
+      this.log('📦 Convert products and BRE rules to CML');
 
-    /*
-     * We need to reduce the products to have on top level only bundle products and simple products
-     * that are not contained in any other bundle product structure.
-     *
-     * In example, we have products in map:
-     * - Laptop Pro Bundle
-     * - Laptop
-     * - Printer Bundle
-     * - "Some Product Not From Laptop Pro Bundle"
-     *
-     * We need to reduce it to:
-     * - Laptop Pro Bundle
-     * - "Some Product Not From Laptop Pro Bundle"
-     */
-    const rootLevelProducts = reduceProductsToRootLevelOnly(products);
+      /*
+       * We need to reduce the products to have on top level only bundle products and simple products
+       * that are not contained in any other bundle product structure.
+       *
+       * In example, we have products in map:
+       * - Laptop Pro Bundle
+       * - Laptop
+       * - Printer Bundle
+       * - "Some Product Not From Laptop Pro Bundle"
+       *
+       * We need to reduce it to:
+       * - Laptop Pro Bundle
+       * - "Some Product Not From Laptop Pro Bundle"
+       */
+      const rootLevelProducts = reduceProductsToRootLevelOnly(products);
 
-    const isProductIdInProductWithIds = (productId: string, productWithIds: ProductWithIds): boolean =>
-      productWithIds.productIds.includes(productId) ||
-      productWithIds.productIds.some((pId) => pId.startsWith(productId) || productId.startsWith(pId));
+      const isProductIdInProductWithIds = (productId: string, productWithIds: ProductWithIds): boolean =>
+        productWithIds.productIds.includes(productId) ||
+        productWithIds.productIds.some((pId) => pId.startsWith(productId) || productId.startsWith(pId));
 
-    const findProductWithIdsByProductIds = (productIds: string[]): ProductWithIds[] => {
-      const result = new Set<ProductWithIds>();
-      for (const productId of productIds) {
-        for (const productWithIds of rootLevelProducts.values()) {
-          if (isProductIdInProductWithIds(productId, productWithIds)) {
-            result.add(productWithIds);
+      const findProductWithIdsByProductIds = (productIds: string[]): ProductWithIds[] => {
+        const result = new Set<ProductWithIds>();
+        for (const productId of productIds) {
+          for (const productWithIds of rootLevelProducts.values()) {
+            if (isProductIdInProductWithIds(productId, productWithIds)) {
+              result.add(productWithIds);
+              break;
+            }
+          }
+        }
+        return Array.from(result);
+      };
+
+      /*
+       * Group non-intersecting rules groups by top-level products.
+       *
+       * In example, we have rules for products:
+       * - Rule1 - for Laptop and Mouse
+       * - Rule2 - for Printer and Printer Paper
+       * - Rule3 - for Mouse
+       * - Rule4 - for "Some Product Not From Laptop Pro Bundle"
+       *
+       * These rules will be grouped by top-level products:
+       * - Laptop Pro Bundle - Rule1, Rule2, Rule3
+       * - "Some Product Not From Laptop Pro Bundle" - Rule4
+       */
+      const productsWithRules = new Map<ProductWithIds[], ConfiguratorRuleInput[]>();
+      for (const [group, rulesInGroup] of groups) {
+        const productIdsInGroup = group.split(',');
+        // Find top-level products for given rules group.
+        const productsForRulesInGroup = findProductWithIdsByProductIds(Array.from(productIdsInGroup));
+        let found = false;
+        for (const [targetGroupProducts, targetGroupRules] of productsWithRules) {
+          // If there is any product that is in both groups, then we can merge them.
+          if (
+            targetGroupProducts.some((pwi) =>
+              productsForRulesInGroup.some((pwiInGroup) => isProductIdInProductWithIds(pwiInGroup.product.id, pwi))
+            )
+          ) {
+            // Merge rules and products.
+            rulesInGroup
+              .filter((ruleInGroup) => !targetGroupRules.some(({ apiName }) => apiName === ruleInGroup.apiName))
+              .forEach((ruleInGroup) => targetGroupRules.push(ruleInGroup));
+            productsForRulesInGroup
+              .filter(
+                (pwiInGroup) =>
+                  !targetGroupProducts.some((pwi) => isProductIdInProductWithIds(pwiInGroup.product.id, pwi))
+              )
+              .forEach((pwiInGroup) => targetGroupProducts.push(pwiInGroup));
+            found = true;
             break;
           }
         }
-      }
-      return Array.from(result);
-    };
-
-    /*
-     * Group non-intersecting rules groups by top-level products.
-     *
-     * In example, we have rules for products:
-     * - Rule1 - for Laptop and Mouse
-     * - Rule2 - for Printer and Printer Paper
-     * - Rule3 - for Mouse
-     * - Rule4 - for "Some Product Not From Laptop Pro Bundle"
-     *
-     * These rules will be grouped by top-level products:
-     * - Laptop Pro Bundle - Rule1, Rule2, Rule3
-     * - "Some Product Not From Laptop Pro Bundle" - Rule4
-     */
-    const productsWithRules = new Map<ProductWithIds[], ConfiguratorRuleInput[]>();
-    for (const [group, rulesInGroup] of groups) {
-      const productIdsInGroup = group.split(',');
-      // Find top-level products for given rules group.
-      const productsForRulesInGroup = findProductWithIdsByProductIds(Array.from(productIdsInGroup));
-      let found = false;
-      for (const [targetGroupProducts, targetGroupRules] of productsWithRules) {
-        // If there is any product that is in both groups, then we can merge them.
-        if (
-          targetGroupProducts.some((pwi) =>
-            productsForRulesInGroup.some((pwiInGroup) => isProductIdInProductWithIds(pwiInGroup.product.id, pwi))
-          )
-        ) {
-          // Merge rules and products.
-          rulesInGroup
-            .filter((ruleInGroup) => !targetGroupRules.some(({ apiName }) => apiName === ruleInGroup.apiName))
-            .forEach((ruleInGroup) => targetGroupRules.push(ruleInGroup));
-          productsForRulesInGroup
-            .filter(
-              (pwiInGroup) =>
-                !targetGroupProducts.some((pwi) => isProductIdInProductWithIds(pwiInGroup.product.id, pwi))
-            )
-            .forEach((pwiInGroup) => targetGroupProducts.push(pwiInGroup));
-          found = true;
-          break;
+        // If no product was found, then we can add new group.
+        if (!found) {
+          productsWithRules.set(productsForRulesInGroup, rulesInGroup);
         }
       }
-      // If no product was found, then we can add new group.
-      if (!found) {
-        productsWithRules.set(productsForRulesInGroup, rulesInGroup);
-      }
+
+      // Generate CML for each group of products and rules.
+      let index = 0;
+      const genCmlPromises = Array.from(productsWithRules.entries()).map(([productsWithIds, rulesInGroup]) =>
+        this.generateCmlForProductsAndRulesGroup(rulesInGroup, productsWithIds, safeApi, index++, workspaceDir)
+      );
+
+      await Promise.all(genCmlPromises);
+
+      this.log('✅ Done');
+
+      return {
+        path: `${workspaceDir ?? '.'}/${safeApi}_0.cml`,
+      };
+    } catch (e) {
+      this.log('🔥 Caught error: ', e);
+      this.log('🧵 Stack trace:', (e as Error).stack);
+      throw e; // rethrow to preserve exit behavior
     }
-
-    // Generate CML for each group of products and rules.
-    let index = 0;
-    const genCmlPromises = Array.from(productsWithRules.entries()).map(([productsWithIds, rulesInGroup]) =>
-      this.generateCmlForProductsAndRulesGroup(rulesInGroup, productsWithIds, safeApi, index++, workspaceDir)
-    );
-
-    await Promise.all(genCmlPromises);
-
-    this.log('✅ Done');
-
-    return {
-      path: 'src/commands/cml/convert/prod-cfg-rules.ts',
-    };
   }
 
   /**
