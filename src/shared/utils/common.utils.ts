@@ -370,7 +370,8 @@ export function formatToDisplayDate(date: Date): string {
  * @param {string} source - The source string
  * @returns {string} The string with unescaped HTML characters.
  */
-export function unescapeHtml(source: string): string {
+export function unescapeHtml(source: string | undefined): string {
+  if (typeof source !== 'string') return '';
   return source
     .replace(/&amp;/g, '&')
     .replace(/&gt;/g, '>')
