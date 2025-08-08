@@ -144,7 +144,7 @@ GLOBAL FLAGS
 DESCRIPTION
   Imports CML and associations to the target org
 
-  Review CM created by conversion command before doing import.
+  Review CML created by conversion command before doing import.
   This command executes following logic:
   - Import one CML at a time
   - Upsert the Expression Set using the `cml-api` name
