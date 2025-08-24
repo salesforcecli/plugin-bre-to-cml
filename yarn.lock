@@ -846,20 +846,12 @@
     "@smithy/types" "^4.3.2"
     tslib "^2.6.2"
 
-"@aws-sdk/types@3.862.0":
+"@aws-sdk/types@3.862.0", "@aws-sdk/types@^3.222.0":
   version "3.862.0"
   resolved "https://registry.yarnpkg.com/@aws-sdk/types/-/types-3.862.0.tgz#2f5622e1aa3a5281d4f419f5d2c90f87dd5ff0cf"
   integrity sha512-Bei+RL0cDxxV+lW2UezLbCYYNeJm6Nzee0TpW0FfyTRBhH9C1XQh4+x+IClriXvgBnRquTMMYsmJfvx8iyLKrg==
   dependencies:
     "@smithy/types" "^4.3.2"
-    tslib "^2.6.2"
-
-"@aws-sdk/types@^3.222.0":
-  version "3.840.0"
-  resolved "https://registry.yarnpkg.com/@aws-sdk/types/-/types-3.840.0.tgz#aadc6843d5c1f24b3d1d228059e702a355bf07c3"
-  integrity sha512-xliuHaUFZxEx1NSXeLLZ9Dyu6+EJVQKEoD+yM+zqUo3YDZ7medKJWY6fIOKiPX/N7XbLdBYwajb15Q7IL8KkeA==
-  dependencies:
-    "@smithy/types" "^4.3.1"
     tslib "^2.6.2"
 
 "@aws-sdk/util-arn-parser@3.873.0":
@@ -1853,10 +1845,10 @@
   resolved "https://registry.yarnpkg.com/@salesforce/dev-config/-/dev-config-4.3.1.tgz#4dac8245df79d675258b50e1d24e8c636eaa5e10"
   integrity sha512-rO6axodoRF2SA1kknGttIWuL7HhIwSmweGlBzM8y2m5TH8DeIv4xsqYc8Cu+SrR3JT1FN4nh6XgrogI83AJfKg==
 
-"@salesforce/dev-scripts@^11.0.2":
-  version "11.0.2"
-  resolved "https://registry.yarnpkg.com/@salesforce/dev-scripts/-/dev-scripts-11.0.2.tgz#1cf59516c7b24e44363daa5bf976909dc208d52b"
-  integrity sha512-+s/2B0ln4ZDwIuMUUHEmqYdvjjAnpVTSCkF1o2spJ+/a6zpLYIuCRfylz19OhwKXX6kxViziDlaB/+7b5ok6XA==
+"@salesforce/dev-scripts@^11.0.3":
+  version "11.0.3"
+  resolved "https://registry.yarnpkg.com/@salesforce/dev-scripts/-/dev-scripts-11.0.3.tgz#414d4d45c12c2a1eada418951acc18afc49d0fad"
+  integrity sha512-7nbrIJvFyUSdt4A2D0mjb4nKhuvmQvZtb+xt5iCeD0wOgMMuggEr7gTIhv5IHl7Jkhn4aBiXR3KQOp96gZm3nQ==
   dependencies:
     "@commitlint/cli" "^17.1.2"
     "@commitlint/config-conventional" "^17.8.1"
@@ -1864,7 +1856,7 @@
     "@salesforce/prettier-config" "^0.0.3"
     "@types/chai" "^4.3.14"
     "@types/mocha" "^10.0.7"
-    "@types/node" "^18.19.41"
+    "@types/node" "^18"
     "@types/sinon" "^10.0.20"
     chai "^4.3.10"
     chalk "^4.0.0"
@@ -2406,13 +2398,6 @@
     "@smithy/util-stream" "^4.2.4"
     tslib "^2.6.2"
 
-"@smithy/types@^4.3.1":
-  version "4.3.1"
-  resolved "https://registry.yarnpkg.com/@smithy/types/-/types-4.3.1.tgz#c11276ea16235d798f47a68aef9f44d3dbb70dd4"
-  integrity sha512-UqKOQBL2x6+HWl3P+3QqFD4ncKq0I8Nuz9QItGv5WuKuMHuuwlhvqcZCoXGfc+P1QmfJE7VieykoYYmrOoFJxA==
-  dependencies:
-    tslib "^2.6.2"
-
 "@smithy/types@^4.3.2":
   version "4.3.2"
   resolved "https://registry.yarnpkg.com/@smithy/types/-/types-4.3.2.tgz#66ac513e7057637de262e41ac15f70cf464c018a"
@@ -2668,10 +2653,10 @@
   resolved "https://registry.yarnpkg.com/@types/node/-/node-20.5.1.tgz#178d58ee7e4834152b0e8b4d30cbfab578b9bb30"
   integrity sha512-4tT2UrL5LBqDwoed9wZ6N3umC4Yhz3W3FloMmiiG4JwmUJWpie0c7lcnUNd4gtMKuDEO4wRVS8B6Xa0uMRsMKg==
 
-"@types/node@^18.19.41":
-  version "18.19.121"
-  resolved "https://registry.yarnpkg.com/@types/node/-/node-18.19.121.tgz#c50d353ea2d1fb1261a8bbd0bf2850306f5af2b3"
-  integrity sha512-bHOrbyztmyYIi4f1R0s17QsPs1uyyYnGcXeZoGEd227oZjry0q6XQBQxd82X1I57zEfwO8h9Xo+Kl5gX1d9MwQ==
+"@types/node@^18":
+  version "18.19.123"
+  resolved "https://registry.yarnpkg.com/@types/node/-/node-18.19.123.tgz#08a3e4f5e0c73b8840c677b7635ce59d5dc1f76d"
+  integrity sha512-K7DIaHnh0mzVxreCR9qwgNxp3MH9dltPNIEddW9MYUlcKAzm+3grKNSTe2vCJHI1FaLpvpL5JGJrz1UZDKYvDg==
   dependencies:
     undici-types "~5.26.4"
 
