@@ -5,7 +5,7 @@
   "salesforceRelease": "256.11",
   "dependencies": {
     "@oclif/core": "^4",
-    "@salesforce/core": "^8.23.0",
+    "@salesforce/core": "^8.23.1",
     "@salesforce/sf-plugins-core": "^12",
     "csv-parse": "^5.6.0",
     "got": "12"
