@@ -1,3 +1,9 @@
+## [1.0.10](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.9...1.0.10) (2025-09-14)
+
+### Bug Fixes
+
+- **deps:** bump @salesforce/core from 8.23.0 to 8.23.1 ([98d8955](https://github.com/salesforcecli/plugin-bre-to-cml/commit/98d8955d3451bddc9d2de82a780815d636a0255f))
+
 ## [1.0.9](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.8...1.0.9) (2025-09-13)
 
 ### Bug Fixes
