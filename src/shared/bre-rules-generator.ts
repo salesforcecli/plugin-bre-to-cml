@@ -275,21 +275,24 @@ function handleHideDisableAttributeValueAction(
   { actionParameters, actionType, sequence }: RuleAction,
   rule: ConfiguratorRuleInput
 ): void {
-  for (const { attributeId: targetAttributeId, attributeName: targetAttributeName, values: targetAttributeValues } of (
+  for (const { attributeId: targetAttributeId, values: targetAttributeValues } of (
     actionParameters ?? []
   ).filter(({ type }) => type === 'Attribute')) {
-    if (targetAttributeId && targetAttributeName) {
-      const constraint = CmlConstraint.createRuleConstraint(
-        declaration,
-        actionType === 'HideAttributeValue' ? 'Hide' : 'Disable',
-        'attribute',
-        targetAttributeName,
-        'value',
-        targetAttributeValues
-      );
-      const sequenceValue = (rule.sequence ?? 0) + (sequence ?? 0);
-      constraint.setProperties({ sequence: sequenceValue });
-      (parentTargetType ?? targetType).addConstraint(constraint);
+    if (targetAttributeId) {
+      const targetAttribute = targetType.findAttributeById(targetAttributeId);
+      if (targetAttribute) {
+        const constraint = CmlConstraint.createRuleConstraint(
+          declaration,
+          actionType === 'HideAttributeValue' ? 'Hide' : 'Disable',
+          'attribute',
+          targetAttribute.name,
+          'value',
+          targetAttributeValues
+        );
+        const sequenceValue = (rule.sequence ?? 0) + (sequence ?? 0);
+        constraint.setProperties({ sequence: sequenceValue });
+        (parentTargetType ?? targetType).addConstraint(constraint);
+      }
     }
   }
 }
