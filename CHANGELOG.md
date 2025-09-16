@@ -1,3 +1,9 @@
+## [1.0.11](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.10...1.0.11) (2025-09-16)
+
+### Bug Fixes
+
+- remove workaround that caused regression in complex cases; no longer needed ([277c523](https://github.com/salesforcecli/plugin-bre-to-cml/commit/277c523718828ba924be45b4172cf0599b84808e))
+
 ## [1.0.10](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.9...1.0.10) (2025-09-14)
 
 ### Bug Fixes
