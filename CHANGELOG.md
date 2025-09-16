@@ -1,3 +1,9 @@
+## [1.0.12](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.11...1.0.12) (2025-09-16)
+
+### Bug Fixes
+
+- use attribute developer name in rule generation instead of attribute name from source configuration rule ([fd9c1c5](https://github.com/salesforcecli/plugin-bre-to-cml/commit/fd9c1c5e5814ae736dea2220eba18a768d98e097))
+
 ## [1.0.11](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.10...1.0.11) (2025-09-16)
 
 ### Bug Fixes

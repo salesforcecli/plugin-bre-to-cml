@@ -1,7 +1,7 @@
 {
   "name": "@salesforce/plugin-bre-to-cml",
   "description": "Plugin for migrating BRE based configurator rules to CML.",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "salesforceRelease": "256.11",
   "dependencies": {
     "@oclif/core": "^4",
