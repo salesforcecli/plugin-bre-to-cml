@@ -265,7 +265,7 @@ export class CmlConstraint extends AnnotatedCmlElement {
         }
 
         output += 'message(';
-        output += this.#declaration + ' == true';
+        output += this.#declaration;
         if (this.#explanation) {
           output += `, ${this.#explanation}`;
         }
