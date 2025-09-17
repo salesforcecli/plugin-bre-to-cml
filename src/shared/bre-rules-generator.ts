@@ -420,6 +420,9 @@ function getTargetAttribute(
           : PcmGenerator.dataTypeNameToCmlDataType(targetDataType)
       ))
     );
+    if (!targetAttributeId) {
+      targetAttribute.setProperties({ tagName: targetAttributeName });
+    }
   }
   return targetAttribute;
 }
