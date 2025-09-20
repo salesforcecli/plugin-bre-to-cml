@@ -13,7 +13,7 @@
   "devDependencies": {
     "@oclif/plugin-command-snapshot": "^5.3.5",
     "@salesforce/plugin-command-reference": "^3.1.67",
-    "@oclif/test": "^4.1.0",
+    "@oclif/test": "^4.1.14",
     "@salesforce/cli-plugins-testkit": "^5.3.41",
     "@salesforce/dev-scripts": "^11.0.2",
     "@types/node": "^22.18.3",
