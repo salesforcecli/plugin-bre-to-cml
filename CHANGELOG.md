@@ -1,3 +1,9 @@
+## [1.0.13](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.12...1.0.13) (2025-09-23)
+
+### Bug Fixes
+
+- not found source type for criteria and empty criteria ([6b156c1](https://github.com/salesforcecli/plugin-bre-to-cml/commit/6b156c126655bdcdd383080d4b154706e3f8fb56))
+
 ## [1.0.12](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.11...1.0.12) (2025-09-16)
 
 ### Bug Fixes
