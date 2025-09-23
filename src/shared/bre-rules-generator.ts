@@ -556,7 +556,7 @@ export class BreRulesGenerator {
       );
     }
     const criteriaConstraintName = `${rule.apiName}_criteria_${criteria.criteriaIndex ?? 0}`;
-    const sourceType = this.#cmlModel.getTypeByProductId(criteria.sourceValues[0]);
+    const sourceType = criteria.sourceContextTagName === 'Product' ? this.#cmlModel.getTypeByProductId(criteria.sourceValues[0]) : targetType;
     if (!sourceType) {
       throw new Error(
         `Can't find source CML type for criteria: ${rule.apiName}_criteria_${criteria.criteriaIndex ?? 0}`
@@ -569,10 +569,12 @@ export class BreRulesGenerator {
         const transactionCaseExpressions: string[] = rels.map(
           (rrs) => `${rrs.map((r) => `${r.rel}[${r.target}]`).join('.')}`
         );
-        if (['Contains', 'Equals'].includes(criteria.sourceOperator ?? '')) {
-          conditionExpressions.push(`(${transactionCaseExpressions.map((e) => `${e} > 0`).join(' || ')})`);
-        } else {
-          conditionExpressions.push(`(${transactionCaseExpressions.map((e) => `${e} == 0`).join(' && ')})`);
+        if (transactionCaseExpressions.length) {
+          if (['Contains', 'Equals'].includes(criteria.sourceOperator ?? '')) {
+            conditionExpressions.push(`(${transactionCaseExpressions.map((e) => `${e} > 0`).join(' || ')})`);
+          } else {
+            conditionExpressions.push(`(${transactionCaseExpressions.map((e) => `${e} == 0`).join(' && ')})`);
+          }
         }
       }
     }
@@ -592,6 +594,9 @@ export class BreRulesGenerator {
 
   private xFindAllPaths(fromType: string, toType: string): IntermediateRelation[][] {
     const paths: IntermediateRelation[][] = [];
+    if (fromType === toType) {
+      return paths;
+    }
     const starts = this.#intermediateRelations.filter((r) => r.parent === fromType);
     const ends = this.#intermediateRelations.filter((r) => r.target === toType);
 
