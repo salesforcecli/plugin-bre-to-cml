@@ -463,16 +463,25 @@ function convertToCmlExpression(
     case 'DoesNotContain':
       return `!strcontain(${left}, ${doubleQuoted(right as string | undefined)})`;
     case 'In':
-      return `${left} in [${(Array.isArray(right) ? right : [right as string])
-        .map((r) => doubleQuoted(r))
-        .join(', ')}]`;
+      if (right) {
+        return `(${generateInCmlExpression(left, right)})`;
+      }
+      return `${left} == null`;
     case 'NotIn':
-      return `!(${left} in [${(Array.isArray(right) ? right : [right as string])
-        .map((r) => doubleQuoted(r))
-        .join(', ')}])`;
+      if (right) {
+        return `!(${generateInCmlExpression(left, right)})`;
+      }
+      return `${left} != null`;
   }
 
   //  throw new Error(`Operator ${ruleExprOperator} is not supported.`);
+}
+
+function generateInCmlExpression(left: string, right: string | string[]): string {
+  if (typeof right === 'string') {
+    return `${left} == ${doubleQuoted(right)}`;
+  }
+  return `${right.map(r => `${left} == ${doubleQuoted(r)}`).join(' || ')}`;
 }
 
 export class BreRulesGenerator {
