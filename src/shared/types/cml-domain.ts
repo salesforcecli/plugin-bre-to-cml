@@ -21,6 +21,7 @@ export type CmlDomainValueType = string | number | boolean | Date | CmlNumInterv
 export class CmlDomain {
   #domainName?: string;
   #domainValues: CmlDomainValueType[] = [];
+  #expression?: string;
 
   public get domainName(): string | undefined {
     return this.#domainName;
@@ -28,6 +29,10 @@ export class CmlDomain {
 
   public get domainValues(): CmlDomainValueType[] {
     return this.#domainValues;
+  }
+
+  public get expression(): string | undefined {
+    return this.#expression;
   }
 
   public get isNamedDomain(): boolean {
@@ -118,9 +123,15 @@ export class CmlDomain {
     this.#domainValues = v;
   }
 
+  public setExpression(expression: string): void {
+    this.#expression = expression;
+  }
+
   public generateCml(): string {
     if (this.isNamedDomain) {
       return this.#domainName!;
+    } else if (this.#expression) {
+      return this.#expression!;
     } else if (this.isDomainOfDateValues) {
       return `[${this.#domainValues.map((v) => formatToCmlDate(v as Date)).join(', ')}]`;
     } else if (this.isDomainOfStringValues) {

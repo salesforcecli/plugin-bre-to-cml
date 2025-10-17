@@ -19,6 +19,7 @@ import {
   BASE_LINE_ITEM_TYPE_NAME,
   CmlAttribute,
   CmlConstraint,
+  CmlDomain,
   CmlModel,
   CmlRelation,
   CmlType,
@@ -249,21 +250,58 @@ function handleSetDefaultAttributeValueAction(
   (parentTargetType ?? targetType).addConstraint(constraint);
 }
 
+function addParentAttrRefAndGetDeclaration(
+  parentTargetType: CmlType | null,
+  targetType: CmlType,
+  declaration: string,
+  criteriaConstraints: CmlConstraint[]
+): string {
+  if (parentTargetType && parentTargetType.containsConstraints(criteriaConstraints)) {
+    const parentCstAttr = new CmlAttribute(
+      null,
+      criteriaConstraints.map(({name}) => name).join('_') + '_value',
+      CML_DATA_TYPES.BOOLEAN
+    );
+    // const parentCstAttrDomain = new CmlDomain();
+    // parentCstAttrDomain.setExpression(declaration);
+    // parentCstAttr.setValue('expression', parentCstAttrDomain);
+    parentTargetType.addAttribute(parentCstAttr);
+    parentTargetType.addConstraint(new CmlConstraint(CONSTRAINT_TYPES.CONSTRAINT, `(${declaration}) == ${parentCstAttr.name}`));
+    const childParentRefAttr = new CmlAttribute(
+      null,
+      'parent_' + parentCstAttr.name,
+      CML_DATA_TYPES.BOOLEAN
+    )
+    const childParentRefAttrDomain = new CmlDomain();
+    childParentRefAttrDomain.setExpression(`parent(${parentCstAttr.name})`);
+    childParentRefAttr.setValue('reference', childParentRefAttrDomain);
+    targetType.addAttribute(childParentRefAttr);
+    return childParentRefAttr.name + ' == true';
+  }
+  return declaration;
+}
+
 function handleHideAttributeAction(
   parentTargetType: CmlType | null,
   targetType: CmlType,
   declaration: string,
   { actionParameters, sequence }: RuleAction,
-  rule: ConfiguratorRuleInput
+  rule: ConfiguratorRuleInput,
+  criteriaConstraints: CmlConstraint[]
 ): void {
   for (const { attributeId: targetAttributeId, attributeName: targetAttributeName } of (actionParameters ?? []).filter(
     ({ type }) => type === 'Attribute'
   )) {
     if (targetAttributeId && targetAttributeName) {
-      const constraint = CmlConstraint.createRuleConstraint(declaration, 'Hide', 'attribute', targetAttributeName);
+      const newDeclaration = addParentAttrRefAndGetDeclaration(parentTargetType, targetType, declaration, criteriaConstraints);
+      const constraint = CmlConstraint.createRuleConstraint(newDeclaration, 'Hide', 'attribute', targetAttributeName);
       const sequenceValue = (rule.sequence ?? 0) + (sequence ?? 0);
       constraint.setProperties({ sequence: sequenceValue });
-      (parentTargetType ?? targetType).addConstraint(constraint);
+      if (newDeclaration === declaration) {
+        (parentTargetType ?? targetType).addConstraint(constraint);
+      } else {
+        targetType.addConstraint(constraint);
+      }
     }
   }
 }
@@ -273,7 +311,8 @@ function handleHideDisableAttributeValueAction(
   targetType: CmlType,
   declaration: string,
   { actionParameters, actionType, sequence }: RuleAction,
-  rule: ConfiguratorRuleInput
+  rule: ConfiguratorRuleInput,
+  criteriaConstraints: CmlConstraint[]
 ): void {
   for (const { attributeId: targetAttributeId, values: targetAttributeValues } of (actionParameters ?? []).filter(
     ({ type }) => type === 'Attribute'
@@ -281,8 +320,9 @@ function handleHideDisableAttributeValueAction(
     if (targetAttributeId) {
       const targetAttribute = targetType.findAttributeById(targetAttributeId);
       if (targetAttribute) {
+        const newDeclaration = addParentAttrRefAndGetDeclaration(parentTargetType, targetType, declaration, criteriaConstraints);
         const constraint = CmlConstraint.createRuleConstraint(
-          declaration,
+          newDeclaration,
           actionType === 'HideAttributeValue' ? 'Hide' : 'Disable',
           'attribute',
           targetAttribute.name,
@@ -291,7 +331,11 @@ function handleHideDisableAttributeValueAction(
         );
         const sequenceValue = (rule.sequence ?? 0) + (sequence ?? 0);
         constraint.setProperties({ sequence: sequenceValue });
-        (parentTargetType ?? targetType).addConstraint(constraint);
+        if (newDeclaration === declaration) {
+          (parentTargetType ?? targetType).addConstraint(constraint);
+        } else {
+          targetType.addConstraint(constraint);
+        }
       }
     }
   }
@@ -773,11 +817,11 @@ export class BreRulesGenerator {
           handleSetDefaultAttributeValueAction(parentTargetType, targetType, declaration, ruleAction, rule);
           return;
         case 'HideAttribute':
-          handleHideAttributeAction(parentTargetType, targetType, declaration, ruleAction, rule);
+          handleHideAttributeAction(parentTargetType, targetType, declaration, ruleAction, rule, criteriaConstraints);
           break;
         case 'HideAttributeValue':
         case 'DisableAttributeValue':
-          handleHideDisableAttributeValueAction(parentTargetType, targetType, declaration, ruleAction, rule);
+          handleHideDisableAttributeValueAction(parentTargetType, targetType, declaration, ruleAction, rule, criteriaConstraints);
           break;
         case 'HideProduct':
         case 'DisableProduct':
