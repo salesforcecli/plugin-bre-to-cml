@@ -98,10 +98,14 @@ export class CmlType extends AnnotatedCmlElementWAttributes {
   }
 
   public addConstraint(c: CmlConstraint): void {
-    if (!c.name || !this.#constraints.some(({ name }) => c.name === name)) {
+    if (!this.#constraints.some(c1 => c1.equalsTo(c))) {
       c.setSequence(this.#constraints.length);
       this.#constraints.push(c);
     }
+  }
+
+  public containsConstraints(cc: CmlConstraint[]): boolean {
+    return cc.every(c => this.#constraints.some(({ name }) => c.name === name));
   }
 
   public generateCml(): string {
