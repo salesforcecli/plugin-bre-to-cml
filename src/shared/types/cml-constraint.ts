@@ -116,10 +116,6 @@ export class CmlConstraint extends AnnotatedCmlElement {
     this.#name = name;
   }
 
-  public equalsTo(other: CmlConstraint): boolean {
-    return this.type === other.type && this.name === other.name && this.declaration === other.declaration && this.explanation === other.explanation;
-  }
-
   public static createRequireConstraint(
     type: string, // 'exclude' | 'require'
     declaration: string,
@@ -163,6 +159,10 @@ export class CmlConstraint extends AnnotatedCmlElement {
     const messageConstraint = new CmlConstraint(CONSTRAINT_TYPES.MESSAGE, declaration, explanation, explanationType);
     messageConstraint.#additiveExpressions = additiveExpressions;
     return messageConstraint;
+  }
+
+  public equalsTo(other: CmlConstraint): boolean {
+    return this.type === other.type && this.name === other.name && this.declaration === other.declaration && this.explanation === other.explanation;
   }
 
   public setType(type: string): void {
