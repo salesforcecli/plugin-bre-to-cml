@@ -131,7 +131,7 @@ export class CmlDomain {
     if (this.isNamedDomain) {
       return this.#domainName!;
     } else if (this.#expression) {
-      return this.#expression!;
+      return this.#expression;
     } else if (this.isDomainOfDateValues) {
       return `[${this.#domainValues.map((v) => formatToCmlDate(v as Date)).join(', ')}]`;
     } else if (this.isDomainOfStringValues) {
