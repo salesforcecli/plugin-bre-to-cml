@@ -475,7 +475,8 @@ function doubleQuotedIfNeeded(value: string | string[] | undefined, dataType: st
   if (typeof value === 'string' || typeof value === 'undefined') {
     return `${dataType === 'string' ? doubleQuoted(value) ?? '' : value ?? "''"}`;
   }
-  return `${dataType === 'string' ? doubleQuoted(value[0]) ?? '' : value ?? "''"}`;
+  const singleValue = value[0];
+  return `${dataType === 'string' ? doubleQuoted(singleValue) ?? '' : singleValue ?? "''"}`;
 }
 
 function doubleQuoted(str: string | undefined): string {
