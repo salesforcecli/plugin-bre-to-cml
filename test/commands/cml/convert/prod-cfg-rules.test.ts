@@ -76,6 +76,7 @@ describe('cml convert prod-cfg-rules', () => {
   });
 
   it('tests W-19785067', async () => {
+    const cmlApiName = 'TestApiProductScopeW19785067';
     const result = await CmlConvertProdCfgRules.run([
       '--target-org',
       'test@example.com',
@@ -84,7 +85,7 @@ describe('cml convert prod-cfg-rules', () => {
       '--products-file',
       'data/test/W-19785067/ProductsMap.json',
       '--cml-api',
-      'TestApiBundleScope',
+      cmlApiName,
       '--workspace-dir',
       'data',
     ]);
@@ -93,7 +94,7 @@ describe('cml convert prod-cfg-rules', () => {
       .flatMap((c) => c.args)
       .join('\n');
     expect(output).to.include('Using Target Org: test@example.com');
-    expect(result.path).to.equal('data/TestApiBundleScope_0.cml');
+    expect(result.path).to.equal(`data/${cmlApiName}_0.cml`);
     const resultCml = await fs.readFile(result.path, 'utf8');
     const typeRegexStr = '^\\s*type (?<typeName>[a-zA-Z0-9_]+)\\s*';
     const typesMap = new Map<string, string[]>();
