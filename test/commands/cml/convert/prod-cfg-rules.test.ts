@@ -126,6 +126,7 @@ describe('cml convert prod-cfg-rules', () => {
   });
 
   it('tests W-19786482', async () => {
+    const cmlApiName = 'TestApiProductScopeW19786482';
     const result = await CmlConvertProdCfgRules.run([
       '--target-org',
       'test@example.com',
@@ -134,7 +135,7 @@ describe('cml convert prod-cfg-rules', () => {
       '--products-file',
       'data/test/W-19786482/ProductsMap.json',
       '--cml-api',
-      'TestApi',
+      cmlApiName,
       '--workspace-dir',
       'data',
     ]);
@@ -143,7 +144,7 @@ describe('cml convert prod-cfg-rules', () => {
       .flatMap((c) => c.args)
       .join('\n');
     expect(output).to.include('Using Target Org: test@example.com');
-    expect(result.path).to.equal('data/TestApi_0.cml');
+    expect(result.path).to.equal(`data/${cmlApiName}_0.cml`);
     const resultCml = await fs.readFile(result.path, 'utf8');
     expect(resultCml).to.include(
       'message(desktopp_criteria_1, "SetAttribute: 2k screen selected. and 27\\"", "Info");'
