@@ -124,4 +124,29 @@ describe('cml convert prod-cfg-rules', () => {
     expect(printerType!.some(line => line.includes('boolean parent_lpb_vr_criteria_1_value = parent(lpb_vr_criteria_1_value);')));
     expect(printerType!.some(line => line.includes('rule(parent_lpb_vr_criteria_1_value == true, "Hide", "attribute", "Printer", "value", "Laser");')));
   });
+
+  it('tests W-19786482', async () => {
+    const result = await CmlConvertProdCfgRules.run([
+      '--target-org',
+      'test@example.com',
+      '--pcr-file',
+      'data/test/W-19786482/ProductConfigurationRules.json',
+      '--products-file',
+      'data/test/W-19786482/ProductsMap.json',
+      '--cml-api',
+      'TestApi',
+      '--workspace-dir',
+      'data',
+    ]);
+    const output = sfCommandStubs.log
+      .getCalls()
+      .flatMap((c) => c.args)
+      .join('\n');
+    expect(output).to.include('Using Target Org: test@example.com');
+    expect(result.path).to.equal('data/TestApi_0.cml');
+    const resultCml = await fs.readFile(result.path, 'utf8');
+    expect(resultCml).to.include(
+      'message(desktopp_criteria_1, "SetAttribute: 2k screen selected. and 27\\"", "Info");'
+    );
+  });
 });
