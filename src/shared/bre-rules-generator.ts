@@ -275,9 +275,9 @@ function handleHideDisableAttributeValueAction(
   { actionParameters, actionType, sequence }: RuleAction,
   rule: ConfiguratorRuleInput
 ): void {
-  for (const { attributeId: targetAttributeId, values: targetAttributeValues } of (
-    actionParameters ?? []
-  ).filter(({ type }) => type === 'Attribute')) {
+  for (const { attributeId: targetAttributeId, values: targetAttributeValues } of (actionParameters ?? []).filter(
+    ({ type }) => type === 'Attribute'
+  )) {
     if (targetAttributeId) {
       const targetAttribute = targetType.findAttributeById(targetAttributeId);
       if (targetAttribute) {
@@ -484,7 +484,7 @@ function generateInCmlExpression(left: string, right: string | string[]): string
   if (typeof right === 'string') {
     return `${left} == ${doubleQuoted(right)}`;
   }
-  return `${right.map(r => `${left} == ${doubleQuoted(r)}`).join(' || ')}`;
+  return `${right.map((r) => `${left} == ${doubleQuoted(r)}`).join(' || ')}`;
 }
 
 export class BreRulesGenerator {
@@ -559,16 +559,24 @@ export class BreRulesGenerator {
       );
     }
     const criteriaConstraintName = `${rule.apiName}_criteria_${criteria.criteriaIndex ?? 0}`;
-    const sourceType = criteria.sourceContextTagName === 'Product' ? this.#cmlModel.getTypeByProductId(criteria.sourceValues[0]) : targetType;
+    const sourceType =
+      criteria.sourceContextTagName === 'Product'
+        ? this.#cmlModel.getTypeByProductId(criteria.sourceValues[0])
+        : targetType;
     if (!sourceType) {
       throw new Error(
         `Can't find source CML type for criteria: ${rule.apiName}_criteria_${criteria.criteriaIndex ?? 0}`
       );
     }
     const conditionExpressions: string[] = [];
+    const useDirectRelationsOnly = rule.scope !== 'Transaction';
     if (['Bundle', 'Transaction'].includes(rule.scope)) {
       if (['Contains', 'DoesNotContain', 'Equals'].includes(criteria.sourceOperator ?? '')) {
-        const rels: IntermediateRelation[][] = this.xFindAllPaths(targetType.name, sourceType.name);
+        const rels: IntermediateRelation[][] = this.xFindAllPaths(
+          targetType.name,
+          sourceType.name,
+          useDirectRelationsOnly
+        );
         const transactionCaseExpressions: string[] = rels.map(
           (rrs) => `${rrs.map((r) => `${r.rel}[${r.target}]`).join('.')}`
         );
@@ -582,7 +590,7 @@ export class BreRulesGenerator {
       }
     }
     for (const c of criteria.conditions ?? []) {
-      const expr = this.convertRuleConditionToCmlExpression(c, sourceType, targetType);
+      const expr = this.convertRuleConditionToCmlExpression(c, sourceType, targetType, useDirectRelationsOnly);
       if (expr) {
         conditionExpressions.push(expr);
       }
@@ -595,7 +603,11 @@ export class BreRulesGenerator {
     return constraint;
   }
 
-  private xFindAllPaths(fromType: string, toType: string): IntermediateRelation[][] {
+  private xFindAllPaths(
+    fromType: string,
+    toType: string,
+    useDirectRelsOnly: boolean = false
+  ): IntermediateRelation[][] {
     const paths: IntermediateRelation[][] = [];
     if (fromType === toType) {
       return paths;
@@ -607,7 +619,9 @@ export class BreRulesGenerator {
       for (const end of ends) {
         const found = this.xFindPath(this.#intermediateRelations, start, end);
         if (found.length > 0) {
-          paths.push(found);
+          if (!useDirectRelsOnly || found.length === 1) {
+            paths.push(found);
+          }
         }
       }
     }
@@ -653,10 +667,10 @@ export class BreRulesGenerator {
     return [];
   }
 
-  private getExprLeftPrefix(parentType: CmlType, targetType: CmlType): string {
+  private getExprLeftPrefix(parentType: CmlType, targetType: CmlType, useDirectRelationsOnly: boolean = false): string {
     if (parentType.name !== targetType.name) {
       return (
-        this.xFindAllPaths(parentType.name, targetType.name)
+        this.xFindAllPaths(parentType.name, targetType.name, useDirectRelationsOnly)
           .find((paths) => paths.length > 0)
           ?.map(({ rel, target }) => `${rel}[${target}].`)
           .join('') ?? ''
@@ -668,9 +682,10 @@ export class BreRulesGenerator {
   private convertRuleConditionToCmlExpression(
     condition: Condition,
     targetType: CmlType,
-    parentType?: CmlType | null
+    parentType?: CmlType | null,
+    useDirectRelationsOnly: boolean = false
   ): string | null {
-    const leftPrefix = (parentType && this.getExprLeftPrefix(parentType, targetType)) ?? '';
+    const leftPrefix = (parentType && this.getExprLeftPrefix(parentType, targetType, useDirectRelationsOnly)) ?? '';
     if (condition.type === 'Attribute') {
       const { attributeId, attributeName, dataType, operator, values } = condition;
       if (attributeName) {

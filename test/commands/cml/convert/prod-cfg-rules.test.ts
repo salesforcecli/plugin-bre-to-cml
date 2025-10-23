@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-/*
+import fs from 'node:fs/promises';
 import { TestContext } from '@salesforce/core/testSetup';
 import { expect } from 'chai';
 import { stubSfCommandUx } from '@salesforce/sf-plugins-core';
@@ -32,46 +32,17 @@ describe('cml convert prod-cfg-rules', () => {
     $$.restore();
   });
 
-  it('runs hello', async () => {
-    await CmlConvertProdCfgRules.run([
-      '--target-org',
-      'test@example.com',
-      '--pcr-file',
-      'data/ProductConfigurationRules.json',
-      '--cml-api',
-      'test-api',
-      '--workspace-dir',
-      'data',
-    ]);
-    const output = sfCommandStubs.log
-      .getCalls()
-      .flatMap((c) => c.args)
-      .join('\n');
-    expect(output).to.include('Using Target Org: test@example.com');
-  });
-
-  it('runs hello with --json and no provided name', async () => {
+  it('tests W-19783372', async () => {
+    const cmlApiName = 'TestApiProductScopeW19783372';
     const result = await CmlConvertProdCfgRules.run([
       '--target-org',
       'test@example.com',
       '--pcr-file',
-      'data/ProductConfigurationRules.json',
+      'data/test/W-19783372/ProductConfigurationRules.json',
+      '--products-file',
+      'data/test/W-19783372/ProductsMap.json',
       '--cml-api',
-      'test-api',
-      '--workspace-dir',
-      'data',
-    ]);
-    expect(result.path).to.equal('src/commands/cml/convert/prod-cfg-rules.ts');
-  });
-
-  it('runs hello world --name Astro', async () => {
-    await CmlConvertProdCfgRules.run([
-      '--target-org',
-      'test@example.com',
-      '--pcr-file',
-      'data/ProductConfigurationRules.json',
-      '--cml-api',
-      'test-api',
+      cmlApiName,
       '--workspace-dir',
       'data',
     ]);
@@ -80,6 +51,27 @@ describe('cml convert prod-cfg-rules', () => {
       .flatMap((c) => c.args)
       .join('\n');
     expect(output).to.include('Using Target Org: test@example.com');
+    expect(result.path).to.equal(`data/${cmlApiName}_0.cml`);
+    const resultCml = await fs.readFile(result.path, 'utf8');
+    const typeRegexStr = '^\\s*type (?<typeName>[a-zA-Z0-9_]+)\\s*';
+    const typesMap = new Map<string, string[]>();
+    let typeBody: string[] = [];
+    for (const line of resultCml.split('\n')) {
+      const regex = new RegExp(typeRegexStr);
+      if (regex.test(line)) {
+        const regexResult = regex.exec(line);
+        const typeName = regexResult?.groups?.['typeName']
+        expect(typeName).to.not.be.null;
+        typeBody = [];
+        typesMap.set(typeName!, typeBody);
+      }
+      typeBody.push(line);
+    }
+
+    const laptopProBundleType = typesMap.get('LaptopProBundle');
+    expect(laptopProBundleType).to.not.be.null;
+    expect(laptopProBundleType!.some(line => line.includes('constraint lpb_gk_criteria_1 = ((laptop1[Laptop] > 0) && laptop1[Laptop].Memory == "RAM 64GB");')));
+    // LaptopProBundle should not contain constraint expression to Laptop.Memory through laptopbasicbundle[LaptopBasicBundle]
+    expect(laptopProBundleType!.every(line => !line.includes('laptopbasicbundle[LaptopBasicBundle].laptop[Laptop].Memory')))
   });
 });
-*/
