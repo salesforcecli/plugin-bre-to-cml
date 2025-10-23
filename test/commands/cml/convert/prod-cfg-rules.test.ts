@@ -20,6 +20,26 @@ import { expect } from 'chai';
 import { stubSfCommandUx } from '@salesforce/sf-plugins-core';
 import CmlConvertProdCfgRules from '../../../../src/commands/cml/convert/prod-cfg-rules.js';
 
+const extractTypesMap = async (resultPath: string): Promise<Map<string, string[]>> => {
+  const resultCml = await fs.readFile(resultPath, 'utf8');
+  const typeRegexStr = '^\\s*type (?<typeName>[a-zA-Z0-9_]+)\\s*';
+  const typesMap = new Map<string, string[]>();
+  let typeBody: string[] = [];
+  for (const line of resultCml.split('\n')) {
+    const regex = new RegExp(typeRegexStr);
+    if (regex.test(line)) {
+      const regexResult = regex.exec(line);
+      const typeName = regexResult?.groups?.['typeName']
+      expect(typeName).to.not.be.null;
+      typeBody = [];
+      typesMap.set(typeName!, typeBody);
+    }
+    typeBody.push(line);
+  }
+
+  return typesMap;
+}
+
 describe('cml convert prod-cfg-rules', () => {
   const $$ = new TestContext();
   let sfCommandStubs: ReturnType<typeof stubSfCommandUx>;
@@ -52,26 +72,56 @@ describe('cml convert prod-cfg-rules', () => {
       .join('\n');
     expect(output).to.include('Using Target Org: test@example.com');
     expect(result.path).to.equal(`data/${cmlApiName}_0.cml`);
-    const resultCml = await fs.readFile(result.path, 'utf8');
-    const typeRegexStr = '^\\s*type (?<typeName>[a-zA-Z0-9_]+)\\s*';
-    const typesMap = new Map<string, string[]>();
-    let typeBody: string[] = [];
-    for (const line of resultCml.split('\n')) {
-      const regex = new RegExp(typeRegexStr);
-      if (regex.test(line)) {
-        const regexResult = regex.exec(line);
-        const typeName = regexResult?.groups?.['typeName']
-        expect(typeName).to.not.be.null;
-        typeBody = [];
-        typesMap.set(typeName!, typeBody);
-      }
-      typeBody.push(line);
-    }
+
+    const typesMap = await extractTypesMap(result.path);
 
     const laptopProBundleType = typesMap.get('LaptopProBundle');
     expect(laptopProBundleType).to.not.be.null;
     expect(laptopProBundleType!.some(line => line.includes('constraint lpb_gk_criteria_1 = ((laptop1[Laptop] > 0) && laptop1[Laptop].Memory == "RAM 64GB");')));
     // LaptopProBundle should not contain constraint expression to Laptop.Memory through laptopbasicbundle[LaptopBasicBundle]
     expect(laptopProBundleType!.every(line => !line.includes('laptopbasicbundle[LaptopBasicBundle].laptop[Laptop].Memory')))
+  });
+
+  it('tests W-19785067', async () => {
+    const cmlApiName = 'TestApiProductScopeW19785067';
+    const result = await CmlConvertProdCfgRules.run([
+      '--target-org',
+      'test@example.com',
+      '--pcr-file',
+      'data/test/W-19785067/ProductConfigurationRules.json',
+      '--products-file',
+      'data/test/W-19785067/ProductsMap.json',
+      '--cml-api',
+      cmlApiName,
+      '--workspace-dir',
+      'data',
+    ]);
+    const output = sfCommandStubs.log
+      .getCalls()
+      .flatMap((c) => c.args)
+      .join('\n');
+    expect(output).to.include('Using Target Org: test@example.com');
+    expect(result.path).to.equal(`data/${cmlApiName}_0.cml`);
+
+    const typesMap = await extractTypesMap(result.path);
+
+    const laptopProductivityBundleType = typesMap.get('LaptopProductivityBundle');
+    expect(laptopProductivityBundleType).to.not.be.null;
+    expect(laptopProductivityBundleType!.some(line => line.includes('boolean lpb_vr_criteria_1_value;')));
+    expect(laptopProductivityBundleType!.some(line => line.includes('constraint((lpb_vr_criteria_1) == lpb_vr_criteria_1_value);')));
+    // LaptopProductivityBundle should not contain rule for Laptop attribute Graphics
+    expect(laptopProductivityBundleType!.every(line => !line.includes('rule(parent_lpb_vr_criteria_1_value == true, "Hide", "attribute", "Graphics");')))
+    // LaptopProductivityBundle should not contain rule for Printer attribute Printer
+    expect(laptopProductivityBundleType!.every(line => line.includes('rule(parent_lpb_vr_criteria_1_value == true, "Hide", "attribute", "Printer", "value", "Laser");')));
+
+    const laptopType = typesMap.get('Laptop');
+    expect(laptopType).to.not.be.null;
+    expect(laptopType!.some(line => line.includes('boolean parent_lpb_vr_criteria_1_value = parent(lpb_vr_criteria_1_value);')));
+    expect(laptopType!.some(line => line.includes('rule(parent_lpb_vr_criteria_1_value == true, "Hide", "attribute", "Graphics");')));
+
+    const printerType = typesMap.get('Printer');
+    expect(printerType).to.not.be.null;
+    expect(printerType!.some(line => line.includes('boolean parent_lpb_vr_criteria_1_value = parent(lpb_vr_criteria_1_value);')));
+    expect(printerType!.some(line => line.includes('rule(parent_lpb_vr_criteria_1_value == true, "Hide", "attribute", "Printer", "value", "Laser");')));
   });
 });

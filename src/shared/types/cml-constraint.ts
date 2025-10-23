@@ -161,6 +161,10 @@ export class CmlConstraint extends AnnotatedCmlElement {
     return messageConstraint;
   }
 
+  public equalsTo(other: CmlConstraint): boolean {
+    return this.type === other.type && this.name === other.name && this.declaration === other.declaration && this.explanation === other.explanation;
+  }
+
   public setType(type: string): void {
     if (!Object.values(CONSTRAINT_TYPES).includes(type)) {
       throw new Error('InvalidConstraintType'.replace('{0}', type));
