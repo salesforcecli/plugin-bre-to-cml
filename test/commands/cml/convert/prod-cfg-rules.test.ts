@@ -145,9 +145,15 @@ describe('cml convert prod-cfg-rules', () => {
       .join('\n');
     expect(output).to.include('Using Target Org: test@example.com');
     expect(result.path).to.equal(`data/${cmlApiName}_0.cml`);
-    const resultCml = await fs.readFile(result.path, 'utf8');
-    expect(resultCml).to.include(
-      'message(desktopp_criteria_1, "SetAttribute: 2k screen selected. and 27\\"", "Info");'
+
+    const typesMap = await extractTypesMap(result.path);
+
+    const desktopType = typesMap.get('Desktop');
+    expect(desktopType).to.not.be.null;
+    expect(
+      desktopType!.some((line) =>
+        line.includes('message(desktopp_criteria_1, "SetAttribute: 2k screen selected. and 27\\"", "Info");')
+      )
     );
   });
 });
