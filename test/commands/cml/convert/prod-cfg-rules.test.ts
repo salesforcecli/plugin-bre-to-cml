@@ -124,4 +124,36 @@ describe('cml convert prod-cfg-rules', () => {
     expect(printerType!.some(line => line.includes('boolean parent_lpb_vr_criteria_1_value = parent(lpb_vr_criteria_1_value);')));
     expect(printerType!.some(line => line.includes('rule(parent_lpb_vr_criteria_1_value == true, "Hide", "attribute", "Printer", "value", "Laser");')));
   });
+
+  it('tests W-19786482', async () => {
+    const cmlApiName = 'TestApiProductScopeW19786482';
+    const result = await CmlConvertProdCfgRules.run([
+      '--target-org',
+      'test@example.com',
+      '--pcr-file',
+      'data/test/W-19786482/ProductConfigurationRules.json',
+      '--products-file',
+      'data/test/W-19786482/ProductsMap.json',
+      '--cml-api',
+      cmlApiName,
+      '--workspace-dir',
+      'data',
+    ]);
+    const output = sfCommandStubs.log
+      .getCalls()
+      .flatMap((c) => c.args)
+      .join('\n');
+    expect(output).to.include('Using Target Org: test@example.com');
+    expect(result.path).to.equal(`data/${cmlApiName}_0.cml`);
+
+    const typesMap = await extractTypesMap(result.path);
+
+    const desktopType = typesMap.get('Desktop');
+    expect(desktopType).to.not.be.null;
+    expect(
+      desktopType!.some((line) =>
+        line.includes('message(desktopp_criteria_1, "SetAttribute: 2k screen selected. and 27\\"", "Info");')
+      )
+    );
+  });
 });

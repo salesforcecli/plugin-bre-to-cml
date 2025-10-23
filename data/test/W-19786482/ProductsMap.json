@@ -1,0 +1,377 @@
+{
+  "01tVW000003MZIMYA4": {
+    "additionalFields": {},
+    "attributeCategory": [
+      {
+        "attributes": [
+          {
+            "additionalFields": {},
+            "attributeNameOverride": "Memory",
+            "dataType": "Picklist",
+            "defaultValue": "RAM 64GB",
+            "developerName": "Memory",
+            "id": "0tjVW0000000GOAYA2",
+            "isHidden": false,
+            "isPriceImpacting": false,
+            "isReadOnly": false,
+            "isRequired": true,
+            "label": "RAM",
+            "name": "RAM",
+            "picklist": {
+              "dataType": "Text",
+              "id": "0v5VW0000000HgrYAE",
+              "name": "Memory Picklist",
+              "values": [
+                {
+                  "code": "RAM 64GB",
+                  "displayValue": "RAM 64GB",
+                  "id": "0v6VW0000000FlWYAU",
+                  "name": "RAM 64GB",
+                  "sequence": "4",
+                  "status": "Active",
+                  "value": "RAM 64GB"
+                },
+                {
+                  "code": "RAM 32GB",
+                  "displayValue": "RAM 32GB",
+                  "id": "0v6VW0000000FlXYAU",
+                  "name": "RAM 32GB",
+                  "sequence": "3",
+                  "status": "Active",
+                  "value": "RAM 32GB"
+                },
+                {
+                  "code": "RAM 16GB",
+                  "displayValue": "RAM 16GB",
+                  "id": "0v6VW0000000FllYAE",
+                  "name": "RAM 16GB",
+                  "sequence": "2",
+                  "status": "Active",
+                  "value": "RAM 16GB"
+                }
+              ]
+            },
+            "status": "Active"
+          }
+        ],
+        "code": "MEM",
+        "id": "0v3VW0000000DmvYAE",
+        "name": "Memory"
+      },
+      {
+        "attributes": [
+          {
+            "additionalFields": {},
+            "attributeNameOverride": "Graphics",
+            "dataType": "Picklist",
+            "developerName": "Graphics",
+            "id": "0tjVW0000000GOGYA2",
+            "isHidden": false,
+            "isPriceImpacting": false,
+            "isReadOnly": false,
+            "isRequired": false,
+            "label": "Graphics",
+            "name": "Graphics",
+            "picklist": {
+              "dataType": "Text",
+              "id": "0v5VW0000000HgxYAE",
+              "name": "Graphics Picklist",
+              "values": [
+                {
+                  "code": "Intel Iris Xe Graphics",
+                  "displayValue": "Intel Iris Xe Graphics",
+                  "id": "0v6VW0000000FlUYAU",
+                  "name": "Intel Iris Xe Graphics",
+                  "sequence": "1",
+                  "status": "Active",
+                  "value": "Intel Iris Xe Graphics"
+                },
+                {
+                  "code": "MSI Gaming GeForce RTX 3060",
+                  "displayValue": "MSI Gaming GeForce RTX 3060",
+                  "id": "0v6VW0000000FlVYAU",
+                  "name": "MSI Gaming GeForce RTX 3060",
+                  "sequence": "2",
+                  "status": "Active",
+                  "value": "MSI Gaming GeForce RTX 3060"
+                }
+              ]
+            },
+            "status": "Active"
+          }
+        ],
+        "code": "GRA",
+        "id": "0v3VW0000000DmwYAE",
+        "name": "Graphics"
+      },
+      {
+        "attributes": [
+          {
+            "additionalFields": {},
+            "attributeNameOverride": "Screen Size",
+            "dataType": "Picklist",
+            "developerName": "Display_Size",
+            "id": "0tjVW0000000GOHYA2",
+            "isHidden": false,
+            "isPriceImpacting": false,
+            "isReadOnly": false,
+            "isRequired": true,
+            "label": "Screen Size",
+            "name": "Display_Size",
+            "picklist": {
+              "dataType": "Text",
+              "id": "0v5VW0000000HgyYAE",
+              "name": "Display Size Picklist",
+              "values": [
+                {
+                  "code": "24IN",
+                  "displayValue": "24 Inch",
+                  "id": "0v6VW0000000FlgYAE",
+                  "name": "24 Inch",
+                  "sequence": "3",
+                  "status": "Active",
+                  "value": "24 Inch"
+                },
+                {
+                  "code": "13IN",
+                  "displayValue": "13 Inch",
+                  "id": "0v6VW0000000FliYAE",
+                  "name": "13 Inch",
+                  "sequence": "1",
+                  "status": "Active",
+                  "value": "13 Inch"
+                },
+                {
+                  "code": "15IN",
+                  "displayValue": "15 Inch",
+                  "id": "0v6VW0000000FlmYAE",
+                  "name": "15 Inch",
+                  "sequence": "2",
+                  "status": "Active",
+                  "value": "15 Inch"
+                },
+                {
+                  "code": "27IN",
+                  "displayValue": "27 Inch",
+                  "id": "0v6VW0000000FlnYAE",
+                  "name": "27 Inch",
+                  "sequence": "4",
+                  "status": "Active",
+                  "value": "27 Inch"
+                }
+              ]
+            },
+            "status": "Active"
+          },
+          {
+            "additionalFields": {},
+            "attributeNameOverride": "Display",
+            "dataType": "Picklist",
+            "defaultValue": "4k Built-in Display",
+            "developerName": "Display",
+            "id": "0tjVW0000000GO9YAM",
+            "isHidden": false,
+            "isPriceImpacting": false,
+            "isReadOnly": false,
+            "isRequired": true,
+            "label": "Display",
+            "name": "Display",
+            "picklist": {
+              "dataType": "Text",
+              "id": "0v5VW0000000HgqYAE",
+              "name": "Display Picklist",
+              "values": [
+                {
+                  "code": "1080p Built-in Display",
+                  "displayValue": "1080p Built-in Display",
+                  "id": "0v6VW0000000FlRYAU",
+                  "name": "1080p Built-in Display",
+                  "sequence": "1",
+                  "status": "Active",
+                  "value": "1080p Built-in Display"
+                },
+                {
+                  "code": "4k Built-in Display",
+                  "displayValue": "4k Built-in Display",
+                  "id": "0v6VW0000000FlSYAU",
+                  "name": "4k Built-in Display",
+                  "sequence": "3",
+                  "status": "Active",
+                  "value": "4k Built-in Display"
+                },
+                {
+                  "code": "2k Built-in Display",
+                  "displayValue": "2k Built-in Display",
+                  "id": "0v6VW0000000FlTYAU",
+                  "name": "2k Built-in Display",
+                  "sequence": "2",
+                  "status": "Active",
+                  "value": "2k Built-in Display"
+                }
+              ]
+            },
+            "status": "Active"
+          }
+        ],
+        "code": "DIS",
+        "id": "0v3VW0000000DmxYAE",
+        "name": "Display"
+      },
+      {
+        "attributes": [
+          {
+            "additionalFields": {},
+            "attributeNameOverride": "Storage",
+            "dataType": "Picklist",
+            "developerName": "Storage",
+            "id": "0tjVW0000000GOCYA2",
+            "isHidden": false,
+            "isPriceImpacting": false,
+            "isReadOnly": false,
+            "isRequired": true,
+            "label": "Storage",
+            "name": "Storage",
+            "picklist": {
+              "dataType": "Text",
+              "id": "0v5VW0000000HgtYAE",
+              "name": "Storage Picklist",
+              "values": [
+                {
+                  "code": "SSD Hard Drive 2TB",
+                  "displayValue": "SSD Hard Drive 2TB",
+                  "id": "0v6VW0000000FlaYAE",
+                  "name": "SSD Hard Drive 2TB",
+                  "sequence": "4",
+                  "status": "Active",
+                  "value": "SSD Hard Drive 2TB"
+                },
+                {
+                  "code": "SSD Hard Drive 1TB",
+                  "displayValue": "SSD Hard Drive 1TB",
+                  "id": "0v6VW0000000FlcYAE",
+                  "name": "SSD Hard Drive 1TB",
+                  "sequence": "3",
+                  "status": "Active",
+                  "value": "SSD Hard Drive 1TB"
+                },
+                {
+                  "code": "CSE - 6TB",
+                  "displayValue": "Cloud Storage Enterprise - 6 TB",
+                  "id": "0v6VW0000000FlkYAE",
+                  "name": "Cloud Storage Enterprise - 6 TB",
+                  "sequence": "6",
+                  "status": "Active",
+                  "value": "Cloud Storage Enterprise - 6 TB"
+                },
+                {
+                  "code": "CSE-TB",
+                  "displayValue": "Cloud Storage Enterprise - 2 TB",
+                  "id": "0v6VW0000000FlrYAE",
+                  "name": "Cloud Storage Enterprise - 2 TB",
+                  "sequence": "5",
+                  "status": "Active",
+                  "value": "Cloud Storage Enterprise - 2 TB"
+                }
+              ]
+            },
+            "status": "Active"
+          }
+        ],
+        "code": "STO",
+        "id": "0v3VW0000000DmsYAE",
+        "name": "Storage"
+      },
+      {
+        "attributes": [
+          {
+            "additionalFields": {},
+            "attributeNameOverride": "Processor",
+            "dataType": "Picklist",
+            "defaultValue": "i5-CPU 4.4GHz",
+            "developerName": "Windows_Processor",
+            "id": "0tjVW0000000GOEYA2",
+            "isHidden": false,
+            "isPriceImpacting": false,
+            "isReadOnly": false,
+            "isRequired": false,
+            "label": "Processor",
+            "name": "Windows_Processor",
+            "picklist": {
+              "dataType": "Text",
+              "id": "0v5VW0000000HgvYAE",
+              "name": "Processor Picklist",
+              "values": [
+                {
+                  "code": "i5-CPU 4.4GHz",
+                  "displayValue": "i5-CPU 4.4GHz",
+                  "id": "0v6VW0000000FlYYAU",
+                  "name": "i5-CPU 4.4GHz",
+                  "sequence": "1",
+                  "status": "Active",
+                  "value": "i5-CPU 4.4GHz"
+                },
+                {
+                  "code": "i7-CPU 4.7GHz",
+                  "displayValue": "i7-CPU 4.7GHz",
+                  "id": "0v6VW0000000FlZYAU",
+                  "name": "i7-CPU 4.7GHz",
+                  "sequence": "2",
+                  "status": "Active",
+                  "value": "i7-CPU 4.7GHz"
+                },
+                {
+                  "code": "IC5.2",
+                  "displayValue": "Intel Core i9 5.2 GHz",
+                  "id": "0v6VW0000000FlsYAE",
+                  "name": "Intel Core i9 5.2 GHz",
+                  "sequence": "3",
+                  "status": "Active",
+                  "value": "Intel Core i9 5.2 GHz"
+                }
+              ]
+            },
+            "status": "Active"
+          }
+        ],
+        "code": "PRO",
+        "id": "0v3VW0000000DmtYAE",
+        "name": "Processor"
+      }
+    ],
+    "attributes": [],
+    "catalogs": [],
+    "categories": [],
+    "childProducts": [],
+    "configureDuringSale": "Allowed",
+    "description": "Personal computing device designed to fit on top of a typical office desk",
+    "displayUrl": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSGp_xtbLqudSff6S0wbAzvn4631mcUDi3N8F52JbRkiw&amp;s",
+    "id": "01tVW000003MZIMYA4",
+    "isActive": true,
+    "isAssetizable": true,
+    "isSoldOnlyWithOtherProds": false,
+    "name": "Desktop",
+    "nodeType": "simpleProduct",
+    "productClassification": {
+      "id": "11BVW000002fi2O2AQ"
+    },
+    "productCode": "DS001",
+    "productComponentGroups": [],
+    "productSellingModelOptions": [
+      {
+        "id": "0iOVW0000001b7L2AQ",
+        "isDefault": true,
+        "productId": "01tVW000003MZIMYA4",
+        "productSellingModel": {
+          "doesAutoRenewByDefault": false,
+          "id": "0jPVW0000000pNV2AY",
+          "name": "One Time",
+          "sellingModelType": "OneTime",
+          "status": "Active"
+        }
+      }
+    ],
+    "productSpecificationType": {
+      "name": "Commercial"
+    }
+  }
+}

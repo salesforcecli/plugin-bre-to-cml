@@ -471,15 +471,23 @@ function getTargetAttribute(
   return targetAttribute;
 }
 
-function doubleQuotedIfNeeded(value: string | undefined, dataType: string | undefined): string {
-  return `${dataType === 'string' ? doubleQuoted(value) ?? '' : value ?? "''"}`;
+function doubleQuotedIfNeeded(value: string | string[] | undefined, dataType: string | undefined): string {
+  if (typeof value === 'string' || typeof value === 'undefined') {
+    return `${dataType === 'string' ? doubleQuoted(value) ?? '' : value ?? "''"}`;
+  }
+  const singleValue = value[0];
+  return `${dataType === 'string' ? doubleQuoted(singleValue) ?? '' : singleValue ?? "''"}`;
 }
 
-function doubleQuoted(string: string | undefined): string {
-  if (string) {
-    return `"${string}"`;
+function doubleQuoted(str: string | undefined): string {
+  if (str) {
+    return `"${escapeQuotes(str)}"`;
   }
-  return string ?? "''";
+  return str ?? "''";
+}
+
+function escapeQuotes(str: string): string {
+  return str.replace(/['"]/g, '\\$&');
 }
 
 function convertToCmlExpression(
@@ -490,9 +498,9 @@ function convertToCmlExpression(
 ): string {
   switch (ruleExprOperator) {
     case 'Equals':
-      return `${left} == ${doubleQuotedIfNeeded(right as string | undefined, dataType)}`;
+      return `${left} == ${doubleQuotedIfNeeded(right, dataType)}`;
     case 'NotEquals':
-      return `${left} != ${doubleQuotedIfNeeded(right as string | undefined, dataType)}`;
+      return `${left} != ${doubleQuotedIfNeeded(right, dataType)}`;
     case 'LessThan':
       return `${left} <= ${(right as string | undefined) ?? ''}`;
     case 'LessThanOrEquals':
