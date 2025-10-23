@@ -1,3 +1,10 @@
+## [1.0.16](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.15...1.0.16) (2025-10-23)
+
+### Bug Fixes
+
+- W-19783372 - test ([d3d75b6](https://github.com/salesforcecli/plugin-bre-to-cml/commit/d3d75b6e98ee6a09187e1ff6bcfa23df701580f9))
+- W-19783372 CML generated is not pointing to the right child when building the constraint ([2ab7466](https://github.com/salesforcecli/plugin-bre-to-cml/commit/2ab7466207cdc06a69614f61100b4f390990c569))
+
 ## [1.0.15](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.14...1.0.15) (2025-10-11)
 
 ### Bug Fixes
