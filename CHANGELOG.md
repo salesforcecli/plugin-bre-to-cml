@@ -1,3 +1,9 @@
+## [1.0.19](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.18...1.0.19) (2025-10-23)
+
+### Bug Fixes
+
+- W-19996586 cleanup and add test ([2258c5d](https://github.com/salesforcecli/plugin-bre-to-cml/commit/2258c5dcc61a79eb6b2d425bd083232a5f6a3653))
+
 ## [1.0.18](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.17...1.0.18) (2025-10-23)
 
 ### Bug Fixes
