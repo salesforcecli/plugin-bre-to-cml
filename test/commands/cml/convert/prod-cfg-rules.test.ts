@@ -20,6 +20,26 @@ import { expect } from 'chai';
 import { stubSfCommandUx } from '@salesforce/sf-plugins-core';
 import CmlConvertProdCfgRules from '../../../../src/commands/cml/convert/prod-cfg-rules.js';
 
+const extractTypesMap = async (resultPath: string): Promise<Map<string, string[]>> => {
+  const resultCml = await fs.readFile(resultPath, 'utf8');
+  const typeRegexStr = '^\\s*type (?<typeName>[a-zA-Z0-9_]+)\\s*';
+  const typesMap = new Map<string, string[]>();
+  let typeBody: string[] = [];
+  for (const line of resultCml.split('\n')) {
+    const regex = new RegExp(typeRegexStr);
+    if (regex.test(line)) {
+      const regexResult = regex.exec(line);
+      const typeName = regexResult?.groups?.['typeName']
+      expect(typeName).to.not.be.null;
+      typeBody = [];
+      typesMap.set(typeName!, typeBody);
+    }
+    typeBody.push(line);
+  }
+
+  return typesMap;
+}
+
 describe('cml convert prod-cfg-rules', () => {
   const $$ = new TestContext();
   let sfCommandStubs: ReturnType<typeof stubSfCommandUx>;
@@ -52,21 +72,8 @@ describe('cml convert prod-cfg-rules', () => {
       .join('\n');
     expect(output).to.include('Using Target Org: test@example.com');
     expect(result.path).to.equal(`data/${cmlApiName}_0.cml`);
-    const resultCml = await fs.readFile(result.path, 'utf8');
-    const typeRegexStr = '^\\s*type (?<typeName>[a-zA-Z0-9_]+)\\s*';
-    const typesMap = new Map<string, string[]>();
-    let typeBody: string[] = [];
-    for (const line of resultCml.split('\n')) {
-      const regex = new RegExp(typeRegexStr);
-      if (regex.test(line)) {
-        const regexResult = regex.exec(line);
-        const typeName = regexResult?.groups?.['typeName']
-        expect(typeName).to.not.be.null;
-        typeBody = [];
-        typesMap.set(typeName!, typeBody);
-      }
-      typeBody.push(line);
-    }
+
+    const typesMap = await extractTypesMap(result.path);
 
     const laptopProBundleType = typesMap.get('LaptopProBundle');
     expect(laptopProBundleType).to.not.be.null;
@@ -95,21 +102,8 @@ describe('cml convert prod-cfg-rules', () => {
       .join('\n');
     expect(output).to.include('Using Target Org: test@example.com');
     expect(result.path).to.equal(`data/${cmlApiName}_0.cml`);
-    const resultCml = await fs.readFile(result.path, 'utf8');
-    const typeRegexStr = '^\\s*type (?<typeName>[a-zA-Z0-9_]+)\\s*';
-    const typesMap = new Map<string, string[]>();
-    let typeBody: string[] = [];
-    for (const line of resultCml.split('\n')) {
-      const regex = new RegExp(typeRegexStr);
-      if (regex.test(line)) {
-        const regexResult = regex.exec(line);
-        const typeName = regexResult?.groups?.['typeName']
-        expect(typeName).to.not.be.null;
-        typeBody = [];
-        typesMap.set(typeName!, typeBody);
-      }
-      typeBody.push(line);
-    }
+
+    const typesMap = await extractTypesMap(result.path);
 
     const laptopProductivityBundleType = typesMap.get('LaptopProductivityBundle');
     expect(laptopProductivityBundleType).to.not.be.null;
