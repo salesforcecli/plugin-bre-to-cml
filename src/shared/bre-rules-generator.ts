@@ -569,7 +569,7 @@ export class BreRulesGenerator {
       );
     }
     const conditionExpressions: string[] = [];
-    const useDirectRelationsOnly = rule.scope === 'Bundle';
+    const useDirectRelationsOnly = rule.scope !== 'Transaction';
     if (['Bundle', 'Transaction'].includes(rule.scope)) {
       if (['Contains', 'DoesNotContain', 'Equals'].includes(criteria.sourceOperator ?? '')) {
         const rels: IntermediateRelation[][] = this.xFindAllPaths(
