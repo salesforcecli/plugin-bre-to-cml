@@ -1,0 +1,17 @@
+[
+  {
+    "ApiName": "bundlescope",
+    "ConfigurationRuleDefinition": "{\"usageSubType\":\"Product\",\"sequence\":1,\"criteriaExpressionType\":\"All\",\"apiName\":\"bundlescope\",\"endDate\":null,\"criteria\":[{\"rootObjectId\":\"01tVW000003MZIS\",\"sourceDataType\":\"String\",\"conditionExpression\":null,\"sourceValues\":[\"01tVW000003MZISYA4\"],\"sourceContextTagName\":\"Product\",\"sourceInformation\":[{\"type\":\"Tag\",\"name\":\"ProductBasedOn\",\"values\":{\"values\":[null]}},{\"type\":\"Tag\",\"name\":\"Product\",\"values\":{\"values\":[\"TermDefined\"]}},{\"type\":\"Enum\",\"name\":\"ProductType\",\"values\":{\"values\":[\"Static\"]}},{\"type\":\"Tag\",\"name\":\"ProductName\",\"values\":{\"values\":[null]}},{\"type\":\"Tag\",\"name\":\"ItemPath\",\"values\":{\"values\":[null]}},{\"type\":\"Tag\",\"name\":\"ParentPRCPath\",\"values\":{\"values\":[null]}},{\"type\":\"Tag\",\"name\":\"isImplicitCondition\",\"values\":{\"values\":[\"true\"]}}],\"sourceOperator\":\"Equals\",\"conditions\":[{\"contextTagName\":\"SellingModelType\",\"dataType\":\"String\",\"values\":[\"TermDefined\"],\"behaviorTypeLock\":null,\"attributeName\":null,\"conditionIndex\":1,\"type\":\"Tag\",\"operator\":\"Equals\"}],\"criteriaIndex\":1}],\"scope\":\"Bundle\",\"name\":\"Bundlescope\",\"description\":\"\",\"actions\":[{\"targetValues\":[\"0dSVW0000005YXS2A2\"],\"targetInformation\":[{\"type\":\"Tag\",\"name\":\"ProductBasedOn\",\"values\":{\"values\":[null]}},{\"type\":\"Tag\",\"name\":\"Product\",\"values\":{\"values\":[\"01tVW000003MZIWYA4\"]}},{\"type\":\"Enum\",\"name\":\"ProductType\",\"values\":{\"values\":[\"Static\"]}},{\"type\":\"Tag\",\"name\":\"ProductName\",\"values\":{\"values\":[\"Printer Bundle\"]}},{\"type\":\"Tag\",\"name\":\"ItemPath\",\"values\":{\"values\":[null]}},{\"type\":\"Tag\",\"name\":\"ParentPRCPath\",\"values\":{\"values\":[null]}}],\"targetDataType\":null,\"message\":\"Auto add Printer bundle\",\"targetOperator\":\"Equals\",\"actionType\":\"AutoAdd\",\"sequence\":1,\"actionParameters\":[],\"targetContextTagName\":\"ProductRelatedComponent\",\"messageType\":\"Info\",\"name\":\"RuleAction0\",\"behaviorTypeLock\":null,\"actionParametersExpression\":null}],\"startDate\":\"2025-10-01T22:52:00\",\"status\":\"Draft\"}",
+    "Description": "",
+    "EffectiveFromDate": "2025-10-01T22:52:00.000Z",
+    "EffectiveToDate": "",
+    "Id": "14OVW0000000sur2AA",
+    "IsDeleted": "false",
+    "Name": "Bundlescope",
+    "ProcessScope": "Bundle",
+    "RuleSubType": "Product",
+    "RuleType": "Configurator",
+    "Sequence": "1",
+    "Status": "Draft"
+  }
+]

@@ -156,4 +156,40 @@ describe('cml convert prod-cfg-rules', () => {
       )
     );
   });
+
+  it('tests W-19996586', async () => {
+    const cmlApiName = 'TestApiAttrTagNamesW19996586';
+    const result = await CmlConvertProdCfgRules.run([
+      '--target-org',
+      'test@example.com',
+      '--pcr-file',
+      'data/test/W-19996586/ProductConfigurationRules.json',
+      '--products-file',
+      'data/test/W-19996586/ProductsMap.json',
+      '--cml-api',
+      cmlApiName,
+      '--workspace-dir',
+      'data',
+    ]);
+    const output = sfCommandStubs.log
+      .getCalls()
+      .flatMap((c) => c.args)
+      .join('\n');
+    expect(output).to.include('Using Target Org: test@example.com');
+    expect(result.path).to.equal(`data/${cmlApiName}_0.cml`);
+
+    const typesMap = await extractTypesMap(result.path);
+
+    const laptopProBundleType = typesMap.get('LaptopProBundle');
+    expect(laptopProBundleType).to.not.be.null;
+    // filter empty lines in LaptopProBundle body definition
+    const laptopProBundleTypeLines = laptopProBundleType!.filter(line => line.trim().length > 0);
+    // check if we have generated SellingModelType attribute and tagName annotation
+    expect(laptopProBundleTypeLines.some(line => line.includes('@(tagName = "SellingModelType")')));
+    expect(laptopProBundleTypeLines.some(line => line.includes('string SellingModelType;')));
+    const smtAttrIndex = laptopProBundleTypeLines.findIndex(line => line.includes('string SellingModelType;'));
+    const smtAnnotationIndex = laptopProBundleTypeLines.findIndex(line => line.includes('@(tagName = "SellingModelType")'));
+    // tagName annotation should be defined before SellingModelType attribute
+    expect(smtAnnotationIndex).to.equal(smtAttrIndex - 1);
+  });
 });
