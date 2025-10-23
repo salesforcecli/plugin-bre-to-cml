@@ -1,3 +1,13 @@
+## [1.0.18](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.17...1.0.18) (2025-10-23)
+
+### Bug Fixes
+
+- merge conflicts, rebase on main ([82772fd](https://github.com/salesforcecli/plugin-bre-to-cml/commit/82772fda9eaf56b1f82e0e480da1d189c8012ff8))
+- W-19786482 - CML generated doesn't set the attribute in product scope ([29cc203](https://github.com/salesforcecli/plugin-bre-to-cml/commit/29cc203ef56bf2027bfb8bab8141dc37448519ca))
+- W-19786482 - CML generated doesn't set the attribute in product scope ([d5faf3f](https://github.com/salesforcecli/plugin-bre-to-cml/commit/d5faf3f0adecbbb8588483592bd5e5cd338c62fd))
+- W-19786482 - CML generated doesn't set the attribute in product scope - test ([11b3b8d](https://github.com/salesforcecli/plugin-bre-to-cml/commit/11b3b8dae30c2005fae5299c6fa1e7db962a0d5e))
+- W-19786482 - test update ([607dbd2](https://github.com/salesforcecli/plugin-bre-to-cml/commit/607dbd255dcd8286de3c5f8d09c5dec50b8508f2))
+
 ## [1.0.17](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.16...1.0.17) (2025-10-23)
 
 ### Bug Fixes
