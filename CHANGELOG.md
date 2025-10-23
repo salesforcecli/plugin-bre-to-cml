@@ -1,3 +1,14 @@
+## [1.0.17](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.16...1.0.17) (2025-10-23)
+
+### Bug Fixes
+
+- lint ([fd086c8](https://github.com/salesforcecli/plugin-bre-to-cml/commit/fd086c80bd0fdc377f97151fddf8b0c0eab06af1))
+- merge conflicts, rebase on main ([58a0787](https://github.com/salesforcecli/plugin-bre-to-cml/commit/58a07872d060c1f9e46bbc55c4dc67caecffd0e8))
+- W-19785067 - test ([9ad0e4e](https://github.com/salesforcecli/plugin-bre-to-cml/commit/9ad0e4eda000203e648ba2c2ed15793a65b315d1))
+- W-19785067 - test update ([f1254af](https://github.com/salesforcecli/plugin-bre-to-cml/commit/f1254af8d36592e8e42c68c6d00ca7bbeef4a573))
+- W-19785067 CML generated is generating the wrong visibility rules when dealing with child product's attributes ([04e8420](https://github.com/salesforcecli/plugin-bre-to-cml/commit/04e84201f8d7a735d0bb12364219b573c1193ef5))
+- W-19785067 CML generated is generating the wrong visibility rules when dealing with child product's attributes ([441f2e5](https://github.com/salesforcecli/plugin-bre-to-cml/commit/441f2e501f668a5befe526c56ef5a481beefa6f6))
+
 ## [1.0.16](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.15...1.0.16) (2025-10-23)
 
 ### Bug Fixes
