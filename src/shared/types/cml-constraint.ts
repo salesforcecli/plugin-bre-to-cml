@@ -162,7 +162,7 @@ export class CmlConstraint extends AnnotatedCmlElement {
   }
 
   public equalsTo(other: CmlConstraint): boolean {
-    return this.type === other.type && this.name === other.name && this.declaration === other.declaration && this.explanation === other.explanation;
+    return this.generateCml().trim() === other.generateCml().trim();
   }
 
   public setType(type: string): void {

@@ -20,24 +20,49 @@ import { expect } from 'chai';
 import { stubSfCommandUx } from '@salesforce/sf-plugins-core';
 import CmlConvertProdCfgRules from '../../../../src/commands/cml/convert/prod-cfg-rules.js';
 
-const extractTypesMap = async (resultPath: string): Promise<Map<string, string[]>> => {
+
+const extractTypesMapUsingRegex = async (resultPath: string): Promise<Map<string, string[]>> => {
   const resultCml = await fs.readFile(resultPath, 'utf8');
-  const typeRegexStr = '^\\s*type (?<typeName>[a-zA-Z0-9_]+)\\s*';
   const typesMap = new Map<string, string[]>();
-  let typeBody: string[] = [];
-  for (const line of resultCml.split('\n')) {
-    const regex = new RegExp(typeRegexStr);
-    if (regex.test(line)) {
-      const regexResult = regex.exec(line);
-      const typeName = regexResult?.groups?.['typeName']
-      expect(typeName).to.not.be.null;
-      typeBody = [];
-      typesMap.set(typeName!, typeBody);
-    }
-    typeBody.push(line);
+  const typeRegex = new RegExp('type\\s+(?<typeName>\\w+)(?:\\s*:\\s*(?<parentType>\\w+))?\\s*(?:\\{(?<typeBody>[^}]*)\\}|;)\\s*', 'gm');
+  let regexResult: RegExpExecArray | null = null;
+  while ((regexResult = typeRegex.exec(resultCml)) !== null) {
+    const groups = regexResult.groups!;
+    typesMap.set(groups['typeName'], groups['typeBody']?.split('\n')?.filter(line => line.trim().length > 0)?.map(line => line.trim()) ?? []);
   }
 
   return typesMap;
+}
+
+// return [cml body as string, cml body lines as string[]]
+const expectTypeAndGetLines = (typesMap: Map<string, string[]>, typeName: string): [string, string[]] => {
+  const targetTypeLines = typesMap.get(typeName);
+  expect(targetTypeLines).to.not.be.null;
+  return [targetTypeLines!.join(' '), targetTypeLines!];
+}
+
+const executeConvertCommand = async (ticketNumber: string, cmlApiName: string, sfCommandStubs: ReturnType<typeof stubSfCommandUx>) => {
+  const result = await CmlConvertProdCfgRules.run([
+    '--target-org',
+    'test@example.com',
+    '--pcr-file',
+    `data/test/${ticketNumber}/ProductConfigurationRules.json`,
+    '--products-file',
+    `data/test/${ticketNumber}/ProductsMap.json`,
+    '--cml-api',
+    cmlApiName,
+    '--workspace-dir',
+    'data',
+  ]);
+
+  const output = sfCommandStubs.log
+    .getCalls()
+    .flatMap((c) => c.args)
+    .join('\n');
+  expect(output).to.include('Using Target Org: test@example.com');
+  expect(result.path).to.equal(`data/${cmlApiName}_0.cml`);
+
+  return result;
 }
 
 describe('cml convert prod-cfg-rules', () => {
@@ -53,140 +78,59 @@ describe('cml convert prod-cfg-rules', () => {
   });
 
   it('tests W-19783372', async () => {
-    const cmlApiName = 'TestApiProductScopeW19783372';
-    const result = await CmlConvertProdCfgRules.run([
-      '--target-org',
-      'test@example.com',
-      '--pcr-file',
-      'data/test/W-19783372/ProductConfigurationRules.json',
-      '--products-file',
-      'data/test/W-19783372/ProductsMap.json',
-      '--cml-api',
-      cmlApiName,
-      '--workspace-dir',
-      'data',
-    ]);
-    const output = sfCommandStubs.log
-      .getCalls()
-      .flatMap((c) => c.args)
-      .join('\n');
-    expect(output).to.include('Using Target Org: test@example.com');
-    expect(result.path).to.equal(`data/${cmlApiName}_0.cml`);
+    const result = await executeConvertCommand('W-19783372', 'TestApiW19783372', sfCommandStubs);
 
-    const typesMap = await extractTypesMap(result.path);
+    const typesMap = await extractTypesMapUsingRegex(result.path);
 
-    const laptopProBundleType = typesMap.get('LaptopProBundle');
-    expect(laptopProBundleType).to.not.be.null;
-    expect(laptopProBundleType!.some(line => line.includes('constraint lpb_gk_criteria_1 = ((laptop1[Laptop] > 0) && laptop1[Laptop].Memory == "RAM 64GB");')));
+    const [laptopProBundleType, laptopProBundleTypeLines] = expectTypeAndGetLines(typesMap, 'LaptopProBundle');
+    expect(laptopProBundleTypeLines).to.include('constraint lpb_gk_criteria_1 = ((laptop1[Laptop] > 0) && laptop1[Laptop].Memory == "RAM 64GB");');
     // LaptopProBundle should not contain constraint expression to Laptop.Memory through laptopbasicbundle[LaptopBasicBundle]
-    expect(laptopProBundleType!.every(line => !line.includes('laptopbasicbundle[LaptopBasicBundle].laptop[Laptop].Memory')))
+    expect(laptopProBundleType).to.not.include('laptopbasicbundle[LaptopBasicBundle].laptop[Laptop].Memory');
   });
 
   it('tests W-19785067', async () => {
-    const cmlApiName = 'TestApiProductScopeW19785067';
-    const result = await CmlConvertProdCfgRules.run([
-      '--target-org',
-      'test@example.com',
-      '--pcr-file',
-      'data/test/W-19785067/ProductConfigurationRules.json',
-      '--products-file',
-      'data/test/W-19785067/ProductsMap.json',
-      '--cml-api',
-      cmlApiName,
-      '--workspace-dir',
-      'data',
-    ]);
-    const output = sfCommandStubs.log
-      .getCalls()
-      .flatMap((c) => c.args)
-      .join('\n');
-    expect(output).to.include('Using Target Org: test@example.com');
-    expect(result.path).to.equal(`data/${cmlApiName}_0.cml`);
+    const result = await executeConvertCommand('W-19785067', 'TestApiW19785067', sfCommandStubs);
 
-    const typesMap = await extractTypesMap(result.path);
+    const typesMap = await extractTypesMapUsingRegex(result.path);
 
-    const laptopProductivityBundleType = typesMap.get('LaptopProductivityBundle');
-    expect(laptopProductivityBundleType).to.not.be.null;
-    expect(laptopProductivityBundleType!.some(line => line.includes('boolean lpb_vr_criteria_1_value;')));
-    expect(laptopProductivityBundleType!.some(line => line.includes('constraint((lpb_vr_criteria_1) == lpb_vr_criteria_1_value);')));
+    const [laptopProductivityBundleType, laptopProductivityBundleTypeLines] = expectTypeAndGetLines(typesMap, 'LaptopProductivityBundle');
+    expect(laptopProductivityBundleTypeLines).to.include('boolean lpb_vr_criteria_1_value;');
+    expect(laptopProductivityBundleTypeLines).to.include('constraint((lpb_vr_criteria_1) == lpb_vr_criteria_1_value);');
     // LaptopProductivityBundle should not contain rule for Laptop attribute Graphics
-    expect(laptopProductivityBundleType!.every(line => !line.includes('rule(parent_lpb_vr_criteria_1_value == true, "Hide", "attribute", "Graphics");')))
+    expect(laptopProductivityBundleType).to.not.include('"Hide", "attribute", "Graphics");');
+    // LaptopProductivityBundle should not contain rule for Laptop attribute Windows_Processor
+    expect(laptopProductivityBundleType).to.not.include('"Disable", "attribute", "Windows_Processor", "value", ["i7-CPU 4.7GHz", "Intel Core i9 5.2 GHz"]);');
     // LaptopProductivityBundle should not contain rule for Printer attribute Printer
-    expect(laptopProductivityBundleType!.every(line => line.includes('rule(parent_lpb_vr_criteria_1_value == true, "Hide", "attribute", "Printer", "value", "Laser");')));
+    expect(laptopProductivityBundleType).to.not.include('"Hide", "attribute", "Printer", "value", "Laser");');
 
-    const laptopType = typesMap.get('Laptop');
-    expect(laptopType).to.not.be.null;
-    expect(laptopType!.some(line => line.includes('boolean parent_lpb_vr_criteria_1_value = parent(lpb_vr_criteria_1_value);')));
-    expect(laptopType!.some(line => line.includes('rule(parent_lpb_vr_criteria_1_value == true, "Hide", "attribute", "Graphics");')));
+    const [, laptopTypeLines] = expectTypeAndGetLines(typesMap, 'Laptop');
+    expect(laptopTypeLines).to.include('boolean parent_lpb_vr_criteria_1_value = parent(lpb_vr_criteria_1_value);');
+    expect(laptopTypeLines).to.include('rule(parent_lpb_vr_criteria_1_value == true, "Hide", "attribute", "Graphics");');
+    expect(laptopTypeLines).to.include('rule(parent_lpb_vr_criteria_1_value == true, "Disable", "attribute", "Windows_Processor", "value", ["i7-CPU 4.7GHz", "Intel Core i9 5.2 GHz"]);');
 
-    const printerType = typesMap.get('Printer');
-    expect(printerType).to.not.be.null;
-    expect(printerType!.some(line => line.includes('boolean parent_lpb_vr_criteria_1_value = parent(lpb_vr_criteria_1_value);')));
-    expect(printerType!.some(line => line.includes('rule(parent_lpb_vr_criteria_1_value == true, "Hide", "attribute", "Printer", "value", "Laser");')));
+    const [, printerTypeLines] = expectTypeAndGetLines(typesMap, 'Printer');
+    expect(printerTypeLines).to.include('boolean parent_lpb_vr_criteria_1_value = parent(lpb_vr_criteria_1_value);');
+    expect(printerTypeLines).to.include('rule(parent_lpb_vr_criteria_1_value == true, "Hide", "attribute", "Printer", "value", "Laser");');
   });
 
   it('tests W-19786482', async () => {
-    const cmlApiName = 'TestApiProductScopeW19786482';
-    const result = await CmlConvertProdCfgRules.run([
-      '--target-org',
-      'test@example.com',
-      '--pcr-file',
-      'data/test/W-19786482/ProductConfigurationRules.json',
-      '--products-file',
-      'data/test/W-19786482/ProductsMap.json',
-      '--cml-api',
-      cmlApiName,
-      '--workspace-dir',
-      'data',
-    ]);
-    const output = sfCommandStubs.log
-      .getCalls()
-      .flatMap((c) => c.args)
-      .join('\n');
-    expect(output).to.include('Using Target Org: test@example.com');
-    expect(result.path).to.equal(`data/${cmlApiName}_0.cml`);
+    const result = await executeConvertCommand('W-19786482', 'TestApiW19786482', sfCommandStubs);
 
-    const typesMap = await extractTypesMap(result.path);
+    const typesMap = await extractTypesMapUsingRegex(result.path);
 
-    const desktopType = typesMap.get('Desktop');
-    expect(desktopType).to.not.be.null;
-    expect(
-      desktopType!.some((line) =>
-        line.includes('message(desktopp_criteria_1, "SetAttribute: 2k screen selected. and 27\\"", "Info");')
-      )
-    );
+    const [, desktopTypeLines] = expectTypeAndGetLines(typesMap, 'Desktop');
+    expect(desktopTypeLines).to.include('message(desktopp_criteria_1, "SetAttribute: 2k screen selected. and 27\\"", "Info");');
   });
 
   it('tests W-19996586', async () => {
-    const cmlApiName = 'TestApiAttrTagNamesW19996586';
-    const result = await CmlConvertProdCfgRules.run([
-      '--target-org',
-      'test@example.com',
-      '--pcr-file',
-      'data/test/W-19996586/ProductConfigurationRules.json',
-      '--products-file',
-      'data/test/W-19996586/ProductsMap.json',
-      '--cml-api',
-      cmlApiName,
-      '--workspace-dir',
-      'data',
-    ]);
-    const output = sfCommandStubs.log
-      .getCalls()
-      .flatMap((c) => c.args)
-      .join('\n');
-    expect(output).to.include('Using Target Org: test@example.com');
-    expect(result.path).to.equal(`data/${cmlApiName}_0.cml`);
+    const result = await executeConvertCommand('W-19996586', 'TestApiW19996586', sfCommandStubs);
 
-    const typesMap = await extractTypesMap(result.path);
+    const typesMap = await extractTypesMapUsingRegex(result.path);
 
-    const laptopProBundleType = typesMap.get('LaptopProBundle');
-    expect(laptopProBundleType).to.not.be.null;
-    // filter empty lines in LaptopProBundle body definition
-    const laptopProBundleTypeLines = laptopProBundleType!.filter(line => line.trim().length > 0);
+    const [, laptopProBundleTypeLines] = expectTypeAndGetLines(typesMap, 'LaptopProBundle');
     // check if we have generated SellingModelType attribute and tagName annotation
-    expect(laptopProBundleTypeLines.some(line => line.includes('@(tagName = "SellingModelType")')));
-    expect(laptopProBundleTypeLines.some(line => line.includes('string SellingModelType;')));
+    expect(laptopProBundleTypeLines).to.include('@(tagName = "SellingModelType")');
+    expect(laptopProBundleTypeLines).to.include('string SellingModelType;');
     const smtAttrIndex = laptopProBundleTypeLines.findIndex(line => line.includes('string SellingModelType;'));
     const smtAnnotationIndex = laptopProBundleTypeLines.findIndex(line => line.includes('@(tagName = "SellingModelType")'));
     // tagName annotation should be defined before SellingModelType attribute
