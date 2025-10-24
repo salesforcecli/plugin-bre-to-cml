@@ -1,3 +1,9 @@
+## [1.0.20](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.19...1.0.20) (2025-10-24)
+
+### Bug Fixes
+
+- W-19785067 - fix regression and update tests ([cfcf6ed](https://github.com/salesforcecli/plugin-bre-to-cml/commit/cfcf6edeee5bdfec3807e4262789fa92349bd32b))
+
 ## [1.0.19](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.18...1.0.19) (2025-10-23)
 
 ### Bug Fixes
