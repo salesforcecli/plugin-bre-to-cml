@@ -1,3 +1,9 @@
+## [1.0.25](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.24...1.0.25) (2025-12-02)
+
+### Bug Fixes
+
+- **deps:** bump mdast-util-to-hast from 13.2.0 to 13.2.1 ([916d013](https://github.com/salesforcecli/plugin-bre-to-cml/commit/916d0132311d1dad422f7c62868196d2b43a331c))
+
 ## [1.0.24](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.23...1.0.24) (2025-11-29)
 
 ### Bug Fixes
