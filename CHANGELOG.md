@@ -1,3 +1,9 @@
+## [1.0.26](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.25...1.0.26) (2025-12-05)
+
+### Bug Fixes
+
+- **deps:** bump jws from 3.2.2 to 3.2.3 ([694baff](https://github.com/salesforcecli/plugin-bre-to-cml/commit/694baff6a9dd44c62903c1a24c4c09f0260ec3aa))
+
 ## [1.0.25](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.24...1.0.25) (2025-12-02)
 
 ### Bug Fixes
