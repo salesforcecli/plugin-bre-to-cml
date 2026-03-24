@@ -1,5 +1,5 @@
 /*
- * Copyright 2025, Salesforce, Inc.
+ * Copyright 2026, Salesforce, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -98,14 +98,14 @@ export class CmlType extends AnnotatedCmlElementWAttributes {
   }
 
   public addConstraint(c: CmlConstraint): void {
-    if (!this.#constraints.some(c1 => c1.equalsTo(c))) {
+    if (!this.#constraints.some((c1) => c1.equalsTo(c))) {
       c.setSequence(this.#constraints.length);
       this.#constraints.push(c);
     }
   }
 
   public containsConstraints(cc: CmlConstraint[]): boolean {
-    return cc.every(c => this.#constraints.some(({ name }) => c.name === name));
+    return cc.every((c) => this.#constraints.some(({ name }) => c.name === name));
   }
 
   public generateCml(): string {

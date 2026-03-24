@@ -1,5 +1,5 @@
 /*
- * Copyright 2025, Salesforce, Inc.
+ * Copyright 2026, Salesforce, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -259,19 +259,17 @@ function addParentAttrRefAndGetDeclaration(
   if (parentTargetType && parentTargetType.containsConstraints(criteriaConstraints)) {
     const parentCstAttr = new CmlAttribute(
       null,
-      criteriaConstraints.map(({name}) => name).join('_') + '_value',
+      criteriaConstraints.map(({ name }) => name).join('_') + '_value',
       CML_DATA_TYPES.BOOLEAN
     );
     // const parentCstAttrDomain = new CmlDomain();
     // parentCstAttrDomain.setExpression(declaration);
     // parentCstAttr.setValue('expression', parentCstAttrDomain);
     parentTargetType.addAttribute(parentCstAttr);
-    parentTargetType.addConstraint(new CmlConstraint(CONSTRAINT_TYPES.CONSTRAINT, `(${declaration}) == ${parentCstAttr.name}`));
-    const childParentRefAttr = new CmlAttribute(
-      null,
-      'parent_' + parentCstAttr.name,
-      CML_DATA_TYPES.BOOLEAN
-    )
+    parentTargetType.addConstraint(
+      new CmlConstraint(CONSTRAINT_TYPES.CONSTRAINT, `(${declaration}) == ${parentCstAttr.name}`)
+    );
+    const childParentRefAttr = new CmlAttribute(null, 'parent_' + parentCstAttr.name, CML_DATA_TYPES.BOOLEAN);
     const childParentRefAttrDomain = new CmlDomain();
     childParentRefAttrDomain.setExpression(`parent(${parentCstAttr.name})`);
     childParentRefAttr.setValue('reference', childParentRefAttrDomain);
@@ -293,7 +291,12 @@ function handleHideAttributeAction(
     ({ type }) => type === 'Attribute'
   )) {
     if (targetAttributeId && targetAttributeName) {
-      const newDeclaration = addParentAttrRefAndGetDeclaration(parentTargetType, targetType, declaration, criteriaConstraints);
+      const newDeclaration = addParentAttrRefAndGetDeclaration(
+        parentTargetType,
+        targetType,
+        declaration,
+        criteriaConstraints
+      );
       const constraint = CmlConstraint.createRuleConstraint(newDeclaration, 'Hide', 'attribute', targetAttributeName);
       const sequenceValue = (rule.sequence ?? 0) + (sequence ?? 0);
       constraint.setProperties({ sequence: sequenceValue });
@@ -320,7 +323,12 @@ function handleHideDisableAttributeValueAction(
     if (targetAttributeId) {
       const targetAttribute = targetType.findAttributeById(targetAttributeId);
       if (targetAttribute) {
-        const newDeclaration = addParentAttrRefAndGetDeclaration(parentTargetType, targetType, declaration, criteriaConstraints);
+        const newDeclaration = addParentAttrRefAndGetDeclaration(
+          parentTargetType,
+          targetType,
+          declaration,
+          criteriaConstraints
+        );
         const constraint = CmlConstraint.createRuleConstraint(
           newDeclaration,
           actionType === 'HideAttributeValue' ? 'Hide' : 'Disable',
@@ -829,7 +837,14 @@ export class BreRulesGenerator {
           break;
         case 'HideAttributeValue':
         case 'DisableAttributeValue':
-          handleHideDisableAttributeValueAction(parentTargetType, targetType, declaration, ruleAction, rule, criteriaConstraints);
+          handleHideDisableAttributeValueAction(
+            parentTargetType,
+            targetType,
+            declaration,
+            ruleAction,
+            rule,
+            criteriaConstraints
+          );
           break;
         case 'HideProduct':
         case 'DisableProduct':
