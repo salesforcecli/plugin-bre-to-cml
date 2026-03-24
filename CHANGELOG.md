@@ -1,3 +1,9 @@
+## [1.0.31](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.30...1.0.31) (2026-03-24)
+
+### Bug Fixes
+
+- **deps:** bump @salesforce/core from 8.24.0 to 8.25.0 ([bead551](https://github.com/salesforcecli/plugin-bre-to-cml/commit/bead551471ec9b8f50c932263bc5ab3771a564f7))
+
 ## [1.0.30](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.29...1.0.30) (2026-03-24)
 
 ### Bug Fixes
