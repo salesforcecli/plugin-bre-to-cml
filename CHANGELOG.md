@@ -1,3 +1,9 @@
+## [1.0.28](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.27...1.0.28) (2026-03-24)
+
+### Bug Fixes
+
+- updated headers @W-21652859@ ([fd1e1db](https://github.com/salesforcecli/plugin-bre-to-cml/commit/fd1e1db33f79f7a95d3e37fea76c56ecea36d8b3))
+
 ## [1.0.27](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.26...1.0.27) (2025-12-07)
 
 ### Bug Fixes
