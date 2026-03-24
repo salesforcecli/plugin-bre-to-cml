@@ -1,3 +1,9 @@
+## [1.0.30](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.29...1.0.30) (2026-03-24)
+
+### Bug Fixes
+
+- **deps:** bump flatted from 3.3.3 to 3.4.2 ([49670da](https://github.com/salesforcecli/plugin-bre-to-cml/commit/49670daafa0b1939ba30abfa19c1b9c430b57cf0))
+
 ## [1.0.29](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.28...1.0.29) (2026-03-24)
 
 ### Bug Fixes
