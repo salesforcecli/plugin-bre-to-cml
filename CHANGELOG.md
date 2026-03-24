@@ -1,3 +1,9 @@
+## [1.0.29](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.28...1.0.29) (2026-03-24)
+
+### Bug Fixes
+
+- **deps:** bump lodash from 4.17.21 to 4.17.23 ([14d6cf4](https://github.com/salesforcecli/plugin-bre-to-cml/commit/14d6cf4b287eee09c28dad1dc70a305cd46dd969))
+
 ## [1.0.28](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.27...1.0.28) (2026-03-24)
 
 ### Bug Fixes
