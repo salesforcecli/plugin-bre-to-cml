@@ -1,3 +1,9 @@
+## [1.0.32](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.31...1.0.32) (2026-03-27)
+
+### Bug Fixes
+
+- **deps:** bump handlebars from 4.7.8 to 4.7.9 ([d8f192d](https://github.com/salesforcecli/plugin-bre-to-cml/commit/d8f192dc6544b9b774392d1dc3fa15a313cf81da))
+
 ## [1.0.31](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.30...1.0.31) (2026-03-24)
 
 ### Bug Fixes
