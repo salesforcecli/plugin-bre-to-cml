@@ -24,7 +24,6 @@ import {
 } from './types/types.js';
 import { CML_DATA_TYPES, CONSTRAINT_TYPES, ASSOCIATION_TYPES } from './constants/constants.js';
 
-// Shared types for insurance dynamic rule criteria (same for surcharge + underwriting)
 export type RuleCondition = {
   contextTagName?: string;
   operator: string;
@@ -53,6 +52,7 @@ export type ParsedRuleDefinition = {
   productPath: string;
   status?: string;
   description?: string;
+  criteriaExpressionType?: string;
   ruleCriteria?: RuleCriteria[];
 };
 
@@ -68,18 +68,32 @@ export type RuleKeyEntry = {
   ruleKey: string;
 };
 
-function operatorToCml(op: string): string {
-  const operators: Record<string, string> = {
-    Equals: '==',
-    NotEquals: '!=',
-    LessThan: '<',
-    LessThanOrEquals: '<=',
-    GreaterThan: '>',
-    GreaterThanOrEquals: '>=',
-    Contains: '.contains',
-    In: '==',
-  };
-  return operators[op] ?? '==';
+function doubleQuoted(value: string | undefined): string {
+  return `"${value ?? ''}"`;
+}
+
+function operatorToCml(op: string): string | null {
+  switch (op) {
+    case 'Equals':
+      return '==';
+    case 'NotEquals':
+      return '!=';
+    case 'LessThan':
+      return '<';
+    case 'LessThanOrEquals':
+      return '<=';
+    case 'GreaterThan':
+      return '>';
+    case 'GreaterThanOrEquals':
+      return '>=';
+    case 'Contains':
+    case 'DoesNotContain':
+    case 'In':
+    case 'NotIn':
+      return null; // handled separately
+    default:
+      return '==';
+  }
 }
 
 function dataTypeToCml(dataType?: string): string {
@@ -91,6 +105,7 @@ function dataTypeToCml(dataType?: string): string {
     Boolean: CML_DATA_TYPES.BOOLEAN,
     Date: CML_DATA_TYPES.DATE,
     DateTime: CML_DATA_TYPES.DATE,
+    Picklist: CML_DATA_TYPES.STRING,
   };
   return (dataType && types[dataType]) ?? CML_DATA_TYPES.STRING;
 }
@@ -103,25 +118,62 @@ export function generateRuleKey(prefix: string, productCode: string, apiName: st
   return `${prefix}__${sanitizeName(productCode)}__${sanitizeName(apiName)}`;
 }
 
+function formatValue(value: string, cmlDataType: string): string {
+  const isNumeric = cmlDataType === CML_DATA_TYPES.INTEGER || cmlDataType === CML_DATA_TYPES.DECIMAL;
+  return isNumeric ? value : doubleQuoted(value);
+}
+
+function generateInExpression(left: string, values: string[], cmlDataType: string): string {
+  if (values.length === 1) {
+    return `${left} == ${formatValue(values[0], cmlDataType)}`;
+  }
+  return values.map((v) => `${left} == ${formatValue(v, cmlDataType)}`).join(' || ');
+}
+
+function resolveConditionName(condition: RuleCondition): string {
+  if (condition.type === 'Attribute' && condition.attributeName) {
+    return condition.attributeName;
+  }
+  if (condition.type === 'Tag' && condition.contextTagName) {
+    return condition.contextTagName;
+  }
+  return condition.attributeName ?? condition.contextTagName ?? 'unknown';
+}
+
 function buildConditionExpression(condition: RuleCondition): string | null {
   if (!condition.values || condition.values.length === 0) return null;
 
-  const attrName = sanitizeName(condition.attributeName ?? condition.contextTagName ?? 'unknown');
-  const op = operatorToCml(condition.operator);
-  const value = condition.values[0];
+  const rawName = resolveConditionName(condition);
+  const attrName = sanitizeName(rawName);
   const cmlDataType = dataTypeToCml(condition.dataType);
-  const isNumeric = cmlDataType === CML_DATA_TYPES.INTEGER || cmlDataType === CML_DATA_TYPES.DECIMAL;
-  const quotedValue = isNumeric ? value : `"${value}"`;
+  const values = condition.values;
 
-  return `${attrName} ${op} ${quotedValue}`;
+  switch (condition.operator) {
+    case 'Contains':
+      return `strcontain(${attrName}, ${doubleQuoted(values[0])})`;
+    case 'DoesNotContain':
+      return `!strcontain(${attrName}, ${doubleQuoted(values[0])})`;
+    case 'In':
+      return `(${generateInExpression(attrName, values, cmlDataType)})`;
+    case 'NotIn':
+      return `!(${generateInExpression(attrName, values, cmlDataType)})`;
+    default: {
+      const op = operatorToCml(condition.operator);
+      if (!op) return null;
+      return `${attrName} ${op} ${formatValue(values[0], cmlDataType)}`;
+    }
+  }
 }
 
 function buildCriteriaExpression(criteria: RuleCriteria): string | null {
   const parts: string[] = [];
 
   if (criteria.sourceContextTagName === 'Product' && criteria.sourceValues && criteria.sourceValues.length > 0) {
-    const productIds = criteria.sourceValues.map((v) => `"${v}"`).join(', ');
-    parts.push(criteria.sourceValues.length === 1 ? `product.id == ${productIds}` : `product.id in [${productIds}]`);
+    if (criteria.sourceValues.length === 1) {
+      parts.push(`product.id == ${doubleQuoted(criteria.sourceValues[0])}`);
+    } else {
+      parts.push(`(${generateInExpression('product.id', criteria.sourceValues, CML_DATA_TYPES.STRING)})`);
+    }
   }
 
   if (criteria.conditions) {
@@ -134,7 +186,10 @@ function buildCriteriaExpression(criteria: RuleCriteria): string | null {
   return parts.length > 0 ? parts.join(' && ') : null;
 }
 
-export function buildConstraintDeclaration(ruleDef: { ruleCriteria?: RuleCriteria[] }): string {
+export function buildConstraintDeclaration(ruleDef: {
+  criteriaExpressionType?: string;
+  ruleCriteria?: RuleCriteria[];
+}): string {
   if (!ruleDef.ruleCriteria || ruleDef.ruleCriteria.length === 0) {
     return 'true';
   }
@@ -143,16 +198,26 @@ export function buildConstraintDeclaration(ruleDef: { ruleCriteria?: RuleCriteri
 
   if (expressions.length === 0) return 'true';
   if (expressions.length === 1) return expressions[0];
-  return expressions.map((e) => `(${e})`).join(' || ');
+
+  const joiner = ruleDef.criteriaExpressionType?.toUpperCase() === 'ALL' ? ' && ' : ' || ';
+  return expressions.map((e) => `(${e})`).join(joiner);
 }
 
-export function collectAttributes(ruleDefs: Array<{ ruleDef: { ruleCriteria?: RuleCriteria[] } }>): Set<string> {
-  const attrs = new Set<string>();
+export function collectAttributes(
+  ruleDefs: Array<{ ruleDef: { ruleCriteria?: RuleCriteria[] } }>
+): Map<string, { name: string; attributeId: string | null; cmlDataType: string }> {
+  const attrs = new Map<string, { name: string; attributeId: string | null; cmlDataType: string }>();
   for (const { ruleDef } of ruleDefs) {
     for (const criteria of ruleDef.ruleCriteria ?? []) {
       for (const cond of criteria.conditions ?? []) {
-        const name = cond.attributeName ?? cond.contextTagName;
-        if (name) attrs.add(name);
+        const name = resolveConditionName(cond);
+        if (name && !attrs.has(name)) {
+          attrs.set(name, {
+            name,
+            attributeId: cond.attributeId ?? null,
+            cmlDataType: dataTypeToCml(cond.dataType),
+          });
+        }
       }
     }
   }
@@ -184,16 +249,16 @@ export function buildCmlModel(
   const cmlModel = new CmlModel();
   const lineItemType = new CmlType(BASE_LINE_ITEM_TYPE_NAME, undefined, undefined);
 
-  const commonAttrs = collectAttributes(ruleDefs);
+  const attrMap = collectAttributes(ruleDefs);
   lineItemType.addAttribute(new CmlAttribute(null, 'product_id', CML_DATA_TYPES.STRING));
-  for (const attrName of commonAttrs) {
-    lineItemType.addAttribute(new CmlAttribute(null, sanitizeName(attrName), CML_DATA_TYPES.STRING));
+  for (const [, attr] of attrMap) {
+    lineItemType.addAttribute(new CmlAttribute(attr.attributeId, sanitizeName(attr.name), attr.cmlDataType));
   }
   cmlModel.addType(lineItemType);
 
   const ruleKeyMapping: RuleKeyEntry[] = [];
   for (const { record, ruleDef } of ruleDefs) {
-    const rootProductId = record.ProductPath.split('/')[0];
+    const rootProductId = ruleDef.ruleCriteria?.[0]?.rootObjectId ?? record.ProductPath.split('/')[0];
     const productCode = productIdToCode.get(rootProductId) ?? rootProductId;
     const apiName = ruleDef.apiName ?? record.Name;
     const ruleKey = generateRuleKey(keyPrefix, productCode, apiName);
