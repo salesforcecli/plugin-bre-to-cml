@@ -258,7 +258,7 @@ export function buildCmlModel(
 
   const ruleKeyMapping: RuleKeyEntry[] = [];
   for (const { record, ruleDef } of ruleDefs) {
-    const rootProductId = ruleDef.ruleCriteria?.[0]?.rootObjectId ?? record.ProductPath.split('/')[0];
+    const rootProductId = record.ProductPath.split('/')[0];
     const productCode = productIdToCode.get(rootProductId) ?? rootProductId;
     const apiName = ruleDef.apiName ?? record.Name;
     const ruleKey = generateRuleKey(keyPrefix, productCode, apiName);
@@ -268,7 +268,7 @@ export function buildCmlModel(
       buildConstraintDeclaration(ruleDef),
       `"${constraintLabel}: ${record.Name}"`
     );
-    constraint.name = sanitizeName(apiName);
+    constraint.name = ruleKey;
     lineItemType.addConstraint(constraint);
 
     cmlModel.addAssociation(
