@@ -1362,9 +1362,9 @@
     wrap-ansi "^7.0.0"
 
 "@oclif/core@^4", "@oclif/core@^4.0.27", "@oclif/core@^4.10.2", "@oclif/core@^4.5.2":
-  version "4.10.6"
-  resolved "https://registry.yarnpkg.com/@oclif/core/-/core-4.10.6.tgz#233d66284d8c7c8162c9d437754503734069dd85"
-  integrity sha512-ySCOYnPKZE3KACT1V9It99hWG9b8E5MpagbRdWxPNRO3beMqmbr4SLUQoFtZ9XRtW++kks1ZVwZOdpnR8rpb9A==
+  version "4.11.0"
+  resolved "https://registry.yarnpkg.com/@oclif/core/-/core-4.11.0.tgz#262102cbdabfe0f83eba5381a4ffcd34d779921a"
+  integrity sha512-nTkRMgxFlIKQIIYGvhO2JMsLSQ1aHPHblHfFgxgoBrGK8Ao/8wxc4eNOIv/+t8dMXliZd7mREVr6la4aXXXg5A==
   dependencies:
     ansi-escapes "^4.3.2"
     ansis "^3.17.0"
@@ -1499,7 +1499,7 @@
     strip-ansi "6.0.1"
     ts-retry-promise "^0.8.1"
 
-"@salesforce/core@^8.18.7", "@salesforce/core@^8.23.1", "@salesforce/core@^8.28.3", "@salesforce/core@^8.29.0", "@salesforce/core@^8.5.1":
+"@salesforce/core@^8.18.7", "@salesforce/core@^8.23.1", "@salesforce/core@^8.28.3", "@salesforce/core@^8.28.4", "@salesforce/core@^8.29.0", "@salesforce/core@^8.5.1":
   version "8.29.0"
   resolved "https://registry.yarnpkg.com/@salesforce/core/-/core-8.29.0.tgz#d75d1afe06962e10c466bdf670fa8512bd683882"
   integrity sha512-q6xDNLPbbZW1n4X4YK1iM8jZvwvJRiwbJxdeF5iHuETxmMka16FoCVi+WziK/Rh5EP0yW08FYyiynwPlgz5RBw==
