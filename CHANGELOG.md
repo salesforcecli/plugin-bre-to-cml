@@ -1,3 +1,9 @@
+## [1.0.43](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.42...1.0.43) (2026-05-09)
+
+### Bug Fixes
+
+- **deps:** bump fast-xml-builder from 1.1.4 to 1.2.0 ([594d8b8](https://github.com/salesforcecli/plugin-bre-to-cml/commit/594d8b852d85ed46e2845668913ab936a39149e9))
+
 ## [1.0.42](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.41...1.0.42) (2026-05-09)
 
 ### Bug Fixes
