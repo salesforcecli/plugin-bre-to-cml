@@ -826,6 +826,19 @@
     wrap-ansi "^6.2.0"
     yoctocolors-cjs "^2.1.3"
 
+"@inquirer/core@^11.1.10":
+  version "11.1.10"
+  resolved "https://registry.yarnpkg.com/@inquirer/core/-/core-11.1.10.tgz#bab578cb1b908dd72fab79ee75d51231270cb7ad"
+  integrity sha512-a4Q5BXHQAHa9eO202sTaFCHFYVB3x5fauDuThEAdZ9gfn76pSxiKU7wWcEH0N1O0XmQvNfQNU6QXpiRxmYQx+A==
+  dependencies:
+    "@inquirer/ansi" "^2.0.5"
+    "@inquirer/figures" "^2.0.5"
+    "@inquirer/type" "^4.0.5"
+    cli-width "^4.1.0"
+    fast-wrap-ansi "^0.2.0"
+    mute-stream "^3.0.0"
+    signal-exit "^4.1.0"
+
 "@inquirer/core@^11.1.9":
   version "11.1.9"
   resolved "https://registry.yarnpkg.com/@inquirer/core/-/core-11.1.9.tgz#97f099f5217f50f168c12db00ac07f51ab550fbb"
@@ -926,13 +939,13 @@
     "@inquirer/core" "^10.3.2"
     "@inquirer/type" "^3.0.10"
 
-"@inquirer/password@^5.0.12":
-  version "5.0.12"
-  resolved "https://registry.yarnpkg.com/@inquirer/password/-/password-5.0.12.tgz#c1dcf197258a8cfba800325b78287fa55a5a3ef8"
-  integrity sha512-CBh7YHju623lxJRcAOo498ZUwIuMy63bqW/vVq0tQAZVv+lkWlHkP9ealYE1utWSisEShY5VMdzIXRmyEODzcQ==
+"@inquirer/password@^5.0.13":
+  version "5.0.13"
+  resolved "https://registry.yarnpkg.com/@inquirer/password/-/password-5.0.13.tgz#7271099c1214814147bde615c0382abc0bbec8d1"
+  integrity sha512-XDGu64ROHZjOOXLAANvJN7iIxWKhOSCG5VakrZ5kaScVR+snVJCFglD/hL3/677awtWcu4pXoWa280CDIYcBeg==
   dependencies:
     "@inquirer/ansi" "^2.0.5"
-    "@inquirer/core" "^11.1.9"
+    "@inquirer/core" "^11.1.10"
     "@inquirer/type" "^4.0.5"
 
 "@inquirer/prompts@^7.10.1":
@@ -1373,15 +1386,15 @@
   dependencies:
     "@salesforce/ts-types" "^2.0.12"
 
-"@salesforce/plugin-command-reference@^3.1.102":
-  version "3.1.102"
-  resolved "https://registry.yarnpkg.com/@salesforce/plugin-command-reference/-/plugin-command-reference-3.1.102.tgz#ecff04d8933abdd867f3f551863bcc248806c52c"
-  integrity sha512-rqzHD452YDPDPqRKicm5ci0+yrsK9zy9Us/1tKIbZBuqJRp6yFDprbyh+4rNrbFEP3qxuyRjSWHRt8QN9ox6dA==
+"@salesforce/plugin-command-reference@^3.1.103":
+  version "3.1.103"
+  resolved "https://registry.yarnpkg.com/@salesforce/plugin-command-reference/-/plugin-command-reference-3.1.103.tgz#d1c2352f7333035c242eb4700168d5dfb752639e"
+  integrity sha512-tSv9FO4bs2JnF+16meQv4neLxDImsd92RA7C1rXvDEnZvXdFe70iiEVbQ8529HrV9j/IxSGmVMsj6AXxua7rMg==
   dependencies:
     "@oclif/core" "^4"
     "@salesforce/core" "^8.30.3"
     "@salesforce/kit" "^3.2.6"
-    "@salesforce/sf-plugins-core" "^12.2.16"
+    "@salesforce/sf-plugins-core" "^12.2.17"
     "@salesforce/ts-types" "^2.0.11"
     chalk "^5.6.2"
     debug "^4.4.3"
@@ -1392,13 +1405,13 @@
   resolved "https://registry.yarnpkg.com/@salesforce/prettier-config/-/prettier-config-0.0.3.tgz#ba648d4886bb38adabe073dbea0b3a91b3753bb0"
   integrity sha512-hYOhoPTCSYMDYn+U1rlEk16PoBeAJPkrdg4/UtAzupM1mRRJOwEPMG1d7U8DxJFKuXW3DMEYWr2MwAIBDaHmFg==
 
-"@salesforce/sf-plugins-core@^12", "@salesforce/sf-plugins-core@^12.2.16":
-  version "12.2.17"
-  resolved "https://registry.yarnpkg.com/@salesforce/sf-plugins-core/-/sf-plugins-core-12.2.17.tgz#a35d1f917122d377feae083bff6d6b816e3d1e34"
-  integrity sha512-a8wHzT4IPUxvqUcguTd6wXp4C7R2i+HTjjiCBNNEqL5/OFXmROlttalgxFceRsnfoi2Sq9jYuVIVWHOs43uEWQ==
+"@salesforce/sf-plugins-core@^12", "@salesforce/sf-plugins-core@^12.2.17":
+  version "12.2.18"
+  resolved "https://registry.yarnpkg.com/@salesforce/sf-plugins-core/-/sf-plugins-core-12.2.18.tgz#6323b0b288ec4351376402e6193cf6c0d40b5c38"
+  integrity sha512-bjD3YJW/agR14Cz7ZbEooRYaK9M5AZ4NWa2f5DmA1wKaCoiimJZ0RAR8gGekIB7ILtuqBToVT4g+QJHF1hFkzw==
   dependencies:
     "@inquirer/confirm" "^6.0.12"
-    "@inquirer/password" "^5.0.12"
+    "@inquirer/password" "^5.0.13"
     "@oclif/core" "^4.11.2"
     "@oclif/table" "^0.5.7"
     "@salesforce/core" "^8.30.0"
