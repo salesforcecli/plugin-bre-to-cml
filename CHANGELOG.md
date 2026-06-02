@@ -1,3 +1,15 @@
+# [1.1.0](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.49...1.1.0) (2026-06-02)
+
+### Bug Fixes
+
+- **insurance:** address review feedback and parsing bugs ([f683f01](https://github.com/salesforcecli/plugin-bre-to-cml/commit/f683f014e439a48d74b3668cbb7bd07ec4a54b76)), closes [#143](https://github.com/salesforcecli/plugin-bre-to-cml/issues/143)
+- **insurance:** address review nits (constraint collisions, operator tests, i18n) ([8374686](https://github.com/salesforcecli/plugin-bre-to-cml/commit/83746861f65e8784255468c60064bf35ac79bc8c))
+- **insurance:** validate Salesforce IDs before SOQL IN clause ([4d1ad2b](https://github.com/salesforcecli/plugin-bre-to-cml/commit/4d1ad2b705433e94bbd2e5c1f26c22e608efe4f4))
+
+### Features
+
+- **insurance:** add surcharge and underwriting BRE-to-CML converters ([be23fed](https://github.com/salesforcecli/plugin-bre-to-cml/commit/be23feddf044f7e3c0dd2494edd3f4d0c9f7dfc4))
+
 ## [1.0.49](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.48...1.0.49) (2026-05-30)
 
 ### Bug Fixes

@@ -61,6 +61,8 @@ sf plugins
 <!-- commands -->
 
 - [`sf cml convert prod-cfg-rules`](#sf-cml-convert-prod-cfg-rules)
+- [`sf cml convert surcharge-rules`](#sf-cml-convert-surcharge-rules)
+- [`sf cml convert underwriting-rules`](#sf-cml-convert-underwriting-rules)
 - [`sf cml import as-expression-set`](#sf-cml-import-as-expression-set)
 
 ## `sf cml convert prod-cfg-rules`
@@ -118,6 +120,83 @@ DESCRIPTION
 
 EXAMPLES
   $ sf cml convert prod-cfg-rules --pcr-file data/ProductConfigurationRules.json --cml-api MY_TEST --workspace-dir data --target-org breMigOrg
+```
+
+## `sf cml convert surcharge-rules`
+
+Converts BRE-based Product Surcharge dynamic rules to CML eligibility constraints.
+
+```
+USAGE
+  $ sf cml convert surcharge-rules -o <value> [--json] [--flags-dir <value>] [--api-version <value>] [-c <value>] [-d <value>]
+    [--update-records] [-f <value>]
+
+FLAGS
+  -c, --cml-api=<value>         CML API Name. If omitted, auto-discovers an existing CML associated with the same root
+                                products.
+  -d, --workspace-dir=<value>   Directory where output files will be written.
+  -f, --surcharge-file=<value>  Optional JSON file with pre-exported ProductSurcharge records. If omitted, records are
+                                queried from the org.
+  -o, --target-org=<value>      (required) Username or alias of the target org. Not required if the `target-org`
+                                configuration variable is already set.
+      --api-version=<value>     Override the api version used for api requests made by this command
+      --update-records          Update source records in the org with RuleEngineType=ConstraintEngine.
+
+GLOBAL FLAGS
+  --flags-dir=<value>  Import flag values from a directory.
+  --json               Format output as json.
+
+DESCRIPTION
+  Converts BRE-based Product Surcharge dynamic rules to CML eligibility constraints.
+
+  Reads ProductSurcharge records from the org (or a JSON file), parses their RuleDefinition, and generates CML
+  constraints that evaluate surcharge eligibility. Each surcharge rule becomes a named constraint that returns
+  true/false. The command outputs a .cml file with the constraint model, an \_Associations.csv file for
+  ExpressionSetConstraintObj records, and a \_RuleKeyMapping.json with the ProductSurcharge ID to RuleKey mapping for
+  updating records.
+
+EXAMPLES
+  $ sf cml convert surcharge-rules --cml-api SURCHARGE_CML --target-org myOrg
+
+  $ sf cml convert surcharge-rules --cml-api SURCHARGE_CML --surcharge-file path/to/surcharges.json --workspace-dir data --target-org myOrg
+```
+
+## `sf cml convert underwriting-rules`
+
+Converts BRE-based Insurance Underwriting dynamic rules to CML eligibility constraints.
+
+```
+USAGE
+  $ sf cml convert underwriting-rules -o <value> [--json] [--flags-dir <value>] [--api-version <value>] [-c <value>] [-d <value>]
+    [--update-records] [-f <value>]
+
+FLAGS
+  -c, --cml-api=<value>        CML API Name. If omitted, auto-discovers an existing CML associated with the same root
+                               products.
+  -d, --workspace-dir=<value>  Directory where output files will be written.
+  -f, --uw-file=<value>        Optional JSON file with pre-exported UnderwritingRule records. If omitted, records are
+                               queried from the org.
+  -o, --target-org=<value>     (required) Username or alias of the target org. Not required if the `target-org`
+                               configuration variable is already set.
+      --api-version=<value>    Override the api version used for api requests made by this command
+      --update-records         Update source records in the org with RuleEngineType=ConstraintEngine.
+
+GLOBAL FLAGS
+  --flags-dir=<value>  Import flag values from a directory.
+  --json               Format output as json.
+
+DESCRIPTION
+  Converts BRE-based Insurance Underwriting dynamic rules to CML eligibility constraints.
+
+  Reads UnderwritingRule records from the org (or a JSON file), parses their DynamicRuleDefinition, and generates CML
+  constraints that evaluate underwriting eligibility. Each rule becomes a named constraint that returns true/false. The
+  command outputs a .cml file with the constraint model, an \_Associations.csv file for ExpressionSetConstraintObj
+  records, and a \_RuleKeyMapping.json with the UnderwritingRule ID to RuleKey mapping for updating records.
+
+EXAMPLES
+  $ sf cml convert underwriting-rules --cml-api UW_CML --target-org myOrg
+
+  $ sf cml convert underwriting-rules --cml-api UW_CML --uw-file data/underwriting.json --workspace-dir data --target-org myOrg
 ```
 
 ## `sf cml import as-expression-set`
