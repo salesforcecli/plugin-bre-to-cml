@@ -212,139 +212,9 @@ describe('buildConstraintDeclaration', () => {
     expect(buildConstraintDeclaration(ruleDef)).to.equal('Age < 60');
   });
 
-  it('maps all operators correctly', () => {
-    const ops = [
-      { operator: 'Equals', expected: '==' },
-      { operator: 'NotEquals', expected: '!=' },
-      { operator: 'LessThan', expected: '<' },
-      { operator: 'LessThanOrEquals', expected: '<=' },
-      { operator: 'GreaterThan', expected: '>' },
-      { operator: 'GreaterThanOrEquals', expected: '>=' },
-    ];
-    for (const { operator, expected } of ops) {
-      const ruleDef = {
-        ruleCriteria: [
-          {
-            rootObjectId: '01t',
-            conditions: [{ attributeName: 'X', operator, dataType: 'Number', values: ['5'] }],
-          },
-        ] as RuleCriteria[],
-      };
-      expect(buildConstraintDeclaration(ruleDef)).to.equal(`X ${expected} 5`);
-    }
-  });
-
-  it('Contains uses strcontain function', () => {
-    const ruleDef = {
-      ruleCriteria: [
-        {
-          rootObjectId: '01t',
-          conditions: [{ attributeName: 'Description', operator: 'Contains', dataType: 'String', values: ['SUV'] }],
-        },
-      ] as RuleCriteria[],
-    };
-    expect(buildConstraintDeclaration(ruleDef)).to.equal('strcontain(Description, "SUV")');
-  });
-
-  it('DoesNotContain negates strcontain', () => {
-    const ruleDef = {
-      ruleCriteria: [
-        {
-          rootObjectId: '01t',
-          conditions: [
-            { attributeName: 'Description', operator: 'DoesNotContain', dataType: 'String', values: ['SUV'] },
-          ],
-        },
-      ] as RuleCriteria[],
-    };
-    expect(buildConstraintDeclaration(ruleDef)).to.equal('!strcontain(Description, "SUV")');
-  });
-
-  it('In with multiple values produces || chain', () => {
-    const ruleDef = {
-      ruleCriteria: [
-        {
-          rootObjectId: '01t',
-          conditions: [
-            { attributeName: 'Model', operator: 'In', dataType: 'String', values: ['SUV', 'Sedan', 'Truck'] },
-          ],
-        },
-      ] as RuleCriteria[],
-    };
-    expect(buildConstraintDeclaration(ruleDef)).to.equal('(Model == "SUV" || Model == "Sedan" || Model == "Truck")');
-  });
-
-  it('In with a single value still wraps in parentheses', () => {
-    const ruleDef = {
-      ruleCriteria: [
-        {
-          rootObjectId: '01t',
-          conditions: [{ attributeName: 'Model', operator: 'In', dataType: 'String', values: ['SUV'] }],
-        },
-      ] as RuleCriteria[],
-    };
-    expect(buildConstraintDeclaration(ruleDef)).to.equal('(Model == "SUV")');
-  });
-
-  it('NotIn with multiple values negates || chain', () => {
-    const ruleDef = {
-      ruleCriteria: [
-        {
-          rootObjectId: '01t',
-          conditions: [{ attributeName: 'Model', operator: 'NotIn', dataType: 'String', values: ['SUV', 'Sedan'] }],
-        },
-      ] as RuleCriteria[],
-    };
-    expect(buildConstraintDeclaration(ruleDef)).to.equal('!(Model == "SUV" || Model == "Sedan")');
-  });
-
-  it('IsNull does not require values', () => {
-    const ruleDef = {
-      ruleCriteria: [
-        {
-          rootObjectId: '01t',
-          conditions: [{ attributeName: 'Model', operator: 'IsNull' }],
-        },
-      ] as RuleCriteria[],
-    };
-    expect(buildConstraintDeclaration(ruleDef)).to.equal('Model == null');
-  });
-
-  it('IsNotNull does not require values', () => {
-    const ruleDef = {
-      ruleCriteria: [
-        {
-          rootObjectId: '01t',
-          conditions: [{ attributeName: 'Model', operator: 'IsNotNull' }],
-        },
-      ] as RuleCriteria[],
-    };
-    expect(buildConstraintDeclaration(ruleDef)).to.equal('Model != null');
-  });
-
-  it('escapes single quotes inside string values', () => {
-    const ruleDef = {
-      ruleCriteria: [
-        {
-          rootObjectId: '01t',
-          conditions: [{ attributeName: 'Name', operator: 'Equals', dataType: 'String', values: ["O'Brien"] }],
-        },
-      ] as RuleCriteria[],
-    };
-    expect(buildConstraintDeclaration(ruleDef)).to.equal('Name == "O\\\'Brien"');
-  });
-
-  it('escapes double quotes inside string values', () => {
-    const ruleDef = {
-      ruleCriteria: [
-        {
-          rootObjectId: '01t',
-          conditions: [{ attributeName: 'Greeting', operator: 'Equals', dataType: 'String', values: ['He said "hi"'] }],
-        },
-      ] as RuleCriteria[],
-    };
-    expect(buildConstraintDeclaration(ruleDef)).to.equal('Greeting == "He said \\"hi\\""');
-  });
+  // Operator-level semantics (mapping, strcontain, In/NotIn chains, null operators, quote
+  // escaping, unknown-operator handling) are locked in test/shared/cml-operators.test.ts so
+  // the shared module keeps its own coverage independent of this generator.
 
   it('skips conditions with unknown operators', () => {
     const ruleDef = {
@@ -504,6 +374,23 @@ describe('buildCmlModel', () => {
 
     expect(ruleKeyMapping).to.have.length(1);
     expect(ruleKeyMapping[0].ruleKey).to.equal('UW__autoSilver__DraftToApproved__UWRule1');
+  });
+
+  it('avoids constraint-name collisions when two rules share apiName under the same product', () => {
+    const ruleDefs = [
+      {
+        record: makeRecord('r1', 'A', 'p1'),
+        ruleDef: makeRuleDef('A', 'SharedApi', 'p1', undefined, { fromStage: 'Draft', toStage: 'InReview' }),
+      },
+      {
+        record: makeRecord('r2', 'B', 'p1'),
+        ruleDef: makeRuleDef('B', 'SharedApi', 'p1', undefined, { fromStage: 'InReview', toStage: 'Approved' }),
+      },
+    ];
+    const { cmlModel } = buildCmlModel(ruleDefs, new Map([['p1', 'autoSilver']]), 'UW', 'Test');
+    const names = cmlModel.getType('autoSilver')!.constraints.map((c) => c.name);
+    expect(names).to.deep.equal(['SharedApi_DraftToInReview', 'SharedApi_InReviewToApproved']);
+    expect(new Set(names).size).to.equal(2);
   });
 
   it('scopes attributes per product type', () => {

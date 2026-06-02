@@ -18,12 +18,15 @@
 // command-shape lint rules do not apply.
 import * as fs from 'node:fs/promises';
 import { SfCommand, Flags } from '@salesforce/sf-plugins-core';
-import { Connection, Org } from '@salesforce/core';
+import { Connection, Messages, Org } from '@salesforce/core';
 import { CmlModel } from '../types/types.js';
 import { generateCsvForAssociations } from '../utils/association.utils.js';
 import { ParsedRuleDefinition, RuleKeyEntry, RuleRecord } from './models.js';
 import { buildCmlModel } from './insurance-rule-generator.js';
 import { discoverCmlApiByProducts, fetchProductCodes } from './insurance-org.js';
+
+Messages.importMessagesDirectoryFromMetaUrl(import.meta.url);
+const messages = Messages.loadMessages('@salesforce/plugin-bre-to-cml', 'cml.convert.insurance-shared');
 
 export type InsuranceRuleConvertResult = {
   cmlFile: string;
@@ -45,16 +48,16 @@ export abstract class InsuranceRuleConvertCommand<R extends RuleRecord> extends 
     'target-org': Flags.requiredOrg(),
     'api-version': Flags.orgApiVersion(),
     'cml-api': Flags.string({
-      summary: 'CML API Name. If omitted, auto-discovers an existing CML associated with the same root products.',
+      summary: messages.getMessage('flags.cml-api.summary'),
       char: 'c',
     }),
     'workspace-dir': Flags.directory({
-      summary: 'Directory where output files will be written.',
+      summary: messages.getMessage('flags.workspace-dir.summary'),
       char: 'd',
       exists: true,
     }),
     'update-records': Flags.boolean({
-      summary: 'Update source records in the org with RuleEngineType=ConstraintEngine.',
+      summary: messages.getMessage('flags.update-records.summary'),
       default: false,
     }),
   };

@@ -168,7 +168,9 @@ export function buildCmlModel(
         buildConstraintDeclaration(ruleDef),
         `"${constraintLabel}: ${record.Name}"`
       );
-      constraint.name = sanitizeName(apiName);
+      // Mirror generateRuleKey: include the stage transition so two rules that share an
+      // apiName under the same product (gated on different transitions) don't collide.
+      constraint.name = sanitizeName(stageTransition ? `${apiName}_${stageTransition}` : apiName);
       productType.addConstraint(constraint);
 
       ruleKeyMapping.push({ recordId: record.Id, name: record.Name, ruleKey });
