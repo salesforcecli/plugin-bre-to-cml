@@ -20,6 +20,7 @@ import {
   buildConstraintDeclaration,
   buildStageTransition,
   collectAttributes,
+  decodeHtmlEntities,
   generateRuleKey,
   sanitizeName,
 } from '../../../src/shared/insurance/insurance-rule-generator.js';
@@ -48,6 +49,28 @@ describe('sanitizeName', () => {
 
   it('handles special characters', () => {
     expect(sanitizeName('foo-bar.baz')).to.equal('foo_bar_baz');
+  });
+});
+
+describe('decodeHtmlEntities', () => {
+  it('decodes &quot; into double quotes so JSON parses', () => {
+    const raw = '{&quot;name&quot;:&quot;Auto_Auto&quot;,&quot;ruleCriteria&quot;:null}';
+    const decoded = decodeHtmlEntities(raw);
+    expect(decoded).to.equal('{"name":"Auto_Auto","ruleCriteria":null}');
+    expect((JSON.parse(decoded) as { name: string }).name).to.equal('Auto_Auto');
+  });
+
+  it('decodes &lt; &gt; &#39; and &apos;', () => {
+    expect(decodeHtmlEntities('a &lt; b &gt; c &#39;d&#39; &apos;e&apos;')).to.equal("a < b > c 'd' 'e'");
+  });
+
+  it('decodes &amp; last so it does not double-decode', () => {
+    expect(decodeHtmlEntities('&amp;quot;')).to.equal('&quot;');
+  });
+
+  it('leaves already-decoded JSON unchanged', () => {
+    const raw = '{"name":"Plain","ruleCriteria":[]}';
+    expect(decodeHtmlEntities(raw)).to.equal(raw);
   });
 });
 
@@ -205,6 +228,133 @@ describe('buildConstraintDeclaration', () => {
       };
       expect(buildConstraintDeclaration(ruleDef)).to.equal(`X ${expected} 5`);
     }
+  });
+
+  it('Contains uses strcontain function', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [{ attributeName: 'Description', operator: 'Contains', dataType: 'String', values: ['SUV'] }],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('strcontain(Description, "SUV")');
+  });
+
+  it('DoesNotContain negates strcontain', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [
+            { attributeName: 'Description', operator: 'DoesNotContain', dataType: 'String', values: ['SUV'] },
+          ],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('!strcontain(Description, "SUV")');
+  });
+
+  it('In with multiple values produces || chain', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [
+            { attributeName: 'Model', operator: 'In', dataType: 'String', values: ['SUV', 'Sedan', 'Truck'] },
+          ],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('(Model == "SUV" || Model == "Sedan" || Model == "Truck")');
+  });
+
+  it('In with a single value still wraps in parentheses', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [{ attributeName: 'Model', operator: 'In', dataType: 'String', values: ['SUV'] }],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('(Model == "SUV")');
+  });
+
+  it('NotIn with multiple values negates || chain', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [{ attributeName: 'Model', operator: 'NotIn', dataType: 'String', values: ['SUV', 'Sedan'] }],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('!(Model == "SUV" || Model == "Sedan")');
+  });
+
+  it('IsNull does not require values', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [{ attributeName: 'Model', operator: 'IsNull' }],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('Model == null');
+  });
+
+  it('IsNotNull does not require values', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [{ attributeName: 'Model', operator: 'IsNotNull' }],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('Model != null');
+  });
+
+  it('escapes single quotes inside string values', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [{ attributeName: 'Name', operator: 'Equals', dataType: 'String', values: ["O'Brien"] }],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('Name == "O\\\'Brien"');
+  });
+
+  it('escapes double quotes inside string values', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [{ attributeName: 'Greeting', operator: 'Equals', dataType: 'String', values: ['He said "hi"'] }],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('Greeting == "He said \\"hi\\""');
+  });
+
+  it('skips conditions with unknown operators', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [
+            { attributeName: 'X', operator: 'Foobar', dataType: 'String', values: ['1'] },
+            { attributeName: 'Y', operator: 'Equals', dataType: 'String', values: ['1'] },
+          ],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('Y == "1"');
   });
 });
 

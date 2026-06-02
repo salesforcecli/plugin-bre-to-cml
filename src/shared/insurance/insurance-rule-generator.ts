@@ -15,6 +15,7 @@
  */
 import { ASSOCIATION_TYPES, CML_DATA_TYPES, CONSTRAINT_TYPES } from '../constants/constants.js';
 import { Association, CmlAttribute, CmlConstraint, CmlModel, CmlType } from '../types/types.js';
+import { convertToCmlExpression, isKnownOperator, operatorRequiresValues } from '../cml-operators.js';
 import {
   ParsedRuleDefinition,
   RuleCondition,
@@ -23,20 +24,6 @@ import {
   RuleRecord,
   UnderwritingRuleGroup,
 } from './models.js';
-
-function operatorToCml(op: string): string {
-  const operators: Record<string, string> = {
-    Equals: '==',
-    NotEquals: '!=',
-    LessThan: '<',
-    LessThanOrEquals: '<=',
-    GreaterThan: '>',
-    GreaterThanOrEquals: '>=',
-    Contains: '.contains',
-    In: '==',
-  };
-  return operators[op] ?? '==';
-}
 
 function dataTypeToCml(dataType?: string): string {
   const types: Record<string, string> = {
@@ -53,6 +40,21 @@ function dataTypeToCml(dataType?: string): string {
 
 export function sanitizeName(name: string): string {
   return name.replace(/[^a-zA-Z0-9]/g, '_');
+}
+
+/**
+ * Decodes the common HTML entities that can appear in a RuleDefinition / DynamicRuleDefinition
+ * field when the JSON was persisted HTML-escaped. `&amp;` is decoded last so already-decoded
+ * ampersands are not double-processed.
+ */
+export function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
 }
 
 function stripSpaces(stage: string): string {
@@ -77,16 +79,16 @@ export function generateRuleKey(
 }
 
 function buildConditionExpression(condition: RuleCondition): string | null {
-  if (!condition.values || condition.values.length === 0) return null;
+  if (!isKnownOperator(condition.operator)) return null;
+
+  const op = condition.operator;
+  if (operatorRequiresValues(op) && (!condition.values || condition.values.length === 0)) {
+    return null;
+  }
 
   const attrName = sanitizeName(condition.attributeName ?? condition.contextTagName ?? 'unknown');
-  const op = operatorToCml(condition.operator);
-  const value = condition.values[0];
   const cmlDataType = dataTypeToCml(condition.dataType);
-  const isNumeric = cmlDataType === CML_DATA_TYPES.INTEGER || cmlDataType === CML_DATA_TYPES.DECIMAL;
-  const quotedValue = isNumeric ? value : `"${value}"`;
-
-  return `${attrName} ${op} ${quotedValue}`;
+  return convertToCmlExpression(attrName, op, condition.values, cmlDataType);
 }
 
 function buildCriteriaExpression(criteria: RuleCriteria): string | null {
