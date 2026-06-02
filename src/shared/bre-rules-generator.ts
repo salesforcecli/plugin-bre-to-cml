@@ -25,9 +25,10 @@ import {
   CmlType,
   VIRTUAL_QUOTE_TYPE_NAME,
 } from './types/types.js';
-import { Condition, ConfiguratorRuleInput, RuleAction, RuleConditionOperator, RuleCriteria } from './models.js';
+import { Condition, ConfiguratorRuleInput, RuleAction, RuleCriteria } from './models.js';
 import { PcmGenerator } from './pcm-generator.js';
 import { Logger } from './utils/common.utils.js';
+import { convertToCmlExpression, doubleQuoted } from './cml-operators.js';
 
 const INT_TAGS = ['LineItemQuantity'];
 
@@ -477,74 +478,6 @@ function getTargetAttribute(
     }
   }
   return targetAttribute;
-}
-
-function doubleQuotedIfNeeded(value: string | string[] | undefined, dataType: string | undefined): string {
-  if (typeof value === 'string' || typeof value === 'undefined') {
-    return `${dataType === 'string' ? doubleQuoted(value) ?? '' : value ?? "''"}`;
-  }
-  const singleValue = value[0];
-  return `${dataType === 'string' ? doubleQuoted(singleValue) ?? '' : singleValue ?? "''"}`;
-}
-
-function doubleQuoted(str: string | undefined): string {
-  if (str) {
-    return `"${escapeQuotes(str)}"`;
-  }
-  return str ?? "''";
-}
-
-function escapeQuotes(str: string): string {
-  return str.replace(/['"]/g, '\\$&');
-}
-
-function convertToCmlExpression(
-  left: string,
-  ruleExprOperator: RuleConditionOperator,
-  right?: string | string[],
-  dataType?: string
-): string {
-  switch (ruleExprOperator) {
-    case 'Equals':
-      return `${left} == ${doubleQuotedIfNeeded(right, dataType)}`;
-    case 'NotEquals':
-      return `${left} != ${doubleQuotedIfNeeded(right, dataType)}`;
-    case 'LessThan':
-      return `${left} <= ${(right as string | undefined) ?? ''}`;
-    case 'LessThanOrEquals':
-      return `${left} <= ${(right as string | undefined) ?? ''}`;
-    case 'GreaterThan':
-      return `${left} > ${(right as string | undefined) ?? ''}`;
-    case 'GreaterThanOrEquals':
-      return `${left} >= ${(right as string | undefined) ?? ''}`;
-    case 'IsNotNull':
-      return `${left} != null`;
-    case 'IsNull':
-      return `${left} == null`;
-    case 'Contains':
-      return `strcontain(${left}, ${doubleQuoted(right as string | undefined)})`;
-    case 'DoesNotContain':
-      return `!strcontain(${left}, ${doubleQuoted(right as string | undefined)})`;
-    case 'In':
-      if (right) {
-        return `(${generateInCmlExpression(left, right)})`;
-      }
-      return `${left} == null`;
-    case 'NotIn':
-      if (right) {
-        return `!(${generateInCmlExpression(left, right)})`;
-      }
-      return `${left} != null`;
-  }
-
-  //  throw new Error(`Operator ${ruleExprOperator} is not supported.`);
-}
-
-function generateInCmlExpression(left: string, right: string | string[]): string {
-  if (typeof right === 'string') {
-    return `${left} == ${doubleQuoted(right)}`;
-  }
-  return `${right.map((r) => `${left} == ${doubleQuoted(r)}`).join(' || ')}`;
 }
 
 export class BreRulesGenerator {
