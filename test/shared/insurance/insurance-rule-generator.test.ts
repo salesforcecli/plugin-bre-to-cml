@@ -25,7 +25,11 @@ import {
   sanitizeName,
 } from '../../../src/shared/insurance/insurance-rule-generator.js';
 import { ParsedRuleDefinition, RuleCriteria, RuleRecord } from '../../../src/shared/insurance/models.js';
-import { discoverCmlApiByProducts, fetchProductCodes } from '../../../src/shared/insurance/insurance-org.js';
+import {
+  discoverCmlApiByProducts,
+  fetchProductCodes,
+  quoteSoqlIdList,
+} from '../../../src/shared/insurance/insurance-org.js';
 
 function mockConnection(queryResults: Record<string, { records: unknown[] }>): Connection {
   return {
@@ -571,13 +575,30 @@ describe('buildCmlModel', () => {
   });
 });
 
+describe('quoteSoqlIdList', () => {
+  it('quotes well-formed Salesforce ids', () => {
+    expect(quoteSoqlIdList(['01tSB000004V4KKYA0', '01tSB000004V4KNYA0'])).to.equal(
+      "'01tSB000004V4KKYA0','01tSB000004V4KNYA0'"
+    );
+  });
+
+  it('drops values that are not valid Salesforce ids (SOQL-injection safe)', () => {
+    const ids = ["01tSB000004V4KKYA0') OR Name != null --", "'; DROP", '01tSB000004V4KNYA0'];
+    expect(quoteSoqlIdList(ids)).to.equal("'01tSB000004V4KNYA0'");
+  });
+
+  it('returns an empty string when no ids are valid', () => {
+    expect(quoteSoqlIdList(["') OR Id != null", 'not-an-id'])).to.equal('');
+  });
+});
+
 describe('discoverCmlApiByProducts', () => {
   it('returns ApiName when existing CML is found', async () => {
     const conn = mockConnection({
-      ExpressionSetConstraintObj: { records: [{ ExpressionSetId: 'es1' }] },
+      ExpressionSetConstraintObj: { records: [{ ExpressionSetId: '0RB000000000001AAA' }] },
       ExpressionSet: { records: [{ ApiName: 'AutoTest' }] },
     });
-    const result = await discoverCmlApiByProducts(conn, new Set(['p1']));
+    const result = await discoverCmlApiByProducts(conn, new Set(['01tSB000004V4KKYA0']));
     expect(result).to.equal('AutoTest');
   });
 
@@ -585,15 +606,15 @@ describe('discoverCmlApiByProducts', () => {
     const conn = mockConnection({
       ExpressionSetConstraintObj: { records: [] },
     });
-    const result = await discoverCmlApiByProducts(conn, new Set(['p1']));
+    const result = await discoverCmlApiByProducts(conn, new Set(['01tSB000004V4KKYA0']));
     expect(result).to.be.undefined;
   });
 
   it('returns undefined when ExpressionSet not found', async () => {
     const conn = mockConnection({
-      ExpressionSetConstraintObj: { records: [{ ExpressionSetId: 'es1' }] },
+      ExpressionSetConstraintObj: { records: [{ ExpressionSetId: '0RB000000000001AAA' }] },
     });
-    const result = await discoverCmlApiByProducts(conn, new Set(['p1']));
+    const result = await discoverCmlApiByProducts(conn, new Set(['01tSB000004V4KKYA0']));
     expect(result).to.be.undefined;
   });
 
@@ -609,22 +630,22 @@ describe('fetchProductCodes', () => {
     const conn = mockConnection({
       Product2: {
         records: [
-          { Id: 'p1', ProductCode: 'autoSilver', Name: 'Auto Silver' },
-          { Id: 'p2', ProductCode: 'health', Name: 'Health Plan' },
+          { Id: '01tSB000004V4KKYA0', ProductCode: 'autoSilver', Name: 'Auto Silver' },
+          { Id: '01tSB000004V4KNYA0', ProductCode: 'health', Name: 'Health Plan' },
         ],
       },
     });
-    const result = await fetchProductCodes(conn, new Set(['p1', 'p2']));
-    expect(result.get('p1')).to.equal('autoSilver');
-    expect(result.get('p2')).to.equal('health');
+    const result = await fetchProductCodes(conn, new Set(['01tSB000004V4KKYA0', '01tSB000004V4KNYA0']));
+    expect(result.get('01tSB000004V4KKYA0')).to.equal('autoSilver');
+    expect(result.get('01tSB000004V4KNYA0')).to.equal('health');
   });
 
   it('falls back to Name when ProductCode is null', async () => {
     const conn = mockConnection({
-      Product2: { records: [{ Id: 'p1', ProductCode: null, Name: 'FallbackName' }] },
+      Product2: { records: [{ Id: '01tSB000004V4KKYA0', ProductCode: null, Name: 'FallbackName' }] },
     });
-    const result = await fetchProductCodes(conn, new Set(['p1']));
-    expect(result.get('p1')).to.equal('FallbackName');
+    const result = await fetchProductCodes(conn, new Set(['01tSB000004V4KKYA0']));
+    expect(result.get('01tSB000004V4KKYA0')).to.equal('FallbackName');
   });
 
   it('returns empty map for empty product set', async () => {

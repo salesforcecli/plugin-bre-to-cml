@@ -15,13 +15,26 @@
  */
 import { Connection } from '@salesforce/core';
 
-export async function fetchProductCodes(conn: Connection, productIds: Set<string>): Promise<Map<string, string>> {
-  const idToCode = new Map<string, string>();
-  if (productIds.size === 0) return idToCode;
+/** Matches a well-formed 15- or 18-character Salesforce record id. */
+const SALESFORCE_ID_PATTERN = /^[a-zA-Z0-9]{15,18}$/;
 
-  const idList = Array.from(productIds)
+/**
+ * Builds a quoted, comma-separated SOQL id list, keeping only well-formed Salesforce ids.
+ * Product ids originate from rule definitions that may be supplied via --surcharge-file /
+ * --uw-file, so validating here prevents SOQL injection through the `IN (...)` clause.
+ */
+export function quoteSoqlIdList(ids: Iterable<string>): string {
+  return Array.from(ids)
+    .filter((id) => SALESFORCE_ID_PATTERN.test(id))
     .map((id) => `'${id}'`)
     .join(',');
+}
+
+export async function fetchProductCodes(conn: Connection, productIds: Set<string>): Promise<Map<string, string>> {
+  const idToCode = new Map<string, string>();
+  const idList = quoteSoqlIdList(productIds);
+  if (!idList) return idToCode;
+
   const result = await conn.query<{ Id: string; ProductCode: string; Name: string }>(
     `SELECT Id, ProductCode, Name FROM Product2 WHERE Id IN (${idList})`
   );
@@ -32,17 +45,17 @@ export async function fetchProductCodes(conn: Connection, productIds: Set<string
 }
 
 export async function discoverCmlApiByProducts(conn: Connection, productIds: Set<string>): Promise<string | undefined> {
-  if (productIds.size === 0) return undefined;
+  const idList = quoteSoqlIdList(productIds);
+  if (!idList) return undefined;
 
-  const idList = Array.from(productIds)
-    .map((id) => `'${id}'`)
-    .join(',');
   const assocResult = await conn.query<{ ExpressionSetId: string }>(
     `SELECT ExpressionSetId FROM ExpressionSetConstraintObj WHERE ReferenceObjectId IN (${idList}) AND ConstraintModelTagType = 'Type' LIMIT 1`
   );
   if (assocResult.records.length === 0) return undefined;
 
   const esId = assocResult.records[0].ExpressionSetId;
+  if (!SALESFORCE_ID_PATTERN.test(esId)) return undefined;
+
   const esResult = await conn.query<{ ApiName: string }>(`SELECT ApiName FROM ExpressionSet WHERE Id = '${esId}'`);
   if (esResult.records.length === 0) return undefined;
 
