@@ -1,3 +1,9 @@
+## [1.1.1](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.1.0...1.1.1) (2026-06-06)
+
+### Bug Fixes
+
+- **deps:** bump @salesforce/sf-plugins-core from 12.2.22 to 12.2.24 ([caaba90](https://github.com/salesforcecli/plugin-bre-to-cml/commit/caaba90348ec5ab6dd67e96d0ebd25edd8500c2c))
+
 # [1.1.0](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.0.49...1.1.0) (2026-06-02)
 
 ### Bug Fixes
