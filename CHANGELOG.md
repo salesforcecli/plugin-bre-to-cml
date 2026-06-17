@@ -1,3 +1,9 @@
+## [1.1.4](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.1.3...1.1.4) (2026-06-17)
+
+### Bug Fixes
+
+- **deps:** bump form-data from 4.0.5 to 4.0.6 ([4a0275c](https://github.com/salesforcecli/plugin-bre-to-cml/commit/4a0275ce4c9f14d31049d67faf4b53c9d4e2e4da))
+
 ## [1.1.3](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.1.2...1.1.3) (2026-06-17)
 
 ### Bug Fixes
