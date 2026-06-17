@@ -1,3 +1,9 @@
+## [1.1.3](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.1.2...1.1.3) (2026-06-17)
+
+### Bug Fixes
+
+- **deps:** bump @babel/core from 7.28.0 to 7.29.7 ([8df7edb](https://github.com/salesforcecli/plugin-bre-to-cml/commit/8df7edb069f84bce8dc776a17adb05dc6977039a))
+
 ## [1.1.2](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.1.1...1.1.2) (2026-06-17)
 
 ### Bug Fixes
