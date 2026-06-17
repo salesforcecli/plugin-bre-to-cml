@@ -1,3 +1,9 @@
+## [1.1.2](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.1.1...1.1.2) (2026-06-17)
+
+### Bug Fixes
+
+- **deps:** bump markdown-it from 14.1.0 to 14.2.0 ([8b82be6](https://github.com/salesforcecli/plugin-bre-to-cml/commit/8b82be6118f60a4475b40fcf29e479dcfbdf14a6))
+
 ## [1.1.1](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.1.0...1.1.1) (2026-06-06)
 
 ### Bug Fixes
