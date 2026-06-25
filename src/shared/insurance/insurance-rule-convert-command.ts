@@ -62,6 +62,9 @@ export abstract class InsuranceRuleConvertCommand<R extends RuleRecord> extends 
     }),
   };
 
+  // When defined, eligibility is emitted as a CML `rule(...)` statement tagged with this rule
+  // type instead of a `constraint`. Subclasses that want the constraint form leave it undefined.
+  protected readonly ruleType?: string;
   protected abstract readonly recordLabel: string;
   protected abstract readonly keyPrefix: string;
   protected abstract readonly constraintLabel: string;
@@ -84,7 +87,13 @@ export abstract class InsuranceRuleConvertCommand<R extends RuleRecord> extends 
 
     const api = ctx.cmlApi ?? (await this.discoverCmlApi(conn, ruleDefs, productIdToCode));
     const safeApi = api.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const { cmlModel, ruleKeyMapping } = buildCmlModel(ruleDefs, productIdToCode, this.keyPrefix, this.constraintLabel);
+    const { cmlModel, ruleKeyMapping } = buildCmlModel(
+      ruleDefs,
+      productIdToCode,
+      this.keyPrefix,
+      this.constraintLabel,
+      this.ruleType
+    );
     ruleKeyMapping.forEach((m) => this.log(`  -> ${m.name} => ${m.ruleKey}`));
 
     if (ctx.updateRecords) {

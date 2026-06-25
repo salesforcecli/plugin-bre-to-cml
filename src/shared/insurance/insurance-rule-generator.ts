@@ -133,7 +133,11 @@ export function buildCmlModel(
   ruleDefs: Array<{ record: RuleRecord; ruleDef: ParsedRuleDefinition }>,
   productIdToCode: Map<string, string>,
   keyPrefix: string,
-  constraintLabel: string
+  constraintLabel: string,
+  // When set, eligibility is emitted as a CML `rule(decl, "<ruleType>", "<ruleKey>", "True")`
+  // statement instead of a `constraint NAME = (decl, "label");`. Surcharge passes
+  // 'InsuranceSurchargeRule'; underwriting leaves it undefined to keep the constraint form.
+  ruleType?: string
 ): { cmlModel: CmlModel; ruleKeyMapping: RuleKeyEntry[] } {
   const cmlModel = new CmlModel();
 
@@ -163,11 +167,10 @@ export function buildCmlModel(
       const stageTransition = buildStageTransition(ruleDef.underwritingRuleGroup);
       const ruleKey = generateRuleKey(keyPrefix, productCode, apiName, stageTransition);
 
-      const constraint = new CmlConstraint(
-        CONSTRAINT_TYPES.CONSTRAINT,
-        buildConstraintDeclaration(ruleDef),
-        `"${constraintLabel}: ${record.Name}"`
-      );
+      const declaration = buildConstraintDeclaration(ruleDef);
+      const constraint = ruleType
+        ? CmlConstraint.createRuleConstraint(declaration, ruleType, ruleKey, 'True')
+        : new CmlConstraint(CONSTRAINT_TYPES.CONSTRAINT, declaration, `"${constraintLabel}: ${record.Name}"`);
       // Mirror generateRuleKey: include the stage transition so two rules that share an
       // apiName under the same product (gated on different transitions) don't collide.
       constraint.name = sanitizeName(stageTransition ? `${apiName}_${stageTransition}` : apiName);

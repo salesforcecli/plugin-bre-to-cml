@@ -50,6 +50,8 @@ export default class CmlConvertSurchargeRules extends InsuranceRuleConvertComman
   protected readonly keyPrefix = 'SC';
   protected readonly constraintLabel = 'Surcharge eligibility';
   protected readonly apiNamePrefix = 'SC_';
+  // Emit surcharge eligibility as a CML `rule(decl, "InsuranceSurchargeRule", "<ruleKey>", "True")`.
+  protected readonly ruleType = 'InsuranceSurchargeRule';
   protected readonly soql =
     'SELECT Id, Name, RuleDefinition, ProductPath FROM ProductSurcharge WHERE RuleApiName != null';
 
