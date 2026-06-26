@@ -28,6 +28,12 @@ import { discoverCmlApiByProducts, fetchProductCodes } from './insurance-org.js'
 Messages.importMessagesDirectoryFromMetaUrl(import.meta.url);
 const messages = Messages.loadMessages('@salesforce/plugin-bre-to-cml', 'cml.convert.insurance-shared');
 
+// Header row for the header-only `_Associations.csv` the merge path writes (merge mode creates no
+// new Type associations). Kept here in the insurance layer — the common association util owns the
+// build-path CSV and its own copy of this header.
+const ASSOCIATIONS_CSV_HEADER =
+  'ExpressionSet.ApiName,ConstraintModelTag,ConstraintModelTagType,ReferenceObjectId,$Product2ReferenceId,$ProductClassificationName,$ProductRelatedComponentKey';
+
 export type InsuranceRuleConvertResult = {
   cmlFile: string;
   associationsFile: string;
@@ -41,7 +47,12 @@ export type InsuranceRuleConvertContext = {
   workspaceDir: string | undefined;
   inputFile: string | undefined;
   updateRecords: boolean;
+  // When true, merge the generated rules into the org's existing ConstraintModel instead of
+  // building a fresh single-type model. Only surcharge supports this (see runMergeConvert).
+  mergeWithOrg?: boolean;
 };
+
+export type ParsedRuleEntry = { record: RuleRecord; ruleDef: ParsedRuleDefinition };
 
 export abstract class InsuranceRuleConvertCommand<R extends RuleRecord> extends SfCommand<InsuranceRuleConvertResult> {
   public static readonly flags = {
@@ -87,6 +98,11 @@ export abstract class InsuranceRuleConvertCommand<R extends RuleRecord> extends 
 
     const api = ctx.cmlApi ?? (await this.discoverCmlApi(conn, ruleDefs, productIdToCode));
     const safeApi = api.replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    if (ctx.mergeWithOrg) {
+      return this.runMergeConvert(ctx, conn, records, ruleDefs, productIdToCode, api, safeApi, workspaceDir);
+    }
+
     const { cmlModel, ruleKeyMapping } = buildCmlModel(
       ruleDefs,
       productIdToCode,
@@ -101,6 +117,57 @@ export abstract class InsuranceRuleConvertCommand<R extends RuleRecord> extends 
     }
 
     return this.writeOutputFiles(cmlModel, ruleKeyMapping, safeApi, workspaceDir, api);
+  }
+
+  /**
+   * Merge-mode entry point. The default errors because merging only makes sense for rule-statement
+   * subclasses (surcharge); constraint-form subclasses (underwriting) leave it unimplemented.
+   */
+  /* eslint-disable @typescript-eslint/no-unused-vars */
+  protected runMergeConvert(
+    ctx: InsuranceRuleConvertContext,
+    conn: Connection,
+    records: R[],
+    ruleDefs: ParsedRuleEntry[],
+    productIdToCode: Map<string, string>,
+    api: string,
+    safeApi: string,
+    workspaceDir: string
+  ): Promise<InsuranceRuleConvertResult> {
+    this.error(`Merge mode is not supported for ${this.recordLabel} rules.`);
+  }
+  /* eslint-enable @typescript-eslint/no-unused-vars */
+
+  /**
+   * Writes the merged outputs: the full merged CML, a header-only associations CSV (merge mode
+   * touches only existing type blocks, so no new Type associations are needed — but the common
+   * import errors on an empty CSV, so the header line must be present), and the rule-key mapping.
+   */
+  protected async writeMergedOutputFiles(
+    mergedCml: string,
+    ruleKeyMapping: RuleKeyEntry[],
+    safeApi: string,
+    workspaceDir: string,
+    api: string
+  ): Promise<InsuranceRuleConvertResult> {
+    const cmlPath = `${workspaceDir}/${safeApi}.cml`;
+    const associationsPath = `${workspaceDir}/${safeApi}_Associations.csv`;
+    const mappingPath = `${workspaceDir}/${safeApi}_RuleKeyMapping.json`;
+
+    await fs.writeFile(cmlPath, mergedCml, 'utf8');
+    await fs.writeFile(associationsPath, `${ASSOCIATIONS_CSV_HEADER}\n`, 'utf8');
+    await fs.writeFile(mappingPath, JSON.stringify(ruleKeyMapping, null, 2), 'utf8');
+
+    this.log(`\nMerged CML written to: ${cmlPath}`);
+    this.log(`Associations (header-only, no new type associations) written to: ${associationsPath}`);
+    this.log(`Rule key mapping written to: ${mappingPath}`);
+    this.log('\nNext steps:');
+    this.log('  1. Review the merged .cml file (diff against the org model)');
+    this.log(
+      `  2. Import: sf cml import as-expression-set --cml-api ${api} --context-definition <CD_NAME> --target-org <org>`
+    );
+
+    return { cmlFile: cmlPath, associationsFile: associationsPath, ruleKeyMapping };
   }
 
   private async loadRecords(conn: Connection, inputFile: string | undefined): Promise<R[]> {
@@ -136,7 +203,10 @@ export abstract class InsuranceRuleConvertCommand<R extends RuleRecord> extends 
     conn: Connection,
     ruleDefs: Array<{ record: RuleRecord }>
   ): Promise<Map<string, string>> {
-    const productIds = collectRootProductIds(ruleDefs);
+    // Collect EVERY ProductPath segment, not just the root: merge mode needs the code of each
+    // segment to build the platform-compatible pathed rule key, and the leaf segment's code to
+    // resolve its CML type. The non-merge path only reads the root code, so this is a superset.
+    const productIds = collectAllProductIds(ruleDefs);
     try {
       return await fetchProductCodes(conn, productIds);
     } catch (e) {
@@ -200,10 +270,24 @@ export abstract class InsuranceRuleConvertCommand<R extends RuleRecord> extends 
   protected abstract updateOrgRecords(records: R[], ruleKeyMapping: RuleKeyEntry[], conn: Connection): Promise<void>;
 }
 
+function collectAllProductIds(ruleDefs: Array<{ record: RuleRecord }>): Set<string> {
+  const productIds = new Set<string>();
+  for (const { record } of ruleDefs) {
+    for (const segment of record.ProductPath.split('/')) {
+      const id = segment.trim();
+      if (id) productIds.add(id);
+    }
+  }
+  return productIds;
+}
+
+// CML auto-discovery and the generated API name key off the ROOT product of each path only, so
+// this stays a root-only collector (the merge path uses collectAllProductIds for the full set).
 function collectRootProductIds(ruleDefs: Array<{ record: RuleRecord }>): Set<string> {
   const productIds = new Set<string>();
   for (const { record } of ruleDefs) {
-    productIds.add(record.ProductPath.split('/')[0]);
+    const root = record.ProductPath.split('/')[0]?.trim();
+    if (root) productIds.add(root);
   }
   return productIds;
 }
