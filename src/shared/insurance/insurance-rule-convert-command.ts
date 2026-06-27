@@ -208,7 +208,15 @@ export abstract class InsuranceRuleConvertCommand<R extends RuleRecord> extends 
     // resolve its CML type. The non-merge path only reads the root code, so this is a superset.
     const productIds = collectAllProductIds(ruleDefs);
     try {
-      return await fetchProductCodes(conn, productIds);
+      return await fetchProductCodes(conn, productIds, {
+        // M2: a blank ProductCode forces a Name/Id fallback, so the pathed rule key is derived from a
+        // non-authoritative field and will NOT match the platform-generated RuleKey — the surcharge
+        // then imports cleanly but silently never fires. Surface it instead of substituting silently.
+        onFallback: (productId) =>
+          this.warn(
+            `Product ${productId} has no ProductCode; rule key derived from Name/Id and may not match the platform-generated RuleKey (surcharge may silently not fire)`
+          ),
+      });
     } catch (e) {
       this.warn(`Could not fetch product codes: ${(e as Error).message}. Using product IDs instead.`);
       return new Map<string, string>();

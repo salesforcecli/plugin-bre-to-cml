@@ -78,18 +78,57 @@ export function generateRuleKey(
   return parts.join('__');
 }
 
-// Operators whose RHS the shared emitter interpolates UNQUOTED (e.g. `attr > 2020`). Insurance
-// data for these is always numeric, so we require a safe numeric literal here — a malformed or
-// hostile value (e.g. `2020) || evil(`) can otherwise reach the curated model verbatim.
-const UNQUOTED_RELATIONAL_OPERATORS: ReadonlySet<string> = new Set([
+// Relational operators (<, <=, >, >=) ALWAYS interpolate their RHS unquoted, regardless of
+// dataType. Equals/NotEquals interpolate unquoted whenever the resolved cmlDataType is NOT
+// CML_DATA_TYPES.STRING (the shared emitter only quotes when dataType === 'string'). Either way an
+// unquoted, attacker-influenced value (e.g. `2020) || evil(`) would reach the curated model
+// verbatim, so every value on an unquoted-emission condition must be a bare safe literal.
+const ALWAYS_UNQUOTED_OPERATORS: ReadonlySet<string> = new Set([
   'LessThan',
   'LessThanOrEquals',
   'GreaterThan',
   'GreaterThanOrEquals',
 ]);
 
+// Operators that emit a value via doubleQuotedIfNeeded — unquoted unless cmlDataType === STRING.
+const VALUE_EQUALITY_OPERATORS: ReadonlySet<string> = new Set(['Equals', 'NotEquals']);
+
 function isSafeNumericLiteral(value: string): boolean {
   return /^-?\d+(\.\d+)?$/.test(value.trim());
+}
+
+function isSafeBooleanLiteral(value: string): boolean {
+  return /^(true|false)$/.test(value.trim());
+}
+
+// Bare date / datetime literal: YYYY-MM-DD optionally followed by an ISO-8601 time component. No
+// parens, operators, or whitespace that could break out of the unquoted slot.
+function isSafeDateLiteral(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?)?$/.test(value.trim());
+}
+
+// A value is safe to emit unquoted only if it is a bare literal of the target CML type. Anything
+// that isn't (including strings, which must never reach an unquoted slot) is rejected.
+function isSafeUnquotedLiteral(value: string, cmlDataType: string): boolean {
+  switch (cmlDataType) {
+    case CML_DATA_TYPES.INTEGER:
+    case CML_DATA_TYPES.DECIMAL:
+      return isSafeNumericLiteral(value);
+    case CML_DATA_TYPES.BOOLEAN:
+      return isSafeBooleanLiteral(value);
+    case CML_DATA_TYPES.DATE:
+      return isSafeDateLiteral(value);
+    default:
+      return false;
+  }
+}
+
+// A value destined for a string-quoted slot must be safely single-line quotable. The shared
+// escapeQuotes escapes ' and " but NOT backslash, so a value containing a backslash (e.g. ending
+// in `\`, or a `\"` sequence) can escape its own closing quote and break out into raw CML. Reject
+// any backslash, plus newlines that would split the single-line literal.
+function isSafeQuotableString(value: string): boolean {
+  return !/[\\\r\n]/.test(value);
 }
 
 function buildConditionExpression(condition: RuleCondition): string | null {
@@ -100,15 +139,27 @@ function buildConditionExpression(condition: RuleCondition): string | null {
     return null;
   }
 
-  // Relational operators emit their RHS unquoted; only safe numeric literals are allowed through
-  // so the value cannot inject CML or produce a type-unsafe comparison. A failing value drops the
-  // condition (the caller filters nulls), exactly as an unknown operator or a missing value does.
-  if (UNQUOTED_RELATIONAL_OPERATORS.has(op) && !(condition.values ?? []).every(isSafeNumericLiteral)) {
+  const values = condition.values ?? [];
+  const cmlDataType = dataTypeToCml(condition.dataType);
+
+  // Determine whether this operator/dataType pair emits its RHS UNQUOTED. Relational operators
+  // always do; Equals/NotEquals do whenever the cmlDataType is not STRING. On the unquoted path we
+  // require every value to be a bare safe literal; otherwise the value would land in the curated
+  // model verbatim and could inject CML or produce a type-unsafe comparison. A failing value drops
+  // the condition (the caller filters nulls), exactly as an unknown operator or missing value does.
+  const emitsUnquoted =
+    ALWAYS_UNQUOTED_OPERATORS.has(op) || (VALUE_EQUALITY_OPERATORS.has(op) && cmlDataType !== CML_DATA_TYPES.STRING);
+
+  if (emitsUnquoted) {
+    if (!values.every((v) => isSafeUnquotedLiteral(v, cmlDataType))) {
+      return null;
+    }
+  } else if (!values.every(isSafeQuotableString)) {
+    // String-quoted path: reject values the shared escaper cannot safely contain (backslash, etc.).
     return null;
   }
 
   const attrName = sanitizeName(condition.attributeName ?? condition.contextTagName ?? 'unknown');
-  const cmlDataType = dataTypeToCml(condition.dataType);
   return convertToCmlExpression(attrName, op, condition.values, cmlDataType);
 }
 
@@ -150,6 +201,61 @@ export function collectAttributes(ruleDefs: Array<{ ruleDef: { ruleCriteria?: Ru
   return attrs;
 }
 
+/**
+ * Collects only the attributes that actually reach the emitted CML — i.e. those on conditions whose
+ * `buildConditionExpression` returned a non-null expression. Conditions dropped by the safe-literal
+ * guard, an unknown operator, or missing values do NOT contribute their attribute. This is the
+ * companion to `collectAttributes` for merge-mode attribute-presence warnings: warning about an
+ * attribute the declaration never emitted (because the guard dropped its condition) is spurious
+ * noise on exactly the inputs the guard sanitized. Unlike `collectAttributes`, names are returned
+ * sanitized to match how they appear in the emitted declaration.
+ */
+export function collectEmittedAttributes(ruleDefs: Array<{ ruleDef: { ruleCriteria?: RuleCriteria[] } }>): Set<string> {
+  const attrs = new Set<string>();
+  for (const { ruleDef } of ruleDefs) {
+    for (const criteria of ruleDef.ruleCriteria ?? []) {
+      for (const cond of criteria.conditions ?? []) {
+        if (buildConditionExpression(cond) === null) continue;
+        const name = cond.attributeName ?? cond.contextTagName;
+        if (name) attrs.add(sanitizeName(name));
+      }
+    }
+  }
+  return attrs;
+}
+
+/**
+ * Derives the real CML data type for each collected attribute from its condition `dataType`.
+ * When an attribute appears with more than one distinct CML type (a conflict), or its type is
+ * unknown, it falls back to STRING. Returned alongside (not replacing) the Set from
+ * collectAttributes, which merge mode still depends on.
+ */
+export function collectAttributeTypes(
+  ruleDefs: Array<{ ruleDef: { ruleCriteria?: RuleCriteria[] } }>
+): Map<string, string> {
+  const types = new Map<string, string>();
+  const conflicting = new Set<string>();
+  for (const { ruleDef } of ruleDefs) {
+    for (const criteria of ruleDef.ruleCriteria ?? []) {
+      for (const cond of criteria.conditions ?? []) {
+        const name = cond.attributeName ?? cond.contextTagName;
+        if (!name) continue;
+        const cmlType = dataTypeToCml(cond.dataType);
+        const existing = types.get(name);
+        if (existing === undefined) {
+          types.set(name, cmlType);
+        } else if (existing !== cmlType) {
+          conflicting.add(name);
+        }
+      }
+    }
+  }
+  for (const name of conflicting) {
+    types.set(name, CML_DATA_TYPES.STRING);
+  }
+  return types;
+}
+
 export function buildCmlModel(
   ruleDefs: Array<{ record: RuleRecord; ruleDef: ParsedRuleDefinition }>,
   productIdToCode: Map<string, string>,
@@ -184,8 +290,10 @@ export function buildCmlModel(
     const productType = new CmlType(typeName, undefined, undefined);
 
     const attrs = collectAttributes(productRules);
+    const attrTypes = collectAttributeTypes(productRules);
     for (const attrName of attrs) {
-      productType.addAttribute(new CmlAttribute(null, sanitizeName(attrName), CML_DATA_TYPES.STRING));
+      const cmlType = attrTypes.get(attrName) ?? CML_DATA_TYPES.STRING;
+      productType.addAttribute(new CmlAttribute(null, sanitizeName(attrName), cmlType));
     }
 
     for (const { record, ruleDef } of productRules) {

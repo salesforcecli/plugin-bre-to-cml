@@ -288,6 +288,138 @@ describe('buildConstraintDeclaration', () => {
     };
     expect(buildConstraintDeclaration(ruleDef)).to.equal('Model == "SU\\"V"');
   });
+
+  // C1 — Equals/NotEquals also emit their RHS UNQUOTED whenever the cmlDataType is non-string
+  // (Number/Currency/Percent/Boolean/Date). The relational-only guard left this open: a hostile
+  // value reaches the curated model verbatim. The guard must key off the unquoted emission path,
+  // not an operator allowlist.
+  it('drops a numeric-typed Equals condition whose value is not a safe numeric literal (C1 injection)', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [
+            { attributeName: 'Year', operator: 'Equals', dataType: 'Number', values: ['2020) || evil('] },
+            { attributeName: 'Model', operator: 'Equals', dataType: 'String', values: ['SUV'] },
+          ],
+        },
+      ] as RuleCriteria[],
+    };
+    // The hostile unquoted Equals is dropped; the safe (string-quoted) Equals survives.
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('Model == "SUV"');
+  });
+
+  it('drops a Currency-typed NotEquals condition that forges a rule statement (C1 injection)', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [
+            {
+              attributeName: 'Premium',
+              operator: 'NotEquals',
+              dataType: 'Currency',
+              values: ['0) , "InsuranceSurchargeRule", "x", "True"); evil('],
+            },
+          ],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('true');
+  });
+
+  it('preserves a clean numeric Equals unquoted (C1 regression guard)', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [{ attributeName: 'Year', operator: 'Equals', dataType: 'Number', values: ['2020'] }],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('Year == 2020');
+  });
+
+  it('drops a Boolean-typed Equals whose value is not a bare true/false literal (C1 injection)', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [{ attributeName: 'IsActive', operator: 'Equals', dataType: 'Boolean', values: ['true) || x('] }],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('true');
+  });
+
+  it('preserves a clean Boolean Equals unquoted (C1 regression guard)', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [{ attributeName: 'IsActive', operator: 'Equals', dataType: 'Boolean', values: ['true'] }],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('IsActive == true');
+  });
+
+  it('drops a Date-typed Equals whose value is not a bare date literal (C1 injection)', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [
+            { attributeName: 'EffDate', operator: 'Equals', dataType: 'Date', values: ['2020-01-01) || x('] },
+          ],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('true');
+  });
+
+  // H3 — escapeQuotes (out of scope) does not escape backslash, so a string value ending in a
+  // backslash escapes its own closing quote and the following content lands as raw CML. The
+  // insurance layer must reject any string-quoted value containing a backslash.
+  it('drops a string Equals value ending in a backslash (H3 quote break-out)', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [
+            { attributeName: 'Model', operator: 'Equals', dataType: 'String', values: ['evil\\'] },
+            { attributeName: 'Trim', operator: 'Equals', dataType: 'String', values: [') || hijack(('] },
+          ],
+        },
+      ] as RuleCriteria[],
+    };
+    // The backslash-terminated value is dropped; the (now harmless) second value is still quoted.
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('Trim == ") || hijack(("');
+  });
+
+  it('drops a string Contains value containing a backslash-quote sequence (H3 quote break-out)', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [{ attributeName: 'Notes', operator: 'Contains', dataType: 'String', values: ['a\\"; bad'] }],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('true');
+  });
+
+  it('preserves a clean string Contains value (H3 regression guard)', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [{ attributeName: 'Notes', operator: 'Contains', dataType: 'String', values: ['premium'] }],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('strcontain(Notes, "premium")');
+  });
 });
 
 describe('collectAttributes', () => {
@@ -484,6 +616,73 @@ describe('buildCmlModel', () => {
     const healthType = cmlModel.getType('Health');
     expect(autoType?.attributes.map((a) => a.name)).to.deep.equal(['Model']);
     expect(healthType?.attributes.map((a) => a.name)).to.deep.equal(['Deductible']);
+  });
+
+  // H4 — attributes must be declared with their real CML type so that relational comparisons
+  // (which emit a bare numeric RHS, e.g. `Age < 60`) type-check on import. Declaring everything
+  // as `string` produces `string Age; ... Age < 60`, which the CML compiler rejects.
+  it('declares a numeric attribute with its real CML type, not string (H4)', () => {
+    const ruleDefs = [
+      {
+        record: makeRecord('r1', 'Rule1', 'p1'),
+        ruleDef: makeRuleDef('Rule1', 'Rule1', 'p1', [
+          {
+            rootObjectId: 'p1',
+            conditions: [{ attributeName: 'Age', operator: 'LessThan', dataType: 'Number', values: ['60'] }],
+          },
+        ]),
+      },
+    ];
+    const { cmlModel } = buildCmlModel(ruleDefs, new Map([['p1', 'autoSilver']]), 'UW', 'Test');
+    const ageAttr = cmlModel.getType('autoSilver')?.attributes.find((a) => a.name === 'Age');
+    expect(ageAttr?.type).to.equal('int');
+  });
+
+  it('declares a Boolean attribute as boolean and a string attribute as string (H4)', () => {
+    const ruleDefs = [
+      {
+        record: makeRecord('r1', 'Rule1', 'p1'),
+        ruleDef: makeRuleDef('Rule1', 'Rule1', 'p1', [
+          {
+            rootObjectId: 'p1',
+            conditions: [
+              { attributeName: 'IsActive', operator: 'Equals', dataType: 'Boolean', values: ['true'] },
+              { attributeName: 'Model', operator: 'Equals', dataType: 'String', values: ['SUV'] },
+            ],
+          },
+        ]),
+      },
+    ];
+    const { cmlModel } = buildCmlModel(ruleDefs, new Map([['p1', 'autoSilver']]), 'UW', 'Test');
+    const attrs = cmlModel.getType('autoSilver')?.attributes ?? [];
+    expect(attrs.find((a) => a.name === 'IsActive')?.type).to.equal('boolean');
+    expect(attrs.find((a) => a.name === 'Model')?.type).to.equal('string');
+  });
+
+  it('falls back to string when an attribute appears with conflicting dataTypes (H4)', () => {
+    const ruleDefs = [
+      {
+        record: makeRecord('r1', 'Rule1', 'p1'),
+        ruleDef: makeRuleDef('Rule1', 'Rule1', 'p1', [
+          {
+            rootObjectId: 'p1',
+            conditions: [{ attributeName: 'Score', operator: 'GreaterThan', dataType: 'Number', values: ['10'] }],
+          },
+        ]),
+      },
+      {
+        record: makeRecord('r2', 'Rule2', 'p1'),
+        ruleDef: makeRuleDef('Rule2', 'Rule2', 'p1', [
+          {
+            rootObjectId: 'p1',
+            conditions: [{ attributeName: 'Score', operator: 'Equals', dataType: 'String', values: ['high'] }],
+          },
+        ]),
+      },
+    ];
+    const { cmlModel } = buildCmlModel(ruleDefs, new Map([['p1', 'autoSilver']]), 'UW', 'Test');
+    const scoreAttr = cmlModel.getType('autoSilver')?.attributes.find((a) => a.name === 'Score');
+    expect(scoreAttr?.type).to.equal('string');
   });
 
   it('falls back to product ID when code is not in map', () => {

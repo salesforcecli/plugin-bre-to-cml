@@ -18,7 +18,7 @@ import { CmlConstraint } from '../types/types.js';
 import { ParsedRuleDefinition, RuleRecord } from './models.js';
 import {
   buildConstraintDeclaration,
-  collectAttributes,
+  collectEmittedAttributes,
   sanitizeName,
   buildStageTransition,
 } from './insurance-rule-generator.js';
@@ -153,27 +153,32 @@ function escapeRegExp(value: string): string {
 type TypeBlock = { openIdx: number; closeIdx: number };
 
 /**
- * Locates a `type <name> [: Parent] { ... }` block and returns the index of its opening brace and
- * its brace-matched closing brace. Block-less forward declarations (`type X : Y;`) are skipped
- * because the regex requires a `{` before any `;`. Word-boundary after the name keeps `Auto` from
- * matching `AutoSilver`/`AutoDriver`.
+ * Brace-matches the block whose opening `{` is at `openIdx` and returns the index of its matched
+ * closing `}`. The scanner ignores `{`/`}`/`"` that appear inside double-quoted string literals,
+ * `//` line comments, and `/* *\/` block comments — a curated Gold-Standard model routinely carries
+ * comments, and a stray `}` inside one (or inside a quoted rule value) must NOT be mistaken for the
+ * structural close, which would return a too-early closeIdx and splice a new rule mid-statement.
  */
-function findTypeBlock(cml: string, typeName: string): TypeBlock | undefined {
-  const re = new RegExp(`(^|\\n)\\s*type\\s+${escapeRegExp(typeName)}\\b[^{;]*\\{`);
-  const m = re.exec(cml);
-  if (!m) return undefined;
-
-  const openIdx = cml.indexOf('{', m.index);
-  if (openIdx < 0) return undefined;
-
-  // Brace-match while skipping braces that appear inside double-quoted string literals (a CML rule
-  // declaration can carry an arbitrary string value such as `make == "weird}brace"`). Without this,
-  // a `}` inside a quoted value is mistaken for the block's closing brace and we return a too-early
-  // closeIdx, splicing the new rule into the middle of an existing statement.
+function matchClosingBrace(cml: string, openIdx: number): number | undefined {
   let depth = 0;
   let inString = false;
+  let inLineComment = false;
+  let inBlockComment = false;
   for (let i = openIdx; i < cml.length; i++) {
     const ch = cml[i];
+    const next = cml[i + 1];
+
+    if (inLineComment) {
+      if (ch === '\n') inLineComment = false;
+      continue;
+    }
+    if (inBlockComment) {
+      if (ch === '*' && next === '/') {
+        inBlockComment = false;
+        i++;
+      }
+      continue;
+    }
     if (inString) {
       if (ch === '\\') {
         i++; // skip the escaped character
@@ -182,14 +187,51 @@ function findTypeBlock(cml: string, typeName: string): TypeBlock | undefined {
       }
       continue;
     }
-    if (ch === '"') inString = true;
-    else if (ch === '{') depth++;
-    else if (ch === '}') {
+
+    if (ch === '/' && next === '/') {
+      inLineComment = true;
+      i++;
+    } else if (ch === '/' && next === '*') {
+      inBlockComment = true;
+      i++;
+    } else if (ch === '"') {
+      inString = true;
+    } else if (ch === '{') {
+      depth++;
+    } else if (ch === '}') {
       depth--;
-      if (depth === 0) return { openIdx, closeIdx: i };
+      if (depth === 0) return i;
     }
   }
   return undefined;
+}
+
+/**
+ * Locates a `type <name> [: Parent] { ... }` block and returns the index of its opening brace and
+ * its brace-matched closing brace. Block-less forward declarations (`type X : Y;`) are skipped
+ * because the regex requires a `{` before any `;`. Word-boundary after the name keeps `Auto` from
+ * matching `AutoSilver`/`AutoDriver`.
+ *
+ * M1/M5: when more than one block declares the same type name the result is AMBIGUOUS — rather than
+ * guessing the first lexical match (which could nest the surcharge under the wrong product), the
+ * caller is told via `undefined` + a distinct ambiguity reason. A single unique match resolves
+ * normally.
+ */
+function findTypeBlock(cml: string, typeName: string): TypeBlock | { ambiguous: true } | undefined {
+  const re = new RegExp(`(^|\\n)[ \\t]*type[ \\t]+${escapeRegExp(typeName)}\\b[^{;]*\\{`, 'g');
+  const matches: number[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(cml)) !== null) {
+    const openIdx = cml.indexOf('{', m.index);
+    if (openIdx >= 0) matches.push(openIdx);
+  }
+  if (matches.length === 0) return undefined;
+  if (matches.length > 1) return { ambiguous: true };
+
+  const openIdx = matches[0];
+  const closeIdx = matchClosingBrace(cml, openIdx);
+  if (closeIdx === undefined) return undefined;
+  return { openIdx, closeIdx };
 }
 
 /** Builds the `rule(...)` statement for a surcharge, using the same constraint generator as build mode. */
@@ -219,7 +261,10 @@ export function buildPathedSurchargeRules(
 
     const declaration = buildConstraintDeclaration(ruleDef);
     const statement = buildSurchargeRuleStatement(declaration, ruleKey);
-    const referencedAttributes = Array.from(collectAttributes([{ ruleDef }])).map(sanitizeName);
+    // M7: only attributes from conditions that actually emitted CML (non-null buildConditionExpression)
+    // count as "referenced". Attributes from conditions the safe-literal guard / unknown-operator
+    // filter dropped never appear in the declaration, so warning about them would be spurious noise.
+    const referencedAttributes = Array.from(collectEmittedAttributes([{ ruleDef }]));
 
     return {
       recordId: record.Id,
@@ -251,19 +296,32 @@ export function mergeSurchargeRules(existingCml: string, rules: PathedSurchargeR
   // same way), so checking the mutated text would always find it and suppress every warning.
   const baseCml = existingCml;
 
-  for (const rule of rules) {
-    const quotedKey = `"${rule.ruleKey}"`;
-    const keyIdx = cml.indexOf(quotedKey);
+  // H1: keys this run has already placed. A second rule resolving to the same pathed key must be
+  // reported as a collision skip, NOT treated as an idempotent replace of the first rule's
+  // just-inserted statement (which would silently drop the second record's distinct declaration).
+  const placedKeys = new Set<string>();
 
-    if (keyIdx >= 0) {
-      // Replace the whole line that carries this key (rule statements are single-line here).
-      const lineStart = cml.lastIndexOf('\n', keyIdx) + 1;
-      let lineEnd = cml.indexOf('\n', keyIdx);
-      if (lineEnd < 0) lineEnd = cml.length;
-      const indentMatch = /^\s*/.exec(cml.slice(lineStart, lineEnd));
+  for (const rule of rules) {
+    if (placedKeys.has(rule.ruleKey)) {
+      skips.push({
+        rule,
+        reason: `duplicate pathed rule key '${rule.ruleKey}' collides with another rule in this run (${rule.recordName} skipped)`,
+      });
+      continue;
+    }
+
+    // C2/M4/L1: only a REAL surcharge `rule(...)` statement carrying this exact key in the
+    // action-scope slot counts as "present". A bare quoted-key substring inside an unrelated rule's
+    // value, a longer key, or a comment must NOT trigger a destructive line replace.
+    const stmt = findSurchargeStatement(cml, rule.ruleKey);
+
+    if (stmt) {
+      // L2: preserve the original line ending (CRLF vs LF) of the replaced line.
+      const indentMatch = /^[ \t]*/.exec(cml.slice(stmt.lineStart, stmt.lineEnd));
       const indent = indentMatch ? indentMatch[0] : '    ';
-      cml = cml.slice(0, lineStart) + indent + rule.statement + cml.slice(lineEnd);
+      cml = cml.slice(0, stmt.lineStart) + indent + rule.statement + cml.slice(stmt.lineEnd);
       placements.push({ rule, status: 'replaced' });
+      placedKeys.add(rule.ruleKey);
       collectAttributeWarning(baseCml, rule, attributeWarnings);
       continue;
     }
@@ -278,15 +336,122 @@ export function mergeSurchargeRules(existingCml: string, rules: PathedSurchargeR
       skips.push({ rule, reason: `type block '${rule.typeName}' not found in existing model` });
       continue;
     }
+    if ('ambiguous' in block) {
+      skips.push({
+        rule,
+        reason: `type block '${rule.typeName}' is ambiguous (multiple/duplicate declarations) in existing model; skipping ${rule.recordName} rather than guessing`,
+      });
+      continue;
+    }
 
     // Insert before the closing brace, indented one level (4 spaces), with a leading blank line.
     const insertion = `\n    ${rule.statement}\n`;
     cml = cml.slice(0, block.closeIdx) + insertion + cml.slice(block.closeIdx);
     placements.push({ rule, status: 'inserted' });
+    placedKeys.add(rule.ruleKey);
     collectAttributeWarning(baseCml, rule, attributeWarnings);
   }
 
   return { mergedCml: cml, placements, skips, attributeWarnings };
+}
+
+type StatementMatch = { lineStart: number; lineEnd: number };
+
+/**
+ * C2/M4/L1: finds the single-line surcharge `rule(...)` statement that carries `ruleKey` in the
+ * action-scope slot — i.e. `rule(<decl>, "InsuranceSurchargeRule", "<ruleKey>", ...`. Only such a
+ * real statement is a legitimate replace target. A bare `"<ruleKey>"` substring appearing inside an
+ * unrelated rule's VALUE, inside a `//` line comment, inside a `/* *\/` block comment, or as part of
+ * a LONGER key is deliberately NOT matched, so the caller falls through to the insert path instead of
+ * clobbering curated text.
+ *
+ * Comment-awareness: the anchor scan runs against a length-preserving COPY of `cml` in which every
+ * character inside a `//`/`/* *\/` comment is blanked to a space (newlines kept). Offsets into that
+ * copy therefore map 1:1 onto the original, so the returned line span still slices the real text —
+ * but a rule-shaped string sitting inside a (single- or multi-line) block comment can no longer match
+ * the anchor and be clobbered.
+ *
+ * Returns the start/end offsets of the matched line (lineEnd points at the newline / EOF, excluding
+ * any trailing `\r` so the caller can re-emit the original CRLF/LF).
+ */
+function findSurchargeStatement(cml: string, ruleKey: string): StatementMatch | undefined {
+  const anchor = new RegExp(
+    `rule\\([^;\\r\\n]*"${escapeRegExp(SURCHARGE_RULE_ACTION)}"\\s*,\\s*"${escapeRegExp(ruleKey)}"\\s*,`
+  );
+  // Comment-blanked, length-preserving view of the model: matching against this view ignores any
+  // rule-shaped text that lives inside `//` or `/* */` comments while keeping every offset aligned
+  // with the original `cml` so the returned span still references the real (un-blanked) text.
+  const scan = blankComments(cml);
+  let lineStart = 0;
+  while (lineStart <= scan.length) {
+    const nl = scan.indexOf('\n', lineStart);
+    const rawEnd = nl < 0 ? scan.length : nl;
+    const line = scan.slice(lineStart, rawEnd);
+    if (anchor.test(line)) {
+      // Strip a trailing \r from the matched line span so CRLF can be preserved by the caller.
+      const lineEnd = rawEnd > lineStart && cml[rawEnd - 1] === '\r' ? rawEnd - 1 : rawEnd;
+      return { lineStart, lineEnd };
+    }
+    if (nl < 0) break;
+    lineStart = nl + 1;
+  }
+  return undefined;
+}
+
+/**
+ * Returns a copy of `cml` with identical length where every character inside a `//` line comment or
+ * a `/* *\/` block comment is replaced by a space (newlines preserved). Used so the replace-anchor
+ * scan can ignore comment contents without losing offset alignment with the original text. String
+ * literals are left intact: the anchor itself requires the literal `"InsuranceSurchargeRule"` action
+ * token, so a same-key VALUE inside another rule's string still won't satisfy the action-scope shape.
+ */
+function blankComments(cml: string): string {
+  const out = cml.split('');
+  let inString = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+  for (let i = 0; i < cml.length; i++) {
+    const ch = cml[i];
+    const next = cml[i + 1];
+    if (inLineComment) {
+      if (ch === '\n') inLineComment = false;
+      else out[i] = ' ';
+      continue;
+    }
+    if (inBlockComment) {
+      if (ch === '*' && next === '/') {
+        out[i] = ' ';
+        out[i + 1] = ' ';
+        i++;
+        inBlockComment = false;
+      } else if (ch !== '\n') {
+        out[i] = ' ';
+      }
+      continue;
+    }
+    if (inString) {
+      if (ch === '\\') {
+        i++; // skip escaped char (left intact)
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '/' && next === '/') {
+      inLineComment = true;
+      out[i] = ' ';
+      out[i + 1] = ' ';
+      i++;
+    } else if (ch === '/' && next === '*') {
+      inBlockComment = true;
+      out[i] = ' ';
+      out[i + 1] = ' ';
+      i++;
+    } else if (ch === '"') {
+      inString = true;
+    }
+  }
+  return out.join('');
 }
 
 /**
@@ -300,10 +465,104 @@ export function mergeSurchargeRules(existingCml: string, rules: PathedSurchargeR
  * just-inserted declaration (which sanitizes attribute names identically), suppressing every warning.
  */
 function collectAttributeWarning(baseCml: string, rule: PathedSurchargeRule, warnings: string[]): void {
+  // H5/M3: scope the presence check to the leaf type block plus its `: Parent` ancestry, with
+  // comments and string literals stripped. CML attribute visibility is hierarchy-scoped, so an
+  // unscoped whole-file `\battr\b` test gives false negatives (an attribute named only in a comment,
+  // a string value, or an unrelated SIBLING type would wrongly suppress a real absent-attribute
+  // warning).
+  //
+  // H5 (fallback facet): when the leaf scope can't be resolved — typeName is undefined, or the leaf
+  // `type` block is ambiguous/duplicate so collectTypeScopeText returns undefined — we have NO
+  // hierarchy-scoped view to prove the attribute is visible. We must NOT widen to the whole model
+  // (that re-introduces the sibling-type false negative on exactly the records that hit the replace
+  // path before type resolution). Fail VISIBLE instead: treat the scope as empty so an attribute we
+  // cannot prove visible is reported, never silently suppressed.
+  const scope = rule.typeName ? collectTypeScopeText(baseCml, rule.typeName) ?? '' : '';
+
   for (const attr of rule.referencedAttributes) {
-    const present = new RegExp(`\\b${escapeRegExp(attr)}\\b`).test(baseCml);
+    const present = new RegExp(`\\b${escapeRegExp(attr)}\\b`).test(scope);
     if (!present) {
       warnings.push(`${rule.recordName}: declaration references '${attr}' which is absent from the model`);
     }
   }
+}
+
+/**
+ * Removes `//` line comments, `/* *\/` block comments, and double-quoted string-literal CONTENTS
+ * from CML text so that attribute-presence checks match only real declarations/expressions, never a
+ * name that merely appears in a comment or a string value. String delimiters are kept so structure
+ * is preserved; only the interior characters are blanked.
+ */
+function stripCommentsAndStrings(cml: string): string {
+  let out = '';
+  let inString = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+  for (let i = 0; i < cml.length; i++) {
+    const ch = cml[i];
+    const next = cml[i + 1];
+    if (inLineComment) {
+      if (ch === '\n') {
+        inLineComment = false;
+        out += ch;
+      }
+      continue;
+    }
+    if (inBlockComment) {
+      if (ch === '*' && next === '/') {
+        inBlockComment = false;
+        i++;
+      }
+      continue;
+    }
+    if (inString) {
+      if (ch === '\\') {
+        i++; // skip escaped char (and drop it)
+      } else if (ch === '"') {
+        inString = false;
+        out += '"';
+      }
+      continue;
+    }
+    if (ch === '/' && next === '/') {
+      inLineComment = true;
+      i++;
+    } else if (ch === '/' && next === '*') {
+      inBlockComment = true;
+      i++;
+    } else if (ch === '"') {
+      inString = true;
+      out += '"';
+    } else {
+      out += ch;
+    }
+  }
+  return out;
+}
+
+/**
+ * Builds the comment/string-stripped text of the leaf `type <name> { ... }` block plus every
+ * `: Parent` ancestor block reachable in the model, concatenated. Returns undefined when the leaf
+ * block can't be resolved (or is ambiguous), so the caller can fall back. Bounded against cycles by
+ * a visited set.
+ */
+function collectTypeScopeText(cml: string, leafType: string, visited = new Set<string>()): string | undefined {
+  if (visited.has(leafType)) return '';
+  visited.add(leafType);
+
+  const block = findTypeBlock(cml, leafType);
+  if (!block || 'ambiguous' in block) return undefined;
+
+  const headerStart = cml.lastIndexOf('\n', block.openIdx) + 1;
+  const header = cml.slice(headerStart, block.openIdx);
+  const body = cml.slice(block.openIdx, block.closeIdx + 1);
+  let text = stripCommentsAndStrings(body);
+
+  // Resolve `type Leaf : Parent {` ancestry and append parent scope(s).
+  const parentMatch = /:\s*([A-Za-z_]\w*)/.exec(header);
+  if (parentMatch) {
+    const parentText = collectTypeScopeText(cml, parentMatch[1], visited);
+    if (parentText) text += '\n' + parentText;
+  }
+  return text;
 }
