@@ -156,11 +156,13 @@ GLOBAL FLAGS
 DESCRIPTION
   Converts BRE-based Product Surcharge dynamic rules to CML eligibility constraints.
 
-  Reads ProductSurcharge records from the org (or a JSON file), parses their RuleDefinition, and generates CML
-  constraints that evaluate surcharge eligibility. Each surcharge rule becomes a named constraint that returns
-  true/false. The command outputs a .cml file with the constraint model, an \_Associations.csv file for
-  ExpressionSetConstraintObj records, and a \_RuleKeyMapping.json with the ProductSurcharge ID to RuleKey mapping for
-  updating records.
+  Reads ProductSurcharge records from the org (or a JSON file), parses their RuleDefinition, and merges the generated
+  surcharge rules into the org's existing curated ConstraintModel for the resolved CML API. Each surcharge rule is
+  nested into its leaf product type with a platform-compatible pathed rule key (matching the RuleKey the platform
+  auto-generates), so the rule actually fires for nested products instead of being silently dropped. The command
+  requires an existing CML model to merge into and outputs a .cml file with the full merged model, a header-only
+  \_Associations.csv file, and a \_RuleKeyMapping.json with the ProductSurcharge ID to RuleKey mapping for updating
+  records.
 
 EXAMPLES
   $ sf cml convert surcharge-rules --cml-api SURCHARGE_CML --target-org myOrg

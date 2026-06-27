@@ -1,3 +1,14 @@
+# [1.2.0](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.1.5...1.2.0) (2026-06-27)
+
+### Bug Fixes
+
+- **insurance:** guard relational RHS against CML injection + sanitize ProductPath grouping ([f0b8c2b](https://github.com/salesforcecli/plugin-bre-to-cml/commit/f0b8c2ba966565a0733ae084c44e30c0f280100b))
+
+### Features
+
+- **insurance:** always merge surcharge rules into the curated ConstraintModel ([fd2cc0b](https://github.com/salesforcecli/plugin-bre-to-cml/commit/fd2cc0ba57922de7481305e8c98706e88e4891c8))
+- **insurance:** emit surcharge eligibility as CML rule() statements ([6055dfe](https://github.com/salesforcecli/plugin-bre-to-cml/commit/6055dfe1bd5d5a6482daeda89941840a16e364a1))
+
 ## [1.1.5](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.1.4...1.1.5) (2026-06-20)
 
 ### Bug Fixes
