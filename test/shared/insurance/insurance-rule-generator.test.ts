@@ -230,6 +230,64 @@ describe('buildConstraintDeclaration', () => {
     };
     expect(buildConstraintDeclaration(ruleDef)).to.equal('Y == "1"');
   });
+
+  // Relational operators (<, <=, >, >=) interpolate their RHS UNQUOTED into the curated model.
+  // The insurance layer validates that value is a safe numeric literal so a hostile or malformed
+  // DynamicRuleDefinition value can neither inject CML nor emit a type-unsafe comparison.
+  it('drops a relational condition whose value is not a safe numeric literal (CML-injection guard)', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [
+            { attributeName: 'Year', operator: 'GreaterThan', dataType: 'Number', values: ['2020) || hijack('] },
+            { attributeName: 'Model', operator: 'Equals', dataType: 'String', values: ['SUV'] },
+          ],
+        },
+      ] as RuleCriteria[],
+    };
+    // The hostile relational value is dropped; the safe Equals condition survives.
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('Model == "SUV"');
+  });
+
+  it('drops a relational condition with a non-numeric value', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [{ attributeName: 'Age', operator: 'LessThan', dataType: 'Number', values: ['old'] }],
+        },
+      ] as RuleCriteria[],
+    };
+    // No safe conditions remain, so the declaration collapses to the permissive default.
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('true');
+  });
+
+  it('allows signed and decimal numeric literals through relational operators', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [
+            { attributeName: 'Temp', operator: 'GreaterThanOrEquals', dataType: 'Number', values: ['-12.5'] },
+          ],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('Temp >= -12.5');
+  });
+
+  it('still quotes and escapes Equals values (relational guard does not touch quoted operators)', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [{ attributeName: 'Model', operator: 'Equals', dataType: 'String', values: ['SU"V'] }],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('Model == "SU\\"V"');
+  });
 });
 
 describe('collectAttributes', () => {
@@ -437,6 +495,29 @@ describe('buildCmlModel', () => {
 
     expect(cmlModel.types[0].name).to.equal('01tXXX');
     expect(ruleKeyMapping[0].ruleKey).to.equal('SC__01tXXX__Rule1');
+  });
+
+  it('groups rules by the trimmed root product id (whitespace does not split a product)', () => {
+    const ruleDefs = [
+      { record: makeRecord('r1', 'Rule1', ' p1/child1'), ruleDef: makeRuleDef('Rule1', 'Rule1', ' p1/child1') },
+      { record: makeRecord('r2', 'Rule2', 'p1/child2'), ruleDef: makeRuleDef('Rule2', 'Rule2', 'p1/child2') },
+    ];
+    const productMap = new Map([['p1', 'ProductA']]);
+    const { cmlModel } = buildCmlModel(ruleDefs, productMap, 'SC', 'Test');
+    // Both rules collapse into the single ProductA type instead of ' p1' + 'p1'.
+    expect(cmlModel.types).to.have.length(1);
+    expect(cmlModel.getType('ProductA')?.constraints).to.have.length(2);
+  });
+
+  it('skips records whose ProductPath is empty', () => {
+    const ruleDefs = [
+      { record: makeRecord('r1', 'Rule1', ''), ruleDef: makeRuleDef('Rule1', 'Rule1', '') },
+      { record: makeRecord('r2', 'Rule2', 'p2'), ruleDef: makeRuleDef('Rule2', 'Rule2', 'p2') },
+    ];
+    const productMap = new Map([['p2', 'ProductB']]);
+    const { cmlModel, ruleKeyMapping } = buildCmlModel(ruleDefs, productMap, 'SC', 'Test');
+    expect(cmlModel.types.map((t) => t.name)).to.deep.equal(['ProductB']);
+    expect(ruleKeyMapping.map((m) => m.recordId)).to.deep.equal(['r2']);
   });
 
   it('generates CML output with correct type structure', () => {

@@ -58,6 +58,13 @@ sf plugins
 
 ## Commands
 
+### Insurance: merging surcharge rules into an existing model
+
+`cml convert surcharge-rules` **always** merges generated surcharge rules into an org's existing
+curated `ConstraintModel` — nesting each rule into its leaf product type with a platform-compatible
+pathed rule key — rather than building a fresh, flat model. It requires an existing CML model for the
+resolved CML API.
+
 <!-- commands -->
 
 - [`sf cml convert prod-cfg-rules`](#sf-cml-convert-prod-cfg-rules)
