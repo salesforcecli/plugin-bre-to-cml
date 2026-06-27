@@ -78,11 +78,32 @@ export function generateRuleKey(
   return parts.join('__');
 }
 
+// Operators whose RHS the shared emitter interpolates UNQUOTED (e.g. `attr > 2020`). Insurance
+// data for these is always numeric, so we require a safe numeric literal here — a malformed or
+// hostile value (e.g. `2020) || evil(`) can otherwise reach the curated model verbatim.
+const UNQUOTED_RELATIONAL_OPERATORS: ReadonlySet<string> = new Set([
+  'LessThan',
+  'LessThanOrEquals',
+  'GreaterThan',
+  'GreaterThanOrEquals',
+]);
+
+function isSafeNumericLiteral(value: string): boolean {
+  return /^-?\d+(\.\d+)?$/.test(value.trim());
+}
+
 function buildConditionExpression(condition: RuleCondition): string | null {
   if (!isKnownOperator(condition.operator)) return null;
 
   const op = condition.operator;
   if (operatorRequiresValues(op) && (!condition.values || condition.values.length === 0)) {
+    return null;
+  }
+
+  // Relational operators emit their RHS unquoted; only safe numeric literals are allowed through
+  // so the value cannot inject CML or produce a type-unsafe comparison. A failing value drops the
+  // condition (the caller filters nulls), exactly as an unknown operator or a missing value does.
+  if (UNQUOTED_RELATIONAL_OPERATORS.has(op) && !(condition.values ?? []).every(isSafeNumericLiteral)) {
     return null;
   }
 
@@ -143,7 +164,12 @@ export function buildCmlModel(
 
   const rulesByProduct = new Map<string, Array<{ record: RuleRecord; ruleDef: ParsedRuleDefinition }>>();
   for (const entry of ruleDefs) {
-    const rootProductId = entry.record.ProductPath.split('/')[0];
+    // Trim the root segment so leading/trailing whitespace can't split one product into two
+    // groups, and skip a rule with a blank ProductPath (it can't be nested under any product)
+    // instead of materializing an empty-named type. Mirrors the trimming in
+    // collectAllProductIds / collectRootProductIds.
+    const rootProductId = entry.record.ProductPath.split('/')[0]?.trim();
+    if (!rootProductId) continue;
     if (!rulesByProduct.has(rootProductId)) {
       rulesByProduct.set(rootProductId, []);
     }
