@@ -131,6 +131,22 @@ function isSafeQuotableString(value: string): boolean {
   return !/[\\\r\n]/.test(value);
 }
 
+/**
+ * Whether a product Name is safe to emit as a Type association's reference value
+ * (`$Product2ReferenceId`). That value travels two unescaped hops we do NOT own and cannot change:
+ * the naive comma-joined `_Associations.csv` column (a comma shifts every later column), and the
+ * common `cml import as-expression-set` resolver's single-quoted SOQL `WHERE Name IN ('<value>')`
+ * (a single quote breaks out of the literal; a backslash or newline corrupts the row).
+ * A Name failing this guard is dropped by the convert layer (it falls back to the ProductCode and
+ * warns) rather than silently producing a corrupt CSV / injecting SOQL. An empty / whitespace-only
+ * Name is also rejected — it can never match a real Product2 by name. Mirrors the reject-don't-escape
+ * stance of {@link isSafeQuotableString} for condition values.
+ */
+export function isSafeAssociationReferenceValue(value: string): boolean {
+  if (value.trim().length === 0) return false;
+  return !/[,'"\\\r\n]/.test(value);
+}
+
 function buildConditionExpression(condition: RuleCondition): string | null {
   if (!isKnownOperator(condition.operator)) return null;
 
@@ -264,7 +280,14 @@ export function buildCmlModel(
   // When set, eligibility is emitted as a CML `rule(decl, "<ruleType>", "<ruleKey>", "True")`
   // statement instead of a `constraint NAME = (decl, "label");`. Surcharge passes
   // 'InsuranceSurchargeRule'; underwriting leaves it undefined to keep the constraint form.
-  ruleType?: string
+  ruleType?: string,
+  // Maps a root product id to its Product2 Name. The common `cml import as-expression-set` resolves
+  // each Type association's Product2 by NAME (`WHERE Name IN (<$Product2ReferenceId>)`), so the Name
+  // — not the ProductCode — must land in the association reference value or the importer silently
+  // drops the binding. Optional + last so the legacy (code-as-reference) call sites stay valid; the
+  // convert layer supplies only Names that passed isSafeAssociationReferenceValue, hence the
+  // unconditional ProductCode fallback below for any product missing a safe Name.
+  productIdToName?: Map<string, string>
 ): { cmlModel: CmlModel; ruleKeyMapping: RuleKeyEntry[] } {
   const cmlModel = new CmlModel();
 
@@ -314,8 +337,12 @@ export function buildCmlModel(
     }
 
     cmlModel.addType(productType);
+    // tag/type name stay ProductCode-derived (the CML doc keys off them); only the reference value
+    // — what the common importer resolves the Product2 by — becomes the Name. Fall back to the
+    // ProductCode when no safe Name was supplied (preserves legacy behavior for code-only callers).
+    const referenceValue = productIdToName?.get(rootProductId) ?? productCode;
     cmlModel.addAssociation(
-      new Association(null, typeName, ASSOCIATION_TYPES.TYPE, rootProductId, 'Product2', productCode)
+      new Association(null, typeName, ASSOCIATION_TYPES.TYPE, rootProductId, 'Product2', referenceValue)
     );
   }
 

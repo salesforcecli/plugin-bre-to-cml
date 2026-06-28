@@ -22,6 +22,7 @@ import {
   collectAttributes,
   decodeHtmlEntities,
   generateRuleKey,
+  isSafeAssociationReferenceValue,
   sanitizeName,
 } from '../../../src/shared/insurance/insurance-rule-generator.js';
 import { ParsedRuleDefinition, RuleCriteria, RuleRecord } from '../../../src/shared/insurance/models.js';
@@ -540,6 +541,43 @@ describe('buildCmlModel', () => {
     expect(cmlModel.associations[0].referenceObjectId).to.equal('p1');
   });
 
+  // The common `cml import as-expression-set` resolves a Type association's Product2 by NAME
+  // (`SELECT Id, Name FROM Product2 WHERE Name IN (<$Product2ReferenceId>)`), then keys the lookup
+  // off that same value. convert must therefore emit the product Name — not its ProductCode — into
+  // the association reference value, or the importer finds no match and silently drops the
+  // association (the Type block imports with zero Product2 bindings and never evaluates).
+  it('emits the product Name (not the ProductCode) as the association reference value when a name map is provided', () => {
+    const ruleDefs = [{ record: makeRecord('r1', 'Rule1', 'p1'), ruleDef: makeRuleDef('Rule1', 'Rule1', 'p1') }];
+    const { cmlModel } = buildCmlModel(
+      ruleDefs,
+      new Map([['p1', 'autoSilver']]),
+      'SC',
+      'Test',
+      undefined,
+      new Map([['p1', 'Auto Silver']])
+    );
+
+    expect(cmlModel.associations).to.have.length(1);
+    // The tag / CML type name stay ProductCode-derived (the CML doc keys off them)...
+    expect(cmlModel.associations[0].tag).to.equal('autoSilver');
+    // ...but $Product2ReferenceId — what the importer resolves by — must be the product Name.
+    expect(cmlModel.associations[0].referenceObjectReferenceValue).to.equal('Auto Silver');
+  });
+
+  it('falls back to the ProductCode reference value when the name map has no entry for the product', () => {
+    const ruleDefs = [{ record: makeRecord('r1', 'Rule1', 'p1'), ruleDef: makeRuleDef('Rule1', 'Rule1', 'p1') }];
+    const { cmlModel } = buildCmlModel(ruleDefs, new Map([['p1', 'autoSilver']]), 'SC', 'Test', undefined, new Map());
+
+    expect(cmlModel.associations[0].referenceObjectReferenceValue).to.equal('autoSilver');
+  });
+
+  it('preserves the legacy ProductCode reference value when no name map is passed (backward compatible)', () => {
+    const ruleDefs = [{ record: makeRecord('r1', 'Rule1', 'p1'), ruleDef: makeRuleDef('Rule1', 'Rule1', 'p1') }];
+    const { cmlModel } = buildCmlModel(ruleDefs, new Map([['p1', 'autoSilver']]), 'SC', 'Test');
+
+    expect(cmlModel.associations[0].referenceObjectReferenceValue).to.equal('autoSilver');
+  });
+
   it('generates surcharge ruleKey with 3 segments', () => {
     const ruleDefs = [{ record: makeRecord('r1', 'MyRule', 'p1'), ruleDef: makeRuleDef('MyRule', 'MyRule', 'p1') }];
     const productMap = new Map([['p1', 'autoSilver']]);
@@ -789,6 +827,34 @@ describe('discoverCmlApiByProducts', () => {
     const conn = mockConnection({});
     const result = await discoverCmlApiByProducts(conn, new Set());
     expect(result).to.be.undefined;
+  });
+});
+
+describe('isSafeAssociationReferenceValue', () => {
+  it('accepts ordinary product names, including spaces', () => {
+    expect(isSafeAssociationReferenceValue('Auto Silver')).to.equal(true);
+    expect(isSafeAssociationReferenceValue('autoSilver')).to.equal(true);
+    expect(isSafeAssociationReferenceValue('Health Plan 2026')).to.equal(true);
+  });
+
+  // The reference value is written into a naive comma-joined CSV column AND, downstream, into the
+  // importer's single-quoted SOQL `WHERE Name IN ('<value>')`. A comma shifts the CSV column; a
+  // single/double quote, backslash, or newline breaks out of the CSV cell or the SOQL literal.
+  it('rejects a comma (would shift the CSV column)', () => {
+    expect(isSafeAssociationReferenceValue('Auto, Silver')).to.equal(false);
+  });
+
+  it('rejects quotes, backslash, and newlines (CSV / SOQL break-out)', () => {
+    expect(isSafeAssociationReferenceValue("O'Brien")).to.equal(false);
+    expect(isSafeAssociationReferenceValue('a"b')).to.equal(false);
+    expect(isSafeAssociationReferenceValue('a\\b')).to.equal(false);
+    expect(isSafeAssociationReferenceValue('a\nb')).to.equal(false);
+    expect(isSafeAssociationReferenceValue('a\rb')).to.equal(false);
+  });
+
+  it('rejects an empty / whitespace-only value', () => {
+    expect(isSafeAssociationReferenceValue('')).to.equal(false);
+    expect(isSafeAssociationReferenceValue('   ')).to.equal(false);
   });
 });
 

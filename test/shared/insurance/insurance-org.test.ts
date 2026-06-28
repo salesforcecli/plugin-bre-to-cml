@@ -101,6 +101,34 @@ describe('insurance-org fetchProductCodes', () => {
     expect(map.size).to.equal(0);
     expect(fellBack).to.deep.equal([]);
   });
+
+  it('populates the optional collectNames map with Id -> Name from the same query', async () => {
+    const conn = mockConnection({
+      query: () => ({
+        records: [
+          { Id: ID_A, ProductCode: 'autoSilver', Name: 'Auto Silver' },
+          { Id: ID_B, ProductCode: null, Name: 'Health Plan' },
+        ],
+      }),
+    });
+    const names = new Map<string, string>();
+    const map = await fetchProductCodes(conn, new Set([ID_A, ID_B]), { collectNames: names });
+
+    // The code map is unchanged by the additive option...
+    expect(map.get(ID_A)).to.equal('autoSilver');
+    // ...and Name is captured independently of the ProductCode fallback (ID_B has a null code but a Name).
+    expect(names.get(ID_A)).to.equal('Auto Silver');
+    expect(names.get(ID_B)).to.equal('Health Plan');
+  });
+
+  it('omits a product from collectNames when its Name is null', async () => {
+    const conn = mockConnection({
+      query: () => ({ records: [{ Id: ID_A, ProductCode: 'autoSilver', Name: null }] }),
+    });
+    const names = new Map<string, string>();
+    await fetchProductCodes(conn, new Set([ID_A]), { collectNames: names });
+    expect(names.has(ID_A)).to.equal(false);
+  });
 });
 
 describe('insurance-org quoteSoqlIdList', () => {

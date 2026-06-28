@@ -199,6 +199,9 @@ describe('mergeSurchargeRules', () => {
     recordName: ruleKey,
     apiName: ruleKey,
     ruleKey,
+    // Default to a non-empty pathProductCodes so the empty-path guard does not fire in existing
+    // tests. A test that exercises Fix #3 overrides this to [] explicitly.
+    pathProductCodes: ['autoSilver'],
     typeName,
     statement: buildSurchargeRuleStatement(declaration, ruleKey),
     referencedAttributes: [],
@@ -237,6 +240,34 @@ describe('mergeSurchargeRules', () => {
     expect(placements).to.have.length(0);
     expect(skips).to.have.length(1);
     expect(skips[0].reason).to.match(/no CML type tag/);
+  });
+
+  // ---- Fix #3: an empty / whitespace-only ProductPath surcharge must be skipped, NEVER reach the
+  // destructive replace path — even if its degenerate `SC__<apiName>` key coincidentally appears in a
+  // curated line.
+  it('Fix #3: skips a surcharge with empty pathProductCodes and never replaces a coincidentally-keyed curated line', () => {
+    // Curated model carries a single-segment-keyed rule that, with an empty ProductPath, the rule key
+    // would degenerate to: `SC__FEE`. A naive replace would clobber this curated line.
+    const model = `
+type Collision {
+    int Limit = [1000];
+    rule(true, "InsuranceSurchargeRule", "SC__FEE", "True");
+}
+`;
+    const r = {
+      ...rule('SC__FEE', 'Collision', 'Limit > 9999'),
+      pathProductCodes: [], // <-- the malformed input under test
+    };
+    const { mergedCml, placements, skips } = mergeSurchargeRules(model, [r]);
+
+    // The surcharge is reported as a skip; no placement was emitted.
+    expect(placements).to.have.length(0);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.match(/empty ProductPath|non-pathed/i);
+
+    // CRITICAL: the curated line was NOT clobbered — its original `rule(true, ...)` body survives
+    // verbatim, proving the empty-path guard runs BEFORE findSurchargeStatement.
+    expect(mergedCml).to.include('rule(true, "InsuranceSurchargeRule", "SC__FEE", "True");');
   });
 
   it('skips a rule whose resolved type block is absent from the model', () => {
@@ -437,6 +468,39 @@ type Collision {
     expect(ruleIdx).to.be.greaterThan(limitIdx);
   });
 
+  // ---- Fix #1: findTypeBlock must run its anchor regex against the comment-blanked SCAN view, so a
+  // commented-out `type X { ... }` header is not double-counted as a real second declaration that
+  // would otherwise trigger an ambiguity skip.
+  it('Fix #1: a block-commented duplicate type header does not make the real same-named type ambiguous', () => {
+    const model = `
+/* historical:
+   type Collision {
+       int OldLimit = [500];
+   }
+*/
+
+type Collision {
+    int Limit = [1000];
+}
+`;
+    const r = rule('SC__autoSilver__auto__collision__FEE', 'Collision');
+    const { mergedCml, placements, skips } = mergeSurchargeRules(model, [r]);
+
+    // The block-commented header is ignored: the real Collision block resolves unambiguously and the
+    // rule is inserted into it. Before Fix #1 the regex on raw cml matched twice → ambiguity skip.
+    expect(skips).to.have.length(0);
+    expect(placements).to.have.length(1);
+    expect(placements[0].status).to.equal('inserted');
+
+    // The historical comment survives verbatim.
+    expect(mergedCml).to.include('/* historical:');
+    expect(mergedCml).to.include('int OldLimit = [500];');
+    // The new rule landed inside the real Collision block (after `int Limit`).
+    const limitIdx = mergedCml.indexOf('int Limit = [1000];');
+    const newIdx = mergedCml.indexOf(r.ruleKey);
+    expect(newIdx).to.be.greaterThan(limitIdx);
+  });
+
   // ---- M1 + M5: duplicate leaf type name. Prefer an unambiguous resolution; if ambiguous, skip.
   it('M5: skips with a clear reason when more than one block shares the leaf type name', () => {
     const model = `
@@ -591,6 +655,55 @@ type Collision {
     // The Comprehensive comment is untouched; the replace happened in the Collision block.
     expect(mergedCml).to.include('referenced in a comment here');
     expect(mergedCml).to.include('rule(Limit > 1000, "InsuranceSurchargeRule"');
+  });
+
+  // ---- Fix #2: replace must splice ONLY the precise matched statement span (`rule(...);`), not the
+  // entire physical line, so a curated line carrying TWO `rule(...);` statements keeps the unrelated
+  // statement intact.
+  it('Fix #2: replacing one rule on a line with two `rule(...);` statements leaves the other intact', () => {
+    const otherKey = 'SC__autoSilver__auto__collision__OTHER';
+    const targetKey = 'SC__autoSilver__auto__collision__TARGET';
+    const model = `
+type Collision {
+    int Limit = [1000];
+    rule(true, "InsuranceSurchargeRule", "${otherKey}", "True"); rule(true, "InsuranceSurchargeRule", "${targetKey}", "True");
+}
+`;
+    const r = rule(targetKey, 'Collision', 'Limit > 9999');
+    const { mergedCml, placements, skips } = mergeSurchargeRules(model, [r]);
+
+    expect(skips).to.have.length(0);
+    expect(placements).to.have.length(1);
+    expect(placements[0].status).to.equal('replaced');
+
+    // The OTHER statement on the same line is preserved verbatim.
+    expect(mergedCml).to.include(`rule(true, "InsuranceSurchargeRule", "${otherKey}", "True");`);
+    // The target statement now carries the new declaration.
+    expect(mergedCml).to.include(`rule(Limit > 9999, "InsuranceSurchargeRule", "${targetKey}", "True");`);
+    // The OTHER key still appears exactly once (not duplicated).
+    expect(mergedCml.split(otherKey)).to.have.length(2);
+    // The target key still appears exactly once (replaced, not duplicated).
+    expect(mergedCml.split(targetKey)).to.have.length(2);
+    // Brace balance preserved.
+    expect((mergedCml.match(/{/g) ?? []).length).to.equal((mergedCml.match(/}/g) ?? []).length);
+  });
+
+  // ---- Fix #4: the INSERT path must splice in the model's dominant line ending (CRLF on a
+  // CRLF-curated model), not a hardcoded `\n` that would mix bare LFs into a CRLF file.
+  it('Fix #4: inserting into a CRLF model uses CRLF for the splice -- output stays byte-clean', () => {
+    const crlfModel = ['', 'type Collision {', '    int Limit = [1000];', '}', ''].join('\r\n');
+    const r = rule('SC__autoSilver__auto__collision__NEW', 'Collision');
+    const { mergedCml, placements, skips } = mergeSurchargeRules(crlfModel, [r]);
+
+    expect(skips).to.have.length(0);
+    expect(placements).to.have.length(1);
+    expect(placements[0].status).to.equal('inserted');
+
+    // No bare LF was introduced anywhere -- every LF in the output is preceded by CR.
+    const bareLf = /(^|[^\r])\n/.exec(mergedCml);
+    expect(bareLf, 'output should not contain a bare LF').to.equal(null);
+    // The newly inserted statement is present.
+    expect(mergedCml).to.include(r.statement);
   });
 
   // ---- M4/L2: CRLF preservation on a replaced line.

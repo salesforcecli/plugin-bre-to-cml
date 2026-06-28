@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 import { Flags } from '@salesforce/sf-plugins-core';
-import { Connection, Messages } from '@salesforce/core';
-import { ParsedRuleDefinition, RuleKeyEntry, RuleRecord } from '../../../shared/insurance/models.js';
+import { Messages } from '@salesforce/core';
+import { ParsedRuleDefinition, RecordUpdate, RuleKeyEntry, RuleRecord } from '../../../shared/insurance/models.js';
 import {
   InsuranceRuleConvertCommand,
   InsuranceRuleConvertResult,
@@ -30,6 +30,9 @@ type UnderwritingRuleRecord = RuleRecord & {
   DynamicRuleDefinition: string | null;
   RuleKey: string | null;
   UnderwritingRuleGroupId: string | null;
+  // Nested via the UnderwritingRuleGroup relationship so we can stamp the group's Name into the
+  // record-update file as an apply-time identity guard (we never write to a group blind by Id).
+  UnderwritingRuleGroup: { Name: string | null } | null;
 };
 
 export type CmlConvertUnderwritingRulesResult = InsuranceRuleConvertResult;
@@ -56,7 +59,8 @@ export default class CmlConvertUnderwritingRules extends InsuranceRuleConvertCom
   // DynamicRuleDefinition is a non-filterable (long text) field, so it can't appear in the
   // WHERE clause; records with a null DynamicRuleDefinition are skipped during parsing instead.
   protected readonly soql =
-    'SELECT Id, Name, ApiName, DynamicRuleDefinition, ProductPath, RuleKey, UnderwritingRuleGroupId FROM UnderwritingRule WHERE RuleKey = null';
+    'SELECT Id, Name, ApiName, DynamicRuleDefinition, ProductPath, RuleKey, UnderwritingRuleGroupId, UnderwritingRuleGroup.Name FROM UnderwritingRule WHERE RuleKey = null';
+  protected readonly recordUpdateKind = 'underwriting-update' as const;
 
   public async run(): Promise<CmlConvertUnderwritingRulesResult> {
     const { flags } = await this.parse(CmlConvertUnderwritingRules);
@@ -96,49 +100,43 @@ export default class CmlConvertUnderwritingRules extends InsuranceRuleConvertCom
     }
   }
 
-  protected async updateOrgRecords(
-    records: UnderwritingRuleRecord[],
-    ruleKeyMapping: RuleKeyEntry[],
-    conn: Connection
-  ): Promise<void> {
-    const groupIds = new Set<string>();
+  /**
+   * Pure transform — the file-only successor to the old live updateOrgRecords. Produces the exact
+   * org-record changes convert previously applied: (1) each UnderwritingRuleGroup flipped to
+   * RuleEngineType=ConstraintEngine, then (2) each BRE UnderwritingRule's DynamicRuleDefinition blob
+   * rewritten with the converted ruleKey (and the nested underwritingRuleGroup.ruleEngineType, when
+   * present). Groups are emitted first so a faithful apply mirrors the original ordering. The blob
+   * rewrite uses a RAW JSON.parse of the org's stored value (NOT decodeHtmlEntities) — byte-for-byte
+   * the same mutation the live path performed.
+   */
+  protected buildRecordUpdates(records: UnderwritingRuleRecord[], ruleKeyMapping: RuleKeyEntry[]): RecordUpdate[] {
+    const updates: RecordUpdate[] = [];
+
+    // (1) UnderwritingRuleGroup flips — union of every referenced group, name resolved from the
+    // queried relationship so the apply-time identity guard has something to cross-check.
+    const groupNames = new Map<string, string | null>();
     for (const record of records) {
       if (record.UnderwritingRuleGroupId) {
-        groupIds.add(record.UnderwritingRuleGroupId);
+        groupNames.set(record.UnderwritingRuleGroupId, record.UnderwritingRuleGroup?.Name ?? null);
       }
     }
-
-    if (groupIds.size > 0) {
-      this.log(`\nUpdating ${groupIds.size} UnderwritingRuleGroup records with RuleEngineType=ConstraintEngine...`);
-      const groupUpdates = Array.from(groupIds).map((id) => ({
-        Id: id,
-        RuleEngineType: 'ConstraintEngine',
-      }));
-      const groupResults = await conn.sobject('UnderwritingRuleGroup').update(groupUpdates);
-      const groupList = Array.isArray(groupResults) ? groupResults : [groupResults];
-      const groupSuccesses = groupList.filter((r) => r.success);
-      const groupFailures = groupList.filter((r) => !r.success);
-      this.log(`  Updated ${groupSuccesses.length} group records`);
-      for (const f of groupFailures) {
-        this.warn(`  Failed to update group ${f.id ?? 'unknown'}: ${JSON.stringify(f.errors)}`);
+    for (const [groupId, groupName] of groupNames) {
+      if (!groupName) {
+        // Without a Name the apply can't run its identity guard; skip rather than write blind.
+        this.warn(`Skipping UnderwritingRuleGroup ${groupId}: no Name resolved (cannot verify identity on apply)`);
+        continue;
       }
+      updates.push({
+        sobject: 'UnderwritingRuleGroup',
+        id: groupId,
+        name: groupName,
+        fields: [{ field: 'RuleEngineType', value: 'ConstraintEngine' }],
+      });
     }
 
+    // (2) UnderwritingRule DynamicRuleDefinition rewrites — same subset and same mutation as live.
     const ruleKeyMap = new Map(ruleKeyMapping.map((m) => [m.recordId, m.ruleKey]));
     const breRecords = records.filter((r) => !r.RuleKey && r.DynamicRuleDefinition);
-
-    if (breRecords.length === 0) {
-      this.log('\nNo BRE rules to update with RuleKey.');
-      return;
-    }
-
-    this.log(
-      `\nUpdating ${breRecords.length} UnderwritingRule DynamicRuleDefinition with ruleKey and ruleEngineType...`
-    );
-    let successCount = 0;
-    let failCount = 0;
-
-    const updates: Array<{ Id: string; DynamicRuleDefinition: string }> = [];
     for (const record of breRecords) {
       const ruleKey = ruleKeyMap.get(record.Id);
       if (!ruleKey || !record.DynamicRuleDefinition) continue;
@@ -149,25 +147,18 @@ export default class CmlConvertUnderwritingRules extends InsuranceRuleConvertCom
         if (defn.underwritingRuleGroup && typeof defn.underwritingRuleGroup === 'object') {
           (defn.underwritingRuleGroup as Record<string, unknown>).ruleEngineType = 'ConstraintEngine';
         }
-        updates.push({ Id: record.Id, DynamicRuleDefinition: JSON.stringify(defn) });
+        updates.push({
+          sobject: 'UnderwritingRule',
+          id: record.Id,
+          name: record.Name,
+          apiName: record.ApiName ?? undefined,
+          fields: [{ field: 'DynamicRuleDefinition', value: JSON.stringify(defn) }],
+        });
       } catch {
         this.warn(`  Failed to parse DynamicRuleDefinition for ${record.Name}`);
-        failCount++;
       }
     }
 
-    if (updates.length > 0) {
-      const results = await conn.sobject('UnderwritingRule').update(updates);
-      for (const r of Array.isArray(results) ? results : [results]) {
-        if (r.success) {
-          successCount++;
-        } else {
-          failCount++;
-          this.warn(`  Failed to update ${r.id ?? 'unknown'}: ${JSON.stringify(r.errors)}`);
-        }
-      }
-    }
-
-    this.log(`  Updated ${successCount} rule records, ${failCount} failed`);
+    return updates;
   }
 }

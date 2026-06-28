@@ -132,6 +132,24 @@ describe('cml convert surcharge-rules', () => {
     return result;
   };
 
+  const runCommandNoCmlApi = async (): Promise<CmlConvertSurchargeRulesResult> => {
+    const result: CmlConvertSurchargeRulesResult = await CmlConvertSurchargeRules.run([
+      '--target-org',
+      testOrg.username,
+      '--surcharge-file',
+      surchargeFile,
+      '--workspace-dir',
+      workspaceDir,
+    ]);
+    return result;
+  };
+
+  const logOutput = (): string =>
+    sfCommandStubs.log
+      .getCalls()
+      .flatMap((c) => c.args)
+      .join('\n');
+
   const warnOutput = (): string =>
     sfCommandStubs.warn
       .getCalls()
@@ -266,6 +284,225 @@ describe('cml convert surcharge-rules', () => {
     const mergedCml = await fs.readFile(result.cmlFile, 'utf8');
     expect(mergedCml).to.include('SC__autoSilver__collision__GhostAttrFee');
     expect(mergedCml).to.not.include('OrphanFee');
+  });
+
+  // ---- Fix #15: every emitted output path must use the OS-native separator (path.join), not
+  // a hardcoded `${workspaceDir}/<name>` template literal. The hardcoded form returns forward
+  // slashes on Windows even when `workspaceDir` is `C:\Users\...`, which yields paths like
+  // `C:\Users\foo/Auto_Silver.cml` and breaks any caller that compares with path.join(). This
+  // test verifies the four output paths (cml, associations, mapping, record-update) all match
+  // path.join(workspaceDir, ...) exactly and contain no mixed separators within their leaf names.
+  it('Fix #15: emits output paths via path.join so the OS-native separator is used', async () => {
+    stubOrgConnection(
+      mockConnection({
+        existingCml: GOLD_CML,
+        productCodes: [
+          { Id: '01tROOT00000000001', ProductCode: 'autoSilver', Name: 'Auto Silver' },
+          { Id: '01tCOLL00000000001', ProductCode: 'collision', Name: 'Collision' },
+        ],
+        productTypeTags: [{ ReferenceObjectId: '01tCOLL00000000001', ConstraintModelTag: 'Collision' }],
+      })
+    );
+    await writeSurchargeFile([
+      {
+        Id: 'a0p000000000001',
+        Name: 'Collision Fee',
+        ProductPath: '01tROOT00000000001/01tCOLL00000000001',
+        RuleDefinition: ruleDefinition('CollisionFee', []),
+      },
+    ]);
+
+    const result = await runCommand();
+
+    // Every emitted path equals path.join(workspaceDir, leaf) — i.e. uses the OS-native separator.
+    // On Linux/macOS path.sep is '/', on Windows '\'. The test is meaningful on every platform
+    // because a hardcoded '${workspaceDir}/<name>' template literal would only ever emit '/',
+    // which on Windows differs from path.join and would fail this assertion.
+    expect(result.cmlFile).to.equal(path.join(workspaceDir, `${CML_API}.cml`));
+    expect(result.associationsFile).to.equal(path.join(workspaceDir, `${CML_API}_Associations.csv`));
+    // recordUpdateFile is typed as optional on the result envelope (it's absent for build-mode
+    // failures that short-circuit before the manifest is written), but the merge path always
+    // produces it — assert presence then equality.
+    expect(result.recordUpdateFile, 'merge path should emit a record-update file').to.be.a('string');
+    expect(result.recordUpdateFile).to.equal(path.join(workspaceDir, `${CML_API}_SurchargeUpdate.json`));
+
+    // The leaf name of each path must be plain (no embedded separators). Defends against a future
+    // regression where someone reintroduces `${workspaceDir}/${leaf}` and `leaf` itself accidentally
+    // contains a slash — path.basename should be a clean filename, not a sub-path.
+    expect(path.basename(result.cmlFile)).to.equal(`${CML_API}.cml`);
+    expect(path.basename(result.recordUpdateFile as string)).to.equal(`${CML_API}_SurchargeUpdate.json`);
+  });
+
+  // ---- Fix #11: the convert layer routes every ProductPath parse through `splitProductPath` —
+  // a single helper with `trim + drop-empty` semantics. A path with leading slashes, blank
+  // segments, and surrounding whitespace must NOT produce ghost product ids (which would surface
+  // as bogus "Product ... was not returned by Product2 query" warnings for the empty string).
+  it('Fix #11: messy ProductPaths (leading slash, blanks, whitespace) do not generate ghost product ids', async () => {
+    stubOrgConnection(
+      mockConnection({
+        existingCml: GOLD_CML,
+        productCodes: [
+          { Id: '01tROOT00000000001', ProductCode: 'autoSilver', Name: 'Auto Silver' },
+          { Id: '01tCOLL00000000001', ProductCode: 'collision', Name: 'Collision' },
+        ],
+        productTypeTags: [{ ReferenceObjectId: '01tCOLL00000000001', ConstraintModelTag: 'Collision' }],
+      })
+    );
+    await writeSurchargeFile([
+      {
+        Id: 'a0p000000000001',
+        Name: 'Collision Fee',
+        // Leading slash, surrounding whitespace, and a blank middle segment — these would yield
+        // empty-string ids if the convert layer parsed the path with raw `.split('/')`.
+        ProductPath: '/  01tROOT00000000001  // 01tCOLL00000000001 /',
+        RuleDefinition: ruleDefinition('CollisionFee', []),
+      },
+    ]);
+
+    await runCommand();
+
+    const warns = warnOutput();
+    // No warning naming the empty string as a product id.
+    expect(warns).to.not.match(/Product\s+was not returned/);
+    expect(warns).to.not.match(/Product\s+has no ProductCode/);
+  });
+
+  // ---- Fix #9: when any rule is skipped the merge logs a single high-signal summary line that
+  // buckets the skip reasons. An operator scanning the output for "what got dropped" should not
+  // have to grep through per-rule warnings to count reasons.
+  it('Fix #9: logs a final skip-breakdown summary when at least one rule is skipped', async () => {
+    stubOrgConnection(
+      mockConnection({
+        existingCml: GOLD_CML,
+        productCodes: [
+          { Id: '01tROOT00000000001', ProductCode: 'autoSilver', Name: 'Auto Silver' },
+          { Id: '01tORPH00000000001', ProductCode: 'orphan', Name: 'Orphan' },
+        ],
+        // No tag for the leaf => no-type-tag skip.
+        productTypeTags: [],
+      })
+    );
+    await writeSurchargeFile([
+      {
+        Id: 'a0p000000000001',
+        Name: 'Orphan Fee',
+        ProductPath: '01tROOT00000000001/01tORPH00000000001',
+        RuleDefinition: ruleDefinition('OrphanFee', []),
+      },
+    ]);
+
+    await runCommand();
+
+    const logs = logOutput();
+    expect(logs).to.match(/Skip breakdown:/);
+    expect(logs).to.match(/no-type-tag/);
+  });
+
+  // ---- Fix #8: a product id that the Product2 query did NOT return (deleted / not visible /
+  // filtered) used to silently fall back to the raw Id for that path segment, yielding a rule
+  // key that won't match the platform-generated RuleKey. Surface it as a warning, distinct from
+  // the existing null-ProductCode fallback warning.
+  it('Fix #8: warns for a product id that is absent from the Product2 query result map', async () => {
+    stubOrgConnection(
+      mockConnection({
+        existingCml: GOLD_CML,
+        // Only the root resolves; the leaf id is referenced by ProductPath but missing from the
+        // Product2 fixture, so it never reaches productIdToCode.
+        productCodes: [{ Id: '01tROOT00000000001', ProductCode: 'autoSilver', Name: 'Auto Silver' }],
+        productTypeTags: [{ ReferenceObjectId: '01tCOLL00000000001', ConstraintModelTag: 'Collision' }],
+      })
+    );
+    await writeSurchargeFile([
+      {
+        Id: 'a0p000000000001',
+        Name: 'Collision Fee',
+        ProductPath: '01tROOT00000000001/01tCOLL00000000001',
+        RuleDefinition: ruleDefinition('CollisionFee', []),
+      },
+    ]);
+
+    await runCommand();
+
+    const warns = warnOutput();
+    // The Fix #8 warning specifically calls out the missing leaf id.
+    expect(warns).to.match(/01tCOLL00000000001 was not returned by Product2 query/);
+  });
+
+  // ---- Fix #6: the --surcharge-file path JSON-parses operator-supplied input. A non-array root
+  // or a record missing Id / Name / ProductPath used to propagate `undefined`s downstream as
+  // confusing errors / malformed output; the loader now refuses such input with a clear message.
+  it('Fix #6: rejects --surcharge-file whose top-level JSON is not an array', async () => {
+    stubOrgConnection({ existingCml: GOLD_CML });
+    // Top-level object instead of an array of records.
+    await fs.writeFile(surchargeFile, JSON.stringify({ records: [] }), 'utf8');
+
+    let error: Error | undefined;
+    try {
+      await runCommand();
+    } catch (e) {
+      error = e as Error;
+    }
+    expect(error, 'command should reject a non-array root').to.be.an('error');
+    expect(error?.message).to.match(/expected a top-level JSON array/);
+  });
+
+  it('Fix #6: rejects --surcharge-file records that are missing required string fields', async () => {
+    stubOrgConnection({ existingCml: GOLD_CML });
+    // Valid array shape but Id is the wrong type.
+    await fs.writeFile(
+      surchargeFile,
+      JSON.stringify([{ Id: 12345, Name: 'X', ProductPath: '01tROOT00000000001', RuleDefinition: null }]),
+      'utf8'
+    );
+
+    let error: Error | undefined;
+    try {
+      await runCommand();
+    } catch (e) {
+      error = e as Error;
+    }
+    expect(error, 'command should reject a non-string Id').to.be.an('error');
+    expect(error?.message).to.match(/missing or non-string Id/);
+  });
+
+  // ---- Fix #5: when --cml-api is omitted, the auto-discovery fallback generates a CML API name
+  // from the joined ProductCodes. A ProductCode that contains slashes / spaces / quotes would break
+  // the on-disk path or SOQL identifier semantics downstream; the fallback must sanitize each
+  // segment to `[A-Za-z0-9_]` before joining (mirroring sanitizeName).
+  it('Fix #5: sanitizes ProductCode segments in the generated fallback CML API name', async () => {
+    // No existing ConstraintModel and no discovered API — the command will reach the generated-name
+    // fallback path inside discoverCmlApi, log it, then later error because no model exists. We
+    // assert on the LOGGED fallback name, which is what would otherwise become the file name.
+    stubOrgConnection({
+      existingCml: undefined,
+      productCodes: [
+        // A ProductCode with characters that would corrupt the generated file path / SOQL identifier
+        // if pasted in verbatim — Fix #5 sanitizes them to underscores before joining.
+        { Id: '01tROOT00000000001', ProductCode: 'auto/silver "v1"', Name: null },
+      ],
+      productTypeTags: [],
+    });
+    await writeSurchargeFile([
+      {
+        Id: 'a0p000000000001',
+        Name: 'Collision Fee',
+        ProductPath: '01tROOT00000000001',
+        RuleDefinition: ruleDefinition('CollisionFee', []),
+      },
+    ]);
+
+    try {
+      await runCommandNoCmlApi();
+    } catch {
+      // The command errors after the fallback name is logged (no curated model exists). The error
+      // itself isn't what this test cares about — we assert on the fallback's log line.
+    }
+
+    const logs = logOutput();
+    // The unsafe characters from the ProductCode never reach the generated name.
+    expect(logs).to.match(/Generated new CML API name: SC_auto_silver__v1_/);
+    expect(logs).to.not.match(/Generated new CML API name:.*\//);
+    expect(logs).to.not.match(/Generated new CML API name:.*"/);
   });
 
   // ---- M8: the insurance-layer merge-CSV header MUST stay identical to the common util's header.

@@ -47,6 +47,13 @@ export type PathedSurchargeRule = {
   apiName: string;
   /** Full pathed key: SC__<code-of-each-path-segment>__<apiName>. */
   ruleKey: string;
+  /**
+   * Ordered ProductCodes for every ProductPath segment used to build {@link ruleKey}. Empty when the
+   * source ProductPath was blank/whitespace-only — the merge guards on this to refuse the replace
+   * path for malformed input (an empty-path rule degenerates to `SC__<apiName>` which could
+   * coincidentally match a curated short-keyed line).
+   */
+  pathProductCodes: string[];
   /** Leaf CML type name (ConstraintModelTag of the LAST ProductPath segment). */
   typeName: string | undefined;
   /** The generated `rule(<decl>, "InsuranceSurchargeRule", "<ruleKey>", "True");` statement. */
@@ -150,6 +157,21 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/**
+ * [Fix #4] Detects the dominant line ending of a CML text by counting CRLF vs bare-LF occurrences.
+ * Returns `\r\n` when at least one CRLF appears AND CRLFs are at least as common as bare LFs (mixed
+ * CRLF-majority files still get CRLF; pure-LF and empty files get `\n`). Used by the INSERT path so
+ * a CRLF-curated model stays byte-clean after splicing. The L2 replace path preserves the line
+ * ending of the REPLACED span directly, so this only matters for new inserts.
+ */
+function detectDominantLineEnding(cml: string): string {
+  const crlfCount = (cml.match(/\r\n/g) ?? []).length;
+  // Subtract CRLFs from the total LF count to get the BARE-LF count (an LF preceded by CR is part of a CRLF).
+  const totalLf = (cml.match(/\n/g) ?? []).length;
+  const bareLfCount = totalLf - crlfCount;
+  return crlfCount > 0 && crlfCount >= bareLfCount ? '\r\n' : '\n';
+}
+
 type TypeBlock = { openIdx: number; closeIdx: number };
 
 /**
@@ -217,12 +239,24 @@ function matchClosingBrace(cml: string, openIdx: number): number | undefined {
  * caller is told via `undefined` + a distinct ambiguity reason. A single unique match resolves
  * normally.
  */
-function findTypeBlock(cml: string, typeName: string): TypeBlock | { ambiguous: true } | undefined {
+function findTypeBlock(
+  cml: string,
+  typeName: string,
+  scan: string = blankComments(cml)
+): TypeBlock | { ambiguous: true } | undefined {
+  // [Fix #1] Run the anchor regex against the comment-blanked, length-preserving SCAN view rather
+  // than the raw cml. matchClosingBrace below is comment-aware; if the anchor regex ran on raw cml a
+  // commented-out `type Collision { ... }` header could be picked up as a real declaration (and then
+  // matchClosingBrace, which ignores comment braces, would either return the WRONG closeIdx or
+  // confuse a real same-name type for an "ambiguous" duplicate). The scan view zeroes the comment
+  // characters to spaces while preserving offsets, so the indices returned here still slice the
+  // real cml correctly. The default-argument pattern lets callers reuse a single hoisted scan
+  // across multiple lookups (Fix #1 hoisting site).
   const re = new RegExp(`(^|\\n)[ \\t]*type[ \\t]+${escapeRegExp(typeName)}\\b[^{;]*\\{`, 'g');
   const matches: number[] = [];
   let m: RegExpExecArray | null;
-  while ((m = re.exec(cml)) !== null) {
-    const openIdx = cml.indexOf('{', m.index);
+  while ((m = re.exec(scan)) !== null) {
+    const openIdx = scan.indexOf('{', m.index);
     if (openIdx >= 0) matches.push(openIdx);
   }
   if (matches.length === 0) return undefined;
@@ -271,6 +305,7 @@ export function buildPathedSurchargeRules(
       recordName: record.Name,
       apiName,
       ruleKey,
+      pathProductCodes: pathCodes,
       typeName,
       statement,
       referencedAttributes,
@@ -295,6 +330,16 @@ export function mergeSurchargeRules(existingCml: string, rules: PathedSurchargeR
   // statement always contains its referenced attribute (the declaration sanitizes attribute names the
   // same way), so checking the mutated text would always find it and suppress every warning.
   const baseCml = existingCml;
+  // [Fix #1] Comment-blanked, length-preserving view of the BASELINE cml — shared by every
+  // collectTypeScopeText / baseline lookup so the attribute-presence anchor regex ignores comment
+  // contents without losing offset alignment. The per-iteration scan for findTypeBlock /
+  // findSurchargeStatement is computed against the current (possibly mutated) `cml` inside the loop.
+  const baseScan = blankComments(baseCml);
+  // [Fix #4] Detect the dominant line ending ONCE so the INSERT path can splice in the model's own
+  // convention (CRLF on Windows-curated files, LF elsewhere). Before this, a hardcoded `\n` mixed
+  // bare LFs into a CRLF model and produced a byte-unclean diff. The L2 replace path already
+  // preserves the original line ending of the replaced span; this guard does the same for inserts.
+  const eol = detectDominantLineEnding(existingCml);
 
   // H1: keys this run has already placed. A second rule resolving to the same pathed key must be
   // reported as a collision skip, NOT treated as an idempotent replace of the first rule's
@@ -310,28 +355,49 @@ export function mergeSurchargeRules(existingCml: string, rules: PathedSurchargeR
       continue;
     }
 
-    // C2/M4/L1: only a REAL surcharge `rule(...)` statement carrying this exact key in the
-    // action-scope slot counts as "present". A bare quoted-key substring inside an unrelated rule's
-    // value, a longer key, or a comment must NOT trigger a destructive line replace.
-    const stmt = findSurchargeStatement(cml, rule.ruleKey);
-
-    if (stmt) {
-      // L2: preserve the original line ending (CRLF vs LF) of the replaced line.
-      const indentMatch = /^[ \t]*/.exec(cml.slice(stmt.lineStart, stmt.lineEnd));
-      const indent = indentMatch ? indentMatch[0] : '    ';
-      cml = cml.slice(0, stmt.lineStart) + indent + rule.statement + cml.slice(stmt.lineEnd);
-      placements.push({ rule, status: 'replaced' });
-      placedKeys.add(rule.ruleKey);
-      collectAttributeWarning(baseCml, rule, attributeWarnings);
+    // [Fix #3] Refuse the destructive replace path for malformed/empty-ProductPath input. An empty
+    // pathProductCodes degenerates the rule key to `SC__<apiName>`, which could COINCIDENTALLY match
+    // a curated short-keyed line and clobber it; an absent typeName means we'd have nowhere to
+    // re-insert and would also have no way to scope the replace to the correct block. Short-circuit
+    // these as skips BEFORE findSurchargeStatement runs so a malformed surcharge can never reach the
+    // replace splice. The pre-existing intra-run duplicate guard above is preserved.
+    if (rule.pathProductCodes.length === 0) {
+      skips.push({
+        rule,
+        reason: `empty ProductPath for ${rule.recordName}; refusing to merge a non-pathed surcharge`,
+      });
       continue;
     }
-
     if (!rule.typeName) {
       skips.push({ rule, reason: `no CML type tag found for the leaf product of ${rule.recordName}` });
       continue;
     }
 
-    const block = findTypeBlock(cml, rule.typeName);
+    // [Fix #1] One comment-blanked view of the current `cml` reused by both the replace-anchor
+    // search and the type-block search this iteration. Recomputed per-iteration because a prior
+    // rule's splice may have mutated `cml`.
+    const scan = blankComments(cml);
+
+    // C2/M4/L1: only a REAL surcharge `rule(...)` statement carrying this exact key in the
+    // action-scope slot counts as "present". A bare quoted-key substring inside an unrelated rule's
+    // value, a longer key, or a comment must NOT trigger a destructive line replace.
+    const stmt = findSurchargeStatement(cml, rule.ruleKey, scan);
+
+    if (stmt) {
+      // [Fix #2] Splice ONLY the matched statement span (`rule(...);`) rather than the entire
+      // physical line. A curated line carrying two `rule(...);` statements (rare but valid) keeps
+      // the unrelated statement intact. Block formatting is preserved as long as the matched
+      // statement is the only thing on its line (the common case): the original indent prefix lives
+      // in `cml[lineStart..stmt.start)` and is left untouched by the splice; only `cml[start..end)`
+      // is replaced. If other code shares the line, that code stays in place verbatim too.
+      cml = cml.slice(0, stmt.start) + rule.statement + cml.slice(stmt.end);
+      placements.push({ rule, status: 'replaced' });
+      placedKeys.add(rule.ruleKey);
+      collectAttributeWarning(baseCml, rule, attributeWarnings, baseScan);
+      continue;
+    }
+
+    const block = findTypeBlock(cml, rule.typeName, scan);
     if (!block) {
       skips.push({ rule, reason: `type block '${rule.typeName}' not found in existing model` });
       continue;
@@ -345,17 +411,28 @@ export function mergeSurchargeRules(existingCml: string, rules: PathedSurchargeR
     }
 
     // Insert before the closing brace, indented one level (4 spaces), with a leading blank line.
-    const insertion = `\n    ${rule.statement}\n`;
+    // [Fix #4] Use the dominant line ending of the original model, not a hardcoded `\n`.
+    const insertion = `${eol}    ${rule.statement}${eol}`;
     cml = cml.slice(0, block.closeIdx) + insertion + cml.slice(block.closeIdx);
     placements.push({ rule, status: 'inserted' });
     placedKeys.add(rule.ruleKey);
-    collectAttributeWarning(baseCml, rule, attributeWarnings);
+    collectAttributeWarning(baseCml, rule, attributeWarnings, baseScan);
   }
 
   return { mergedCml: cml, placements, skips, attributeWarnings };
 }
 
-type StatementMatch = { lineStart: number; lineEnd: number };
+/**
+ * [Fix #2] Precise span of a matched surcharge statement.
+ *
+ * - `start`  — offset of the matched `rule(` token in the original cml
+ * - `end`    — offset just AFTER the terminating `;` (so cml.slice(start, end) is the whole statement)
+ *
+ * The previous shape (`lineStart..lineEnd`) replaced the entire physical line, which silently
+ * clobbered any OTHER `rule(...);` statement that happened to share that line. The precise span
+ * splices ONLY the matched statement and leaves other statements on the same line intact.
+ */
+type StatementMatch = { start: number; end: number };
 
 /**
  * C2/M4/L1: finds the single-line surcharge `rule(...)` statement that carries `ruleKey` in the
@@ -374,26 +451,63 @@ type StatementMatch = { lineStart: number; lineEnd: number };
  * Returns the start/end offsets of the matched line (lineEnd points at the newline / EOF, excluding
  * any trailing `\r` so the caller can re-emit the original CRLF/LF).
  */
-function findSurchargeStatement(cml: string, ruleKey: string): StatementMatch | undefined {
+function findSurchargeStatement(
+  cml: string,
+  ruleKey: string,
+  scan: string = blankComments(cml)
+): StatementMatch | undefined {
+  // [Fix #2] Match the surcharge rule statement and return the PRECISE span from the `rule(` token
+  // to just past its terminating `;`. The previous implementation returned a whole-line span which
+  // clobbered any OTHER `rule(...);` statement sharing the same physical line. The global flag is
+  // required so a coincidental earlier match (e.g. an unrelated rule whose VALUE quotes the key
+  // before the real statement) can be skipped by walking to subsequent matches via `exec`. We do
+  // NOT use a single-line anchor: a real surcharge statement is single-line by convention, but the
+  // anchor's `[^;\r\n]*` constraint already guarantees the prefix is single-line; what matters here
+  // is bounding the SPAN, not the search.
   const anchor = new RegExp(
-    `rule\\([^;\\r\\n]*"${escapeRegExp(SURCHARGE_RULE_ACTION)}"\\s*,\\s*"${escapeRegExp(ruleKey)}"\\s*,`
+    `rule\\([^;\\r\\n]*"${escapeRegExp(SURCHARGE_RULE_ACTION)}"\\s*,\\s*"${escapeRegExp(ruleKey)}"\\s*,`,
+    'g'
   );
-  // Comment-blanked, length-preserving view of the model: matching against this view ignores any
-  // rule-shaped text that lives inside `//` or `/* */` comments while keeping every offset aligned
-  // with the original `cml` so the returned span still references the real (un-blanked) text.
-  const scan = blankComments(cml);
-  let lineStart = 0;
-  while (lineStart <= scan.length) {
-    const nl = scan.indexOf('\n', lineStart);
-    const rawEnd = nl < 0 ? scan.length : nl;
-    const line = scan.slice(lineStart, rawEnd);
-    if (anchor.test(line)) {
-      // Strip a trailing \r from the matched line span so CRLF can be preserved by the caller.
-      const lineEnd = rawEnd > lineStart && cml[rawEnd - 1] === '\r' ? rawEnd - 1 : rawEnd;
-      return { lineStart, lineEnd };
+  let m: RegExpExecArray | null;
+  while ((m = anchor.exec(scan)) !== null) {
+    const start = m.index;
+    // Walk forward in the SCAN view (comment chars blanked) to find the terminating `;`. Using scan
+    // keeps a `;` that lives inside a `// ...` or `/* ... */` comment from terminating the span.
+    // String-literal contents within the statement are kept intact by blankComments, so a `;` inside
+    // a quoted RHS value is also ignored — find the structural `;` by walking past string literals.
+    const semi = findStructuralSemicolon(scan, m.index + m[0].length);
+    if (semi === undefined) {
+      // Malformed unterminated rule(...) — refuse to splice rather than guessing.
+      return undefined;
     }
-    if (nl < 0) break;
-    lineStart = nl + 1;
+    return { start, end: semi + 1 };
+  }
+  return undefined;
+}
+
+/**
+ * [Fix #2] Walks forward from `from` returning the index of the structural `;` terminating the
+ * current statement. The scan is comment-blanked, so `;` inside `//` or `/* *\/` cannot terminate.
+ * Double-quoted string literals are still present in the scan (blankComments only blanks comments);
+ * skip them here so a `;` inside a quoted value is ignored.
+ */
+function findStructuralSemicolon(scan: string, from: number): number | undefined {
+  let inString = false;
+  for (let i = from; i < scan.length; i++) {
+    const ch = scan[i];
+    if (inString) {
+      if (ch === '\\') {
+        i++;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === ';') {
+      return i;
+    }
   }
   return undefined;
 }
@@ -464,7 +578,12 @@ function blankComments(cml: string): string {
  * spliced in. Checking the post-insertion text would always find the attribute inside the rule's own
  * just-inserted declaration (which sanitizes attribute names identically), suppressing every warning.
  */
-function collectAttributeWarning(baseCml: string, rule: PathedSurchargeRule, warnings: string[]): void {
+function collectAttributeWarning(
+  baseCml: string,
+  rule: PathedSurchargeRule,
+  warnings: string[],
+  baseScan?: string
+): void {
   // H5/M3: scope the presence check to the leaf type block plus its `: Parent` ancestry, with
   // comments and string literals stripped. CML attribute visibility is hierarchy-scoped, so an
   // unscoped whole-file `\battr\b` test gives false negatives (an attribute named only in a comment,
@@ -477,7 +596,7 @@ function collectAttributeWarning(baseCml: string, rule: PathedSurchargeRule, war
   // (that re-introduces the sibling-type false negative on exactly the records that hit the replace
   // path before type resolution). Fail VISIBLE instead: treat the scope as empty so an attribute we
   // cannot prove visible is reported, never silently suppressed.
-  const scope = rule.typeName ? collectTypeScopeText(baseCml, rule.typeName) ?? '' : '';
+  const scope = rule.typeName ? collectTypeScopeText(baseCml, rule.typeName, undefined, baseScan) ?? '' : '';
 
   for (const attr of rule.referencedAttributes) {
     const present = new RegExp(`\\b${escapeRegExp(attr)}\\b`).test(scope);
@@ -546,11 +665,16 @@ function stripCommentsAndStrings(cml: string): string {
  * block can't be resolved (or is ambiguous), so the caller can fall back. Bounded against cycles by
  * a visited set.
  */
-function collectTypeScopeText(cml: string, leafType: string, visited = new Set<string>()): string | undefined {
+function collectTypeScopeText(
+  cml: string,
+  leafType: string,
+  visited = new Set<string>(),
+  scan: string = blankComments(cml)
+): string | undefined {
   if (visited.has(leafType)) return '';
   visited.add(leafType);
 
-  const block = findTypeBlock(cml, leafType);
+  const block = findTypeBlock(cml, leafType, scan);
   if (!block || 'ambiguous' in block) return undefined;
 
   const headerStart = cml.lastIndexOf('\n', block.openIdx) + 1;
@@ -561,7 +685,7 @@ function collectTypeScopeText(cml: string, leafType: string, visited = new Set<s
   // Resolve `type Leaf : Parent {` ancestry and append parent scope(s).
   const parentMatch = /:\s*([A-Za-z_]\w*)/.exec(header);
   if (parentMatch) {
-    const parentText = collectTypeScopeText(cml, parentMatch[1], visited);
+    const parentText = collectTypeScopeText(cml, parentMatch[1], visited, scan);
     if (parentText) text += '\n' + parentText;
   }
   return text;
