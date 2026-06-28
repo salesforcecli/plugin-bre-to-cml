@@ -1,3 +1,9 @@
+## [1.2.3](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.2.2...1.2.3) (2026-06-28)
+
+### Bug Fixes
+
+- **insurance:** harden surcharge merge against injection, clobber, and silent-wrong output (@W-23217457@) ([2e85fe9](https://github.com/salesforcecli/plugin-bre-to-cml/commit/2e85fe9f250f64ebc0a50ef6035b62593b559231))
+
 ## [1.2.2](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.2.1...1.2.2) (2026-06-28)
 
 ### Bug Fixes

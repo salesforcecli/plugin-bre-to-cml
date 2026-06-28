@@ -147,7 +147,9 @@ FLAGS
   -o, --target-org=<value>      (required) Username or alias of the target org. Not required if the `target-org`
                                 configuration variable is already set.
       --api-version=<value>     Override the api version used for api requests made by this command
-      --update-records          Update source records in the org with RuleEngineType=ConstraintEngine.
+      --update-records          REMOVED. Convert no longer writes to the org; passing this flag now errors. Convert
+                                instead emits a reviewable record-update file enumerating the org-record changes, which
+                                you apply to the org separately.
 
 GLOBAL FLAGS
   --flags-dir=<value>  Import flag values from a directory.
@@ -159,10 +161,12 @@ DESCRIPTION
   Reads ProductSurcharge records from the org (or a JSON file), parses their RuleDefinition, and merges the generated
   surcharge rules into the org's existing curated ConstraintModel for the resolved CML API. Each surcharge rule is
   nested into its leaf product type with a platform-compatible pathed rule key (matching the RuleKey the platform
-  auto-generates), so the rule actually fires for nested products instead of being silently dropped. The command
-  requires an existing CML model to merge into and outputs a .cml file with the full merged model, a header-only
-  \_Associations.csv file, and a \_RuleKeyMapping.json with the ProductSurcharge ID to RuleKey mapping for updating
-  records.
+  auto-generates), so the rule actually fires for nested products instead of being silently dropped. The command is
+  file-only and never writes to the org. It requires an existing CML model to merge into and outputs a .cml file with
+  the full merged model, a header-only \_Associations.csv file, a \_RuleKeyMapping.json with the ProductSurcharge ID to
+  RuleKey mapping, and a \_SurchargeUpdate.json file enumerating the org-record changes. Review the files, then apply
+  the CML with `sf cml import as-expression-set` and apply the org-record changes enumerated in the
+  \_SurchargeUpdate.json file to the org separately (in that order).
 
 EXAMPLES
   $ sf cml convert surcharge-rules --cml-api SURCHARGE_CML --target-org myOrg
@@ -188,7 +192,9 @@ FLAGS
   -o, --target-org=<value>     (required) Username or alias of the target org. Not required if the `target-org`
                                configuration variable is already set.
       --api-version=<value>    Override the api version used for api requests made by this command
-      --update-records         Update source records in the org with RuleEngineType=ConstraintEngine.
+      --update-records         REMOVED. Convert no longer writes to the org; passing this flag now errors. Convert
+                               instead emits a reviewable record-update file enumerating the org-record changes, which
+                               you apply to the org separately.
 
 GLOBAL FLAGS
   --flags-dir=<value>  Import flag values from a directory.
@@ -199,8 +205,11 @@ DESCRIPTION
 
   Reads UnderwritingRule records from the org (or a JSON file), parses their DynamicRuleDefinition, and generates CML
   constraints that evaluate underwriting eligibility. Each rule becomes a named constraint that returns true/false. The
-  command outputs a .cml file with the constraint model, an \_Associations.csv file for ExpressionSetConstraintObj
-  records, and a \_RuleKeyMapping.json with the UnderwritingRule ID to RuleKey mapping for updating records.
+  command is file-only and never writes to the org: it outputs a .cml file with the constraint model, an
+  \_Associations.csv file for ExpressionSetConstraintObj records, a \_RuleKeyMapping.json with the UnderwritingRule ID
+  to RuleKey mapping, and a \_UnderwritingUpdate.json file enumerating the org-record changes. Review the files, then
+  apply the CML with `sf cml import as-expression-set` and apply the org-record changes enumerated in the
+  \_UnderwritingUpdate.json file to the org separately.
 
 EXAMPLES
   $ sf cml convert underwriting-rules --cml-api UW_CML --target-org myOrg
