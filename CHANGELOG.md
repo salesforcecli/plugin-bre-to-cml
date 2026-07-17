@@ -1,3 +1,9 @@
+## [1.2.6](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.2.5...1.2.6) (2026-07-17)
+
+### Bug Fixes
+
+- **deps:** bump websocket-driver from 0.7.4 to 0.7.5 ([696b04d](https://github.com/salesforcecli/plugin-bre-to-cml/commit/696b04d1e1f2f5231f864de0e46ac7c262c17db3))
+
 ## [1.2.5](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.2.4...1.2.5) (2026-07-11)
 
 ### Bug Fixes
