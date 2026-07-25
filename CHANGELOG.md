@@ -1,3 +1,9 @@
+## [1.2.9](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.2.8...1.2.9) (2026-07-25)
+
+### Bug Fixes
+
+- **deps:** bump linkify-it from 5.0.1 to 5.0.2 ([e4910b0](https://github.com/salesforcecli/plugin-bre-to-cml/commit/e4910b0196654ec68ab0f824445832aa58141e23))
+
 ## [1.2.8](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.2.7...1.2.8) (2026-07-18)
 
 ### Bug Fixes
