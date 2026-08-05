@@ -20,6 +20,8 @@ import {
   buildConstraintDeclaration,
   buildStageTransition,
   collectAttributes,
+  collectAttributeTypes,
+  collectEmittedAttributes,
   decodeHtmlEntities,
   generateRuleKey,
   isSafeAssociationReferenceValue,
@@ -421,6 +423,80 @@ describe('buildConstraintDeclaration', () => {
     };
     expect(buildConstraintDeclaration(ruleDef)).to.equal('strcontain(Notes, "premium")');
   });
+
+  // isSafeNumericLiteral is `/^-?\d+(\.\d+)?$/` — a LEADING PLUS is not part of the grammar, so a
+  // `+123` relational RHS must be rejected (it would emit `Year > +123`, which the CML compiler
+  // rejects, and more importantly proves the guard does not silently widen the numeric shape).
+  it('drops a relational condition whose numeric value carries a leading plus sign', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [{ attributeName: 'Year', operator: 'GreaterThan', dataType: 'Number', values: ['+123'] }],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('true');
+  });
+
+  // isSafeDateLiteral accepts an ISO-8601 datetime component, so a clean Date Equals with a time
+  // suffix survives the unquoted-emission guard and lands bare.
+  it('allows a clean ISO datetime literal through a Date-typed Equals', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [
+            { attributeName: 'EffDate', operator: 'Equals', dataType: 'Date', values: ['2026-01-31T23:59:59Z'] },
+          ],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('EffDate == 2026-01-31T23:59:59Z');
+  });
+
+  // The date guard is FORMAT-only (it does not range-check calendar components): a syntactically
+  // well-formed but calendar-invalid date like 2020-13-45 passes because it cannot break out of the
+  // unquoted slot. This test pins that documented limitation so a future "tighten the regex" change
+  // is a conscious decision, not an accidental behavior shift.
+  it('admits a format-valid but calendar-invalid date (guard is shape-only, not a calendar check)', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [{ attributeName: 'EffDate', operator: 'Equals', dataType: 'Date', values: ['2020-13-45'] }],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('EffDate == 2020-13-45');
+  });
+
+  // Multi-value In runs every value through the string-quotable guard (`values.every(...)`). A single
+  // backslash-bearing value in the list poisons the whole condition — it is dropped wholesale, never
+  // partially emitted, so a hostile value smuggled into one slot of a multi-value In cannot survive.
+  it('drops a multi-value In condition when any single value is not safely quotable', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [{ attributeName: 'Model', operator: 'In', dataType: 'String', values: ['SUV', 'Tru\\ck", "x'] }],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('true');
+  });
+
+  it('expands a clean multi-value In into an OR of equality checks (regression guard)', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [{ attributeName: 'Model', operator: 'In', dataType: 'String', values: ['SUV', 'Truck'] }],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('(Model == "SUV" || Model == "Truck")');
+  });
 });
 
 describe('collectAttributes', () => {
@@ -468,6 +544,216 @@ describe('collectAttributes', () => {
     ] as Array<{ ruleDef: { ruleCriteria?: RuleCriteria[] } }>;
     const result = collectAttributes(ruleDefs);
     expect(result).to.deep.equal(new Set(['TagA']));
+  });
+});
+
+// collectEmittedAttributes is the merge-mode companion to collectAttributes: it returns only the
+// (sanitized) attributes that actually reach the emitted CML — i.e. those on conditions whose
+// buildConditionExpression survived. It is what gates the absent-attribute warnings, so a condition
+// the safe-literal / unknown-operator filter dropped must NOT contribute its attribute.
+describe('collectEmittedAttributes', () => {
+  it('returns an empty set when there are no criteria', () => {
+    expect(collectEmittedAttributes([{ ruleDef: {} }]).size).to.equal(0);
+  });
+
+  it('returns sanitized names (matching how they appear in the emitted declaration)', () => {
+    const ruleDefs = [
+      {
+        ruleDef: {
+          ruleCriteria: [
+            {
+              rootObjectId: '01t',
+              conditions: [{ attributeName: 'Auto Value', operator: 'Equals', dataType: 'String', values: ['x'] }],
+            },
+          ],
+        },
+      },
+    ] as Array<{ ruleDef: { ruleCriteria?: RuleCriteria[] } }>;
+    // collectAttributes keeps the raw name; collectEmittedAttributes sanitizes it.
+    expect(collectAttributes(ruleDefs)).to.deep.equal(new Set(['Auto Value']));
+    expect(collectEmittedAttributes(ruleDefs)).to.deep.equal(new Set(['Auto_Value']));
+  });
+
+  it('excludes the attribute of a condition dropped by an unknown operator', () => {
+    const ruleDefs = [
+      {
+        ruleDef: {
+          ruleCriteria: [
+            {
+              rootObjectId: '01t',
+              conditions: [
+                { attributeName: 'Kept', operator: 'Equals', dataType: 'String', values: ['x'] },
+                { attributeName: 'Dropped', operator: 'NoSuchOp', dataType: 'String', values: ['y'] },
+              ],
+            },
+          ],
+        },
+      },
+    ] as Array<{ ruleDef: { ruleCriteria?: RuleCriteria[] } }>;
+    expect(collectEmittedAttributes(ruleDefs)).to.deep.equal(new Set(['Kept']));
+  });
+
+  it('excludes the attribute of a condition the safe-literal guard dropped (hostile unquoted RHS)', () => {
+    const ruleDefs = [
+      {
+        ruleDef: {
+          ruleCriteria: [
+            {
+              rootObjectId: '01t',
+              conditions: [
+                { attributeName: 'Limit', operator: 'GreaterThan', dataType: 'Number', values: ['1000'] },
+                { attributeName: 'Hijacked', operator: 'Equals', dataType: 'Number', values: ['2020) || evil('] },
+              ],
+            },
+          ],
+        },
+      },
+    ] as Array<{ ruleDef: { ruleCriteria?: RuleCriteria[] } }>;
+    // collectAttributes still sees the hostile attribute; collectEmittedAttributes does not.
+    expect(collectAttributes(ruleDefs)).to.deep.equal(new Set(['Limit', 'Hijacked']));
+    expect(collectEmittedAttributes(ruleDefs)).to.deep.equal(new Set(['Limit']));
+  });
+
+  it('uses contextTagName (sanitized) when attributeName is missing', () => {
+    const ruleDefs = [
+      {
+        ruleDef: {
+          ruleCriteria: [
+            {
+              rootObjectId: '01t',
+              conditions: [{ contextTagName: 'Tag A', operator: 'Equals', dataType: 'String', values: ['x'] }],
+            },
+          ],
+        },
+      },
+    ] as Array<{ ruleDef: { ruleCriteria?: RuleCriteria[] } }>;
+    expect(collectEmittedAttributes(ruleDefs)).to.deep.equal(new Set(['Tag_A']));
+  });
+});
+
+// collectAttributeTypes derives each attribute's real CML type from its condition dataType, keyed by
+// the RAW (un-sanitized) attribute name, and falls back to STRING on a type conflict or unknown type.
+// buildCmlModel relies on it for H4 (declaring numeric attributes as int, not string).
+describe('collectAttributeTypes', () => {
+  it('maps each dataType to its CML type', () => {
+    const ruleDefs = [
+      {
+        ruleDef: {
+          ruleCriteria: [
+            {
+              rootObjectId: '01t',
+              conditions: [
+                { attributeName: 'Count', operator: 'Equals', dataType: 'Number', values: ['1'] },
+                { attributeName: 'Rate', operator: 'Equals', dataType: 'Percent', values: ['1'] },
+                { attributeName: 'Premium', operator: 'Equals', dataType: 'Currency', values: ['1'] },
+                { attributeName: 'Active', operator: 'Equals', dataType: 'Boolean', values: ['true'] },
+                { attributeName: 'Eff', operator: 'Equals', dataType: 'Date', values: ['2026-01-01'] },
+                { attributeName: 'Label', operator: 'Equals', dataType: 'String', values: ['x'] },
+              ],
+            },
+          ],
+        },
+      },
+    ] as Array<{ ruleDef: { ruleCriteria?: RuleCriteria[] } }>;
+    const types = collectAttributeTypes(ruleDefs);
+    expect(types.get('Count')).to.equal('int');
+    expect(types.get('Rate')).to.equal('decimal');
+    expect(types.get('Premium')).to.equal('decimal');
+    expect(types.get('Active')).to.equal('boolean');
+    expect(types.get('Eff')).to.equal('date');
+    expect(types.get('Label')).to.equal('string');
+  });
+
+  it('falls back to string for an unknown / missing dataType', () => {
+    const ruleDefs = [
+      {
+        ruleDef: {
+          ruleCriteria: [
+            {
+              rootObjectId: '01t',
+              conditions: [
+                { attributeName: 'Mystery', operator: 'Equals', dataType: 'Geolocation', values: ['x'] },
+                { attributeName: 'NoType', operator: 'Equals', values: ['x'] },
+              ],
+            },
+          ],
+        },
+      },
+    ] as Array<{ ruleDef: { ruleCriteria?: RuleCriteria[] } }>;
+    const types = collectAttributeTypes(ruleDefs);
+    expect(types.get('Mystery')).to.equal('string');
+    expect(types.get('NoType')).to.equal('string');
+  });
+
+  it('falls back to string when one attribute appears with conflicting dataTypes', () => {
+    const ruleDefs = [
+      {
+        ruleDef: {
+          ruleCriteria: [
+            {
+              rootObjectId: '01t',
+              conditions: [{ attributeName: 'Score', operator: 'GreaterThan', dataType: 'Number', values: ['10'] }],
+            },
+          ],
+        },
+      },
+      {
+        ruleDef: {
+          ruleCriteria: [
+            {
+              rootObjectId: '01t',
+              conditions: [{ attributeName: 'Score', operator: 'Equals', dataType: 'String', values: ['high'] }],
+            },
+          ],
+        },
+      },
+    ] as Array<{ ruleDef: { ruleCriteria?: RuleCriteria[] } }>;
+    expect(collectAttributeTypes(ruleDefs).get('Score')).to.equal('string');
+  });
+
+  it('keeps a consistent repeated dataType (no spurious conflict downgrade)', () => {
+    const ruleDefs = [
+      {
+        ruleDef: {
+          ruleCriteria: [
+            {
+              rootObjectId: '01t',
+              conditions: [{ attributeName: 'Age', operator: 'GreaterThan', dataType: 'Number', values: ['18'] }],
+            },
+          ],
+        },
+      },
+      {
+        ruleDef: {
+          ruleCriteria: [
+            {
+              rootObjectId: '01t',
+              conditions: [{ attributeName: 'Age', operator: 'LessThan', dataType: 'Integer', values: ['65'] }],
+            },
+          ],
+        },
+      },
+    ] as Array<{ ruleDef: { ruleCriteria?: RuleCriteria[] } }>;
+    // Number and Integer both map to `int`, so there is no conflict — stays int, not downgraded.
+    expect(collectAttributeTypes(ruleDefs).get('Age')).to.equal('int');
+  });
+
+  it('keys by the raw attribute name (not sanitized)', () => {
+    const ruleDefs = [
+      {
+        ruleDef: {
+          ruleCriteria: [
+            {
+              rootObjectId: '01t',
+              conditions: [{ attributeName: 'Auto Value', operator: 'GreaterThan', dataType: 'Number', values: ['1'] }],
+            },
+          ],
+        },
+      },
+    ] as Array<{ ruleDef: { ruleCriteria?: RuleCriteria[] } }>;
+    const types = collectAttributeTypes(ruleDefs);
+    expect(types.get('Auto Value')).to.equal('int');
+    expect(types.has('Auto_Value')).to.equal(false);
   });
 });
 
