@@ -1,3 +1,9 @@
+# [1.3.0](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.2.17...1.3.0) (2026-08-08)
+
+### Features
+
+- **insurance:** add merge mode for underwriting rules CML conversion (@W-23757462@) ([#205](https://github.com/salesforcecli/plugin-bre-to-cml/issues/205)) ([5754764](https://github.com/salesforcecli/plugin-bre-to-cml/commit/575476400a456bc102b58b451aa56d7d89f43d6d))
+
 ## [1.2.17](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.2.16...1.2.17) (2026-08-08)
 
 ### Bug Fixes
