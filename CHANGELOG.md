@@ -1,3 +1,9 @@
+## [1.2.17](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.2.16...1.2.17) (2026-08-08)
+
+### Bug Fixes
+
+- **deps:** bump @oclif/core from 4.13.2 to 4.13.3 ([a781e6a](https://github.com/salesforcecli/plugin-bre-to-cml/commit/a781e6ac8947779f3b163cac6d5f654a7afc2bf1))
+
 ## [1.2.16](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.2.15...1.2.16) (2026-08-04)
 
 ### Bug Fixes
