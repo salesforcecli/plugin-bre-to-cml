@@ -14,13 +14,22 @@
  * limitations under the License.
  */
 import { Flags } from '@salesforce/sf-plugins-core';
-import { Messages } from '@salesforce/core';
+import { Connection, Messages } from '@salesforce/core';
 import { ParsedRuleDefinition, RecordUpdate, RuleKeyEntry, RuleRecord } from '../../../shared/insurance/models.js';
 import {
   InsuranceRuleConvertCommand,
+  InsuranceRuleConvertContext,
   InsuranceRuleConvertResult,
+  ParsedRuleEntry,
 } from '../../../shared/insurance/insurance-rule-convert-command.js';
 import { decodeHtmlEntities } from '../../../shared/insurance/insurance-rule-generator.js';
+import {
+  buildUnderwritingConstraintRules,
+  fetchExistingConstraintModel,
+  fetchProductTypeTags,
+  mergeUnderwritingConstraints,
+  splitProductPath,
+} from '../../../shared/insurance/insurance-cml-merge.js';
 
 Messages.importMessagesDirectoryFromMetaUrl(import.meta.url);
 const messages = Messages.loadMessages('@salesforce/plugin-bre-to-cml', 'cml.convert.underwriting-rules');
@@ -71,7 +80,98 @@ export default class CmlConvertUnderwritingRules extends InsuranceRuleConvertCom
       workspaceDir: flags['workspace-dir'],
       inputFile: flags['uw-file'],
       updateRecords: flags['update-records'],
+      // Underwriting conversion ALWAYS merges into the org's existing curated ConstraintModel —
+      // mirrors surcharge-rules.ts: the flat-overwrite build path is intentionally unreachable
+      // here (it silently drops nested underwriting constraints). There is no flag to opt out.
+      mergeWithOrg: true,
     });
+  }
+
+  /**
+   * Merge mode: read the org's existing ConstraintModel, compute each underwriting rule's pathed
+   * rule key (matching the platform's auto-generated RuleKey) and sanitized constraint name, and
+   * nest the `constraint <name> = (...)` statement into the correct existing leaf `type` block —
+   * instead of overwriting the curated model with a flat one. Mirrors CmlConvertSurchargeRules'
+   * runMergeConvert override.
+   */
+  protected async runMergeConvert(
+    _ctx: InsuranceRuleConvertContext,
+    conn: Connection,
+    records: UnderwritingRuleRecord[],
+    ruleDefs: ParsedRuleEntry[],
+    productIdToCode: Map<string, string>,
+    api: string,
+    safeApi: string,
+    workspaceDir: string
+  ): Promise<InsuranceRuleConvertResult> {
+    const existing = await fetchExistingConstraintModel(conn, api);
+    if (!existing?.cmlText.trim()) {
+      this.error(
+        `underwriting-rules merges into an existing ConstraintModel for CML API '${api}', but none was found. Create the curated model first (e.g. via the prod-cfg converter or by importing a baseline), then re-run this command.`
+      );
+    }
+
+    const productIds = new Set<string>();
+    for (const { record } of ruleDefs) {
+      for (const id of splitProductPath(record.ProductPath)) productIds.add(id);
+    }
+    const productIdToType = await fetchProductTypeTags(conn, productIds);
+
+    const rules = buildUnderwritingConstraintRules(
+      this.keyPrefix,
+      this.constraintLabel,
+      ruleDefs,
+      productIdToCode,
+      productIdToType
+    );
+    rules.forEach((r) => this.log(`  -> ${r.recordName} => ${r.constraintName} (type: ${r.typeName ?? 'UNRESOLVED'})`));
+
+    const { mergedCml, placements, skips, attributeWarnings } = mergeUnderwritingConstraints(existing.cmlText, rules);
+
+    this.log(
+      `\nMerge summary: ${placements.filter((p) => p.status === 'inserted').length} inserted, ${
+        placements.filter((p) => p.status === 'replaced').length
+      } updated in place, ${skips.length} skipped.`
+    );
+    for (const s of skips) this.warn(`  SKIPPED ${s.rule.recordName}: ${s.reason}`);
+    for (const w of attributeWarnings) this.warn(`  ATTRIBUTE ${w}`);
+
+    // Mirrors surcharge-rules.ts' bucketed skip summary — same reason-vocabulary buckets, adapted
+    // to underwriting's skip-reason vocabulary (no separate "duplicate pathed rule key" reason;
+    // instead a duplicate constraint-name-in-type collision).
+    if (skips.length > 0) {
+      const counts = {
+        duplicateConstraint: 0,
+        emptyPath: 0,
+        noTypeTag: 0,
+        typeBlockMissing: 0,
+        typeBlockAmbiguous: 0,
+        other: 0,
+      };
+      for (const s of skips) {
+        if (s.reason.startsWith('duplicate constraint name')) counts.duplicateConstraint += 1;
+        else if (s.reason.startsWith('empty ProductPath')) counts.emptyPath += 1;
+        else if (s.reason.startsWith('no CML type tag')) counts.noTypeTag += 1;
+        else if (s.reason.includes('not found in existing model')) counts.typeBlockMissing += 1;
+        else if (s.reason.includes('is ambiguous')) counts.typeBlockAmbiguous += 1;
+        else counts.other += 1;
+      }
+      this.log(
+        `Skip breakdown: ${counts.duplicateConstraint} duplicate-constraint-name, ${counts.emptyPath} empty-ProductPath, ` +
+          `${counts.noTypeTag} no-type-tag, ${counts.typeBlockMissing} type-block-missing, ` +
+          `${counts.typeBlockAmbiguous} type-block-ambiguous, ${counts.other} other`
+      );
+    }
+
+    const ruleKeyMapping: RuleKeyEntry[] = placements.map((p) => ({
+      recordId: p.rule.recordId,
+      name: p.rule.recordName,
+      ruleKey: p.rule.ruleKey,
+    }));
+
+    const recordUpdateFile = await this.writeRecordUpdateFile(records, ruleKeyMapping, api, safeApi, workspaceDir);
+
+    return this.writeMergedOutputFiles(mergedCml, ruleKeyMapping, safeApi, workspaceDir, api, recordUpdateFile);
   }
 
   protected parseRecord(record: UnderwritingRuleRecord): ParsedRuleDefinition | null {

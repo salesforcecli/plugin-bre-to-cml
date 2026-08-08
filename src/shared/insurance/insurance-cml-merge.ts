@@ -15,9 +15,11 @@
  */
 import { Connection } from '@salesforce/core';
 import { CmlConstraint } from '../types/types.js';
+import { CONSTRAINT_TYPES } from '../constants/constants.js';
 import { ParsedRuleDefinition, RuleRecord } from './models.js';
 import {
   buildConstraintDeclaration,
+  collectAttributeTypes,
   collectEmittedAttributes,
   sanitizeName,
   buildStageTransition,
@@ -77,6 +79,50 @@ export type MergeResult = {
   placements: MergePlacement[];
   skips: MergeSkip[];
   attributeWarnings: string[];
+};
+
+export type UwMergePlacement = {
+  rule: UnderwritingConstraintRule;
+  status: 'inserted' | 'replaced';
+};
+
+export type UwMergeSkip = {
+  rule: UnderwritingConstraintRule;
+  reason: string;
+};
+
+export type UwMergeResult = {
+  mergedCml: string;
+  placements: UwMergePlacement[];
+  skips: UwMergeSkip[];
+  attributeWarnings: string[];
+};
+
+/**
+ * Underwriting analogue of {@link PathedSurchargeRule}: instead of a `rule(...)` action statement,
+ * underwriting eligibility is emitted as a named `constraint <name> = (<expr>, "<label>");`
+ * statement nested inside the leaf product's `type` block (see `buildCmlModel`'s constraint-form
+ * branch in insurance-rule-generator.ts, which this mirrors for merge mode).
+ */
+export type UnderwritingConstraintRule = {
+  recordId: string;
+  recordName: string;
+  apiName: string;
+  /** Full pathed key: UW__<code-of-each-path-segment>__<apiName> (advisory; not emitted in the constraint form, but tracked for the RuleKeyMapping output). */
+  ruleKey: string;
+  /** Ordered ProductCodes for every ProductPath segment. Empty when the source ProductPath was blank/whitespace-only. */
+  pathProductCodes: string[];
+  /** Leaf CML type name (ConstraintModelTag of the LAST ProductPath segment). */
+  typeName: string | undefined;
+  /** Sanitized constraint name used in the CML (the `constraint <name> = (...)` identifier). */
+  constraintName: string;
+  /** The full generated `constraint <name> = (<expr>, "<label>");` statement. */
+  statement: string;
+  /**
+   * Attributes the declaration references, with their derived CML type — used to auto-insert
+   * missing attribute declarations into the leaf type block during merge.
+   */
+  referencedAttributes: Array<{ name: string; cmlType: string }>;
 };
 
 /**
@@ -153,7 +199,7 @@ export async function fetchProductTypeTags(conn: Connection, productIds: Set<str
   return idToTag;
 }
 
-function escapeRegExp(value: string): string {
+export function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
@@ -164,7 +210,7 @@ function escapeRegExp(value: string): string {
  * a CRLF-curated model stays byte-clean after splicing. The L2 replace path preserves the line
  * ending of the REPLACED span directly, so this only matters for new inserts.
  */
-function detectDominantLineEnding(cml: string): string {
+export function detectDominantLineEnding(cml: string): string {
   const crlfCount = (cml.match(/\r\n/g) ?? []).length;
   // Subtract CRLFs from the total LF count to get the BARE-LF count (an LF preceded by CR is part of a CRLF).
   const totalLf = (cml.match(/\n/g) ?? []).length;
@@ -181,7 +227,7 @@ type TypeBlock = { openIdx: number; closeIdx: number };
  * comments, and a stray `}` inside one (or inside a quoted rule value) must NOT be mistaken for the
  * structural close, which would return a too-early closeIdx and splice a new rule mid-statement.
  */
-function matchClosingBrace(cml: string, openIdx: number): number | undefined {
+export function matchClosingBrace(cml: string, openIdx: number): number | undefined {
   let depth = 0;
   let inString = false;
   let inLineComment = false;
@@ -314,6 +360,84 @@ export function buildPathedSurchargeRules(
 }
 
 /**
+ * Builds the `constraint <name> = (...)` statement for underwriting eligibility, using the same
+ * constraint generator as build mode's constraint-form branch (see `buildCmlModel`).
+ */
+export function buildUnderwritingConstraintStatement(
+  constraintName: string,
+  declaration: string,
+  label: string
+): string {
+  const constraint = new CmlConstraint(CONSTRAINT_TYPES.CONSTRAINT, declaration, `"${label}"`);
+  constraint.name = constraintName;
+  return constraint.generateCml();
+}
+
+/**
+ * Builds the constraint-form rule descriptors for underwriting eligibility, mirroring
+ * {@link buildPathedSurchargeRules} but emitting a named `constraint` statement (matching the
+ * constraint-form branch of `buildCmlModel` in insurance-rule-generator.ts) instead of a `rule(...)`
+ * action statement. `productIdToCode` and `productIdToType` must already cover every ProductPath
+ * segment.
+ */
+export function buildUnderwritingConstraintRules(
+  keyPrefix: string,
+  constraintLabel: string,
+  ruleDefs: Array<{ record: RuleRecord; ruleDef: ParsedRuleDefinition }>,
+  productIdToCode: Map<string, string>,
+  productIdToType: Map<string, string>
+): UnderwritingConstraintRule[] {
+  return ruleDefs.map(({ record, ruleDef }) => {
+    const apiName = ruleDef.apiName ?? record.Name;
+    const segments = splitProductPath(record.ProductPath);
+    const pathCodes = segments.map((id) => productIdToCode.get(id) ?? id);
+    const stageTransition = buildStageTransition(ruleDef.underwritingRuleGroup);
+    const ruleKey = buildPathedRuleKey(keyPrefix, pathCodes, apiName, stageTransition);
+
+    const leafProductId = segments[segments.length - 1];
+    const typeName = leafProductId ? productIdToType.get(leafProductId) : undefined;
+
+    const declaration = buildConstraintDeclaration(ruleDef);
+    // Mirrors buildCmlModel's constraint naming: sanitized apiName, with the stage transition
+    // appended so two rules sharing an apiName under the same product (gated on different
+    // transitions) don't collide.
+    const constraintName = sanitizeName(stageTransition ? `${apiName}_${stageTransition}` : apiName);
+    const statement = buildUnderwritingConstraintStatement(
+      constraintName,
+      declaration,
+      `${constraintLabel}: ${record.Name}`
+    );
+
+    // Same emitted-vs-collected reconciliation buildPathedSurchargeRules uses for
+    // referencedAttributes, but ALSO carrying each attribute's derived CML type:
+    // collectAttributeTypes keys its map by the RAW attribute name, whereas
+    // collectEmittedAttributes returns SANITIZED names, so we sanitize each raw key before
+    // matching it against the emitted-name set.
+    const emittedSanitized = collectEmittedAttributes([{ ruleDef }]);
+    const attrTypesByRawName = collectAttributeTypes([{ ruleDef }]);
+    const referencedAttributes: Array<{ name: string; cmlType: string }> = [];
+    for (const [rawName, cmlType] of attrTypesByRawName) {
+      const sanitized = sanitizeName(rawName);
+      if (emittedSanitized.has(sanitized)) {
+        referencedAttributes.push({ name: sanitized, cmlType });
+      }
+    }
+
+    return {
+      recordId: record.Id,
+      recordName: record.Name,
+      apiName,
+      ruleKey,
+      pathProductCodes: pathCodes,
+      typeName,
+      constraintName,
+      statement,
+      referencedAttributes,
+    };
+  });
+}
+
+/**
  * Merges the pathed surcharge `rule(...)` statements into the existing CML text. If the rule key is
  * already present, the existing statement line is replaced in place (idempotent). Otherwise the
  * statement is inserted just before the closing brace of the leaf `type` block. Rules whose leaf type
@@ -423,6 +547,138 @@ export function mergeSurchargeRules(existingCml: string, rules: PathedSurchargeR
 }
 
 /**
+ * Merges the underwriting `constraint <name> = (...)` statements into the existing CML text.
+ * Mirrors {@link mergeSurchargeRules}'s insert/replace/skip shape, but for the constraint form
+ * underwriting eligibility uses instead of a `rule(...)` action statement:
+ *
+ * - If a constraint with the same name already exists in the rule's leaf `type` block, its full
+ * statement (from the `constraint` keyword through the terminating `;`) is replaced in place
+ * (idempotent — re-running the merge with the same input reproduces the same output).
+ * - Otherwise the statement is inserted just before the closing brace of the leaf `type` block.
+ * - Before placing a rule's constraint, any of its `referencedAttributes` not already declared
+ * anywhere in the leaf `type` block are auto-inserted (as `<cmlType> <attrName>;`) right after
+ * the block's opening brace, and reported via `attributeWarnings` so the caller can log them —
+ * unlike surcharge merge (which only WARNS about missing attributes, since injecting into the
+ * curated model there was judged too risky for a `rule(...)` action statement), underwriting
+ * constraints reference attributes that must resolve for the constraint to compile, so the
+ * declaration is added rather than merely flagged.
+ *
+ * Rules with a blank ProductPath, no resolved leaf type tag, an ambiguous/duplicate type block, or
+ * an intra-run duplicate (typeName, constraintName) pair are skipped (reported, never silently
+ * dropped) — never throws on a single rule's failure.
+ */
+export function mergeUnderwritingConstraints(existingCml: string, rules: UnderwritingConstraintRule[]): UwMergeResult {
+  let cml = existingCml;
+  const placements: UwMergePlacement[] = [];
+  const skips: UwMergeSkip[] = [];
+  const attributeWarnings: string[] = [];
+  const eol = detectDominantLineEnding(existingCml);
+
+  // Mirrors mergeSurchargeRules' placedKeys guard: a second rule resolving to the same
+  // (typeName, constraintName) pair must be reported as a collision skip, not treated as an
+  // idempotent replace of the first rule's just-placed statement.
+  const placedNames = new Set<string>();
+
+  for (const rule of rules) {
+    if (rule.pathProductCodes.length === 0) {
+      skips.push({
+        rule,
+        reason: `empty ProductPath for ${rule.recordName}; refusing to merge a non-pathed underwriting rule`,
+      });
+      continue;
+    }
+    if (!rule.typeName) {
+      skips.push({ rule, reason: `no CML type tag found for the leaf product of ${rule.recordName}` });
+      continue;
+    }
+
+    const placementKey = `${rule.typeName}::${rule.constraintName}`;
+    if (placedNames.has(placementKey)) {
+      skips.push({
+        rule,
+        reason: `duplicate constraint name '${rule.constraintName}' in type '${rule.typeName}' collides with another rule in this run (${rule.recordName} skipped)`,
+      });
+      continue;
+    }
+
+    // Recomputed per-iteration because a prior rule's splice (attribute insert, constraint
+    // replace/insert) may have mutated `cml`.
+    const scan = blankComments(cml);
+    const block = findTypeBlock(cml, rule.typeName, scan);
+    if (!block) {
+      skips.push({ rule, reason: `type block '${rule.typeName}' not found in existing model` });
+      continue;
+    }
+    if ('ambiguous' in block) {
+      skips.push({
+        rule,
+        reason: `type block '${rule.typeName}' is ambiguous (multiple/duplicate declarations) in existing model; skipping ${rule.recordName} rather than guessing`,
+      });
+      continue;
+    }
+
+    // Warn (but do not auto-insert) when a referenced attribute is not declared in the type
+    // block — matching the surcharge merge's behavior. The curated model is not mutated for
+    // attributes; the operator must add them manually before import.
+    for (const attr of rule.referencedAttributes) {
+      const bodyScan = scan.slice(block.openIdx, block.closeIdx + 1);
+      const declRe = new RegExp(`\\b${escapeRegExp(attr.cmlType)}\\s+${escapeRegExp(attr.name)}\\b`);
+      if (declRe.test(bodyScan)) continue;
+      attributeWarnings.push(
+        `${rule.recordName}: declaration references '${attr.name}' which is absent from type '${rule.typeName}'`
+      );
+    }
+
+    const stmt = findConstraintStatement(cml, block, rule.constraintName, scan);
+    if (stmt) {
+      // Splice ONLY the matched statement span (`constraint ... ;`), mirroring the precise-span
+      // splice mergeSurchargeRules uses for its rule(...) replace path.
+      cml = cml.slice(0, stmt.start) + rule.statement + cml.slice(stmt.end);
+      placements.push({ rule, status: 'replaced' });
+      placedNames.add(placementKey);
+      continue;
+    }
+
+    // Insert before the closing brace, indented one level (4 spaces), with a leading blank line.
+    const insertion = `${eol}    ${rule.statement}${eol}`;
+    cml = cml.slice(0, block.closeIdx) + insertion + cml.slice(block.closeIdx);
+    placements.push({ rule, status: 'inserted' });
+    placedNames.add(placementKey);
+  }
+
+  return { mergedCml: cml, placements, skips, attributeWarnings };
+}
+
+/**
+ * Finds the single `constraint <name> = (...)` statement carrying `constraintName` INSIDE the
+ * given `block` (the rule's leaf `type` block) and returns the precise start/end offsets of the
+ * whole statement (from the `constraint` keyword through the terminating `;`), so the caller can
+ * splice only that statement in place. Scoped to `block` so a same-named constraint in a sibling
+ * type block is never mistaken for a match. Runs against the comment-blanked `scan` view (see
+ * {@link findSurchargeStatement}'s companion rationale) so a constraint-shaped string sitting
+ * inside a comment can't be clobbered.
+ */
+function findConstraintStatement(
+  cml: string,
+  block: TypeBlock,
+  constraintName: string,
+  scan: string
+): StatementMatch | undefined {
+  const bodyScan = scan.slice(block.openIdx, block.closeIdx + 1);
+  const anchor = new RegExp(`constraint\\s+${escapeRegExp(constraintName)}\\s*=\\s*\\(`);
+  const m = anchor.exec(bodyScan);
+  if (!m) return undefined;
+
+  const start = block.openIdx + m.index;
+  const semi = findStructuralSemicolon(scan, start + m[0].length);
+  if (semi === undefined) {
+    // Malformed unterminated constraint(...) — refuse to splice rather than guessing.
+    return undefined;
+  }
+  return { start, end: semi + 1 };
+}
+
+/**
  * [Fix #2] Precise span of a matched surcharge statement.
  *
  * - `start`  — offset of the matched `rule(` token in the original cml
@@ -519,7 +775,7 @@ function findStructuralSemicolon(scan: string, from: number): number | undefined
  * literals are left intact: the anchor itself requires the literal `"InsuranceSurchargeRule"` action
  * token, so a same-key VALUE inside another rule's string still won't satisfy the action-scope shape.
  */
-function blankComments(cml: string): string {
+export function blankComments(cml: string): string {
   const out = cml.split('');
   let inString = false;
   let inLineComment = false;
