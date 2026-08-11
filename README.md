@@ -174,6 +174,15 @@ EXAMPLES
   $ sf cml convert surcharge-rules --cml-api SURCHARGE_CML --surcharge-file path/to/surcharges.json --workspace-dir data --target-org myOrg
 ```
 
+After importing the merged CML with `sf cml import as-expression-set`, apply the emitted `_SurchargeUpdate.json` (flips `RuleEngineType` → `ConstraintEngine`) with:
+
+```
+$ DRY_RUN=1 ./scripts/apply-surcharge-update.sh data/SURCHARGE_CML_SurchargeUpdate.json myOrg
+$ ./scripts/apply-surcharge-update.sh data/SURCHARGE_CML_SurchargeUpdate.json myOrg
+```
+
+Requires `jq` and the Salesforce CLI (`sf`). Until `sf cml import record-updates` ships, this helper is the supported apply path for surcharge record updates.
+
 ## `sf cml convert underwriting-rules`
 
 Converts BRE-based Insurance Underwriting dynamic rules to CML eligibility constraints.
