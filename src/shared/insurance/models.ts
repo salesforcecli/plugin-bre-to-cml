@@ -49,6 +49,10 @@ export type ParsedRuleDefinition = {
   description?: string;
   ruleCriteria?: RuleCriteria[];
   underwritingRuleGroup?: UnderwritingRuleGroup;
+  // Surcharge only: the parent Surcharge Id, carried in the ProductSurcharge RuleDefinition JSON.
+  // The platform derives the leaf segment of ProductSurcharge.RuleKey from that Surcharge's Code
+  // (NOT the rule apiName), so the merge resolves this Id -> Surcharge.Code to build a matching key.
+  surchargeId?: string;
 };
 
 export type RuleRecord = {

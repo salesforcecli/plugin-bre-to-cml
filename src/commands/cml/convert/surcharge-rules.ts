@@ -27,6 +27,7 @@ import {
   buildPathedSurchargeRules,
   fetchExistingConstraintModel,
   fetchProductTypeTags,
+  fetchSurchargeCodes,
   mergeSurchargeRules,
   splitProductPath,
 } from '../../../shared/insurance/insurance-cml-merge.js';
@@ -116,6 +117,16 @@ export default class CmlConvertSurchargeRules extends InsuranceRuleConvertComman
     }
     const productIdToType = await fetchProductTypeTags(conn, productIds);
 
+    // The platform derives the RuleKey leaf from the parent Surcharge.Code (carried as `surchargeId`
+    // in each RuleDefinition), NOT the rule apiName. Resolve those Codes so the emitted CML rule key
+    // matches the platform-generated ProductSurcharge.RuleKey exactly; otherwise the surcharge
+    // imports cleanly but never fires ("No active rule model found").
+    const surchargeIds = new Set<string>();
+    for (const { ruleDef } of ruleDefs) {
+      if (ruleDef.surchargeId) surchargeIds.add(ruleDef.surchargeId);
+    }
+    const surchargeIdToCode = await fetchSurchargeCodes(conn, surchargeIds);
+
     // Capture the ProductCode path per surcharge so the emitted update file can carry it (same
     // mapping buildPathedSurchargeRules uses for the rule key). Drift here would desync the platform
     // RuleKey, so it is recorded for the apply-time check rather than discarded.
@@ -126,7 +137,13 @@ export default class CmlConvertSurchargeRules extends InsuranceRuleConvertComman
       this.surchargeProductCodes.set(record.Id, codes);
     }
 
-    const rules = buildPathedSurchargeRules(this.keyPrefix, ruleDefs, productIdToCode, productIdToType);
+    const rules = buildPathedSurchargeRules(this.keyPrefix, ruleDefs, productIdToCode, productIdToType, {
+      surchargeIdToCode,
+      onSurchargeCodeFallback: (recordName) =>
+        this.warn(
+          `Could not resolve Surcharge.Code for ${recordName}; rule key leaf derived from apiName and may not match the platform-generated RuleKey (surcharge may silently not fire)`
+        ),
+    });
     rules.forEach((r) => this.log(`  -> ${r.recordName} => ${r.ruleKey} (type: ${r.typeName ?? 'UNRESOLVED'})`));
 
     const { mergedCml, placements, skips, attributeWarnings } = mergeSurchargeRules(existing.cmlText, rules);

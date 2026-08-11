@@ -49,16 +49,18 @@ type SurchargeFixture = {
   RuleDefinition: string | null;
 };
 
-const ruleDefinition = (apiName: string, conditions: unknown[]): string =>
+const ruleDefinition = (apiName: string, conditions: unknown[], surchargeId?: string): string =>
   JSON.stringify({
     ruleApiName: apiName,
     ruleCriteria: conditions.length ? [{ rootObjectId: 'root', conditions }] : [],
+    ...(surchargeId ? { surchargeId } : {}),
   });
 
 type MockOpts = {
   existingCml?: string | undefined;
   productCodes?: Array<{ Id: string; ProductCode: string | null; Name: string | null }>;
   productTypeTags?: Array<{ ReferenceObjectId: string; ConstraintModelTag: string }>;
+  surchargeCodes?: Array<{ Id: string; Code: string | null }>;
 };
 
 /** Identity helper so the org-fixture options read declaratively at each call site. */
@@ -109,6 +111,7 @@ describe('cml convert surcharge-rules', () => {
       if (soql.includes('FROM ExpressionSetConstraintObj')) {
         return Promise.resolve({ records: opts.productTypeTags ?? [] });
       }
+      if (soql.includes('FROM Surcharge')) return Promise.resolve({ records: opts.surchargeCodes ?? [] });
       return Promise.resolve({ records: [] });
     };
     $$.SANDBOX.stub(Connection.prototype, 'query').callsFake(queryFake as never);
@@ -232,6 +235,65 @@ describe('cml convert surcharge-rules', () => {
       await fs.readFile(path.join(workspaceDir, `${CML_API}_RuleKeyMapping.json`), 'utf8')
     ) as Array<{ ruleKey: string }>;
     expect(mapping[0].ruleKey).to.equal('SC__autoSilver__collision__CollisionFee');
+  });
+
+  it('derives the rule key leaf from the parent Surcharge.Code (matching the platform RuleKey)', async () => {
+    stubOrgConnection(
+      mockConnection({
+        existingCml: GOLD_CML,
+        productCodes: [
+          { Id: '01tROOT00000000001', ProductCode: 'autoSilver', Name: 'Auto Silver' },
+          { Id: '01tCOLL00000000001', ProductCode: 'collision', Name: 'Collision' },
+        ],
+        productTypeTags: [{ ReferenceObjectId: '01tCOLL00000000001', ConstraintModelTag: 'Collision' }],
+        surchargeCodes: [{ Id: '1Xq000000000001', Code: 'collisioncode' }],
+      })
+    );
+    await writeSurchargeFile([
+      {
+        Id: 'a0p000000000001',
+        Name: 'Collision Fee',
+        ProductPath: '01tROOT00000000001/01tCOLL00000000001',
+        // apiName is CollisionFee, but the parent Surcharge.Code is collisioncode: the platform
+        // builds RuleKey from the Code, so the emitted key must use the Code leaf, not the apiName.
+        RuleDefinition: ruleDefinition('CollisionFee', [], '1Xq000000000001'),
+      },
+    ]);
+
+    const result = await runCommand();
+
+    expect(result.ruleKeyMapping[0].ruleKey).to.equal('SC__autoSilver__collision__collisioncode');
+    const mergedCml = await fs.readFile(result.cmlFile, 'utf8');
+    expect(mergedCml).to.include('"SC__autoSilver__collision__collisioncode"');
+    // No fallback warning fired, since the Code resolved.
+    expect(warnOutput()).to.not.include('Could not resolve Surcharge.Code');
+  });
+
+  it('warns and falls back to apiName when the parent Surcharge.Code cannot be resolved', async () => {
+    stubOrgConnection(
+      mockConnection({
+        existingCml: GOLD_CML,
+        productCodes: [
+          { Id: '01tROOT00000000001', ProductCode: 'autoSilver', Name: 'Auto Silver' },
+          { Id: '01tCOLL00000000001', ProductCode: 'collision', Name: 'Collision' },
+        ],
+        productTypeTags: [{ ReferenceObjectId: '01tCOLL00000000001', ConstraintModelTag: 'Collision' }],
+        surchargeCodes: [], // Surcharge query returns nothing => fall back to apiName leaf.
+      })
+    );
+    await writeSurchargeFile([
+      {
+        Id: 'a0p000000000001',
+        Name: 'Collision Fee',
+        ProductPath: '01tROOT00000000001/01tCOLL00000000001',
+        RuleDefinition: ruleDefinition('CollisionFee', [], '1Xq000000000001'),
+      },
+    ]);
+
+    const result = await runCommand();
+
+    expect(result.ruleKeyMapping[0].ruleKey).to.equal('SC__autoSilver__collision__CollisionFee');
+    expect(warnOutput()).to.include('Could not resolve Surcharge.Code for Collision Fee');
   });
 
   it('surfaces both a skip and an attribute warning (neither is silent)', async () => {

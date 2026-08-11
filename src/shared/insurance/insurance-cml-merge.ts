@@ -37,8 +37,11 @@ import { quoteSoqlIdList } from './insurance-org.js';
  *
  * Why pathed keys: when a ProductSurcharge is persisted as ConstraintEngine the platform
  * auto-generates `RuleKey` as `SC` + sanitize(ProductCode) of every segment in ProductPath (in
- * order) + sanitize(apiName), joined by `__`. The Core surcharge engine matches the fired CML rule
- * key against that auto-generated RuleKey by exact string, so the CML rule key MUST be pathed too.
+ * order) + sanitize(leaf), joined by `__`. The leaf is the parent `Surcharge.Code` (resolved via
+ * ProductSurcharge.SurchargeId), NOT the rule apiName — see {@link fetchSurchargeCodes} and
+ * {@link buildPathedSurchargeRules}. The Core surcharge engine matches the fired CML rule key
+ * against that auto-generated RuleKey by exact string, so the CML rule key MUST be pathed and use
+ * the same Code-derived leaf.
  */
 
 export const SURCHARGE_RULE_ACTION = 'InsuranceSurchargeRule';
@@ -199,6 +202,33 @@ export async function fetchProductTypeTags(conn: Connection, productIds: Set<str
   return idToTag;
 }
 
+/**
+ * Resolves Surcharge id -> Surcharge.Code. The platform builds the LEAF segment of
+ * `ProductSurcharge.RuleKey` from the parent Surcharge's Code (e.g. `basictaxcode`), NOT from the
+ * rule apiName. `buildPathedSurchargeRules` uses this map so the emitted CML rule key matches the
+ * platform-generated RuleKey exactly; without it the surcharge imports cleanly but never fires
+ * ("No active rule model found"). Ids with no resolvable Code are omitted (caller warns + falls
+ * back to apiName).
+ */
+export async function fetchSurchargeCodes(conn: Connection, surchargeIds: Set<string>): Promise<Map<string, string>> {
+  const idToCode = new Map<string, string>();
+  const idList = quoteSoqlIdList(surchargeIds);
+  if (!idList) return idToCode;
+
+  const result = await conn.query<{ Id: string; Code: string | null }>(
+    `SELECT Id, Code FROM Surcharge WHERE Id IN (${idList})`
+  );
+  for (const r of result.records) {
+    if (!r.Id || !r.Code) continue;
+    // SOQL always returns 18-char Ids, but a RuleDefinition blob could carry a 15-char surchargeId.
+    // Index under both the full and 15-char-prefix forms so the caller's verbatim lookup hits either
+    // way (SOQL `IN` is 15/18 tolerant, so the returned key would otherwise not match a 15-char id).
+    idToCode.set(r.Id, r.Code);
+    if (r.Id.length === 18) idToCode.set(r.Id.slice(0, 15), r.Code);
+  }
+  return idToCode;
+}
+
 export function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -319,22 +349,42 @@ export function buildSurchargeRuleStatement(declaration: string, ruleKey: string
   return CmlConstraint.createRuleConstraint(declaration, SURCHARGE_RULE_ACTION, ruleKey, 'True').generateCml();
 }
 
+export type BuildPathedSurchargeRulesOptions = {
+  /**
+   * Surcharge id -> Surcharge.Code (from {@link fetchSurchargeCodes}). The platform derives the
+   * LEAF segment of ProductSurcharge.RuleKey from the parent Surcharge's Code, so this is preferred
+   * over the rule apiName for the key leaf. When a rule's surchargeId is missing or not present in
+   * this map, the leaf falls back to the apiName and {@link onSurchargeCodeFallback} fires.
+   */
+  surchargeIdToCode?: Map<string, string>;
+  /** Called with the rule's recordName when its Surcharge.Code could not be resolved (key leaf fell back to apiName). */
+  onSurchargeCodeFallback?: (recordName: string) => void;
+};
+
 /**
  * Prepares the pathed-rule descriptors for a set of parsed surcharge records.
  * `productIdToCode` and `productIdToType` must already cover every ProductPath segment.
+ * `options.surchargeIdToCode` should map every rule's parent Surcharge id to its Code so the key
+ * leaf matches the platform-generated RuleKey (see {@link fetchSurchargeCodes}).
  */
 export function buildPathedSurchargeRules(
   prefix: string,
   ruleDefs: Array<{ record: RuleRecord; ruleDef: ParsedRuleDefinition }>,
   productIdToCode: Map<string, string>,
-  productIdToType: Map<string, string>
+  productIdToType: Map<string, string>,
+  options: BuildPathedSurchargeRulesOptions = {}
 ): PathedSurchargeRule[] {
   return ruleDefs.map(({ record, ruleDef }) => {
     const apiName = ruleDef.apiName ?? record.Name;
+    // The platform builds the RuleKey leaf from the parent Surcharge.Code, not the rule apiName.
+    // Prefer the resolved Code; fall back to apiName (and warn) only when it can't be resolved.
+    const surchargeCode = ruleDef.surchargeId ? options.surchargeIdToCode?.get(ruleDef.surchargeId) : undefined;
+    const keyLeaf = surchargeCode ?? apiName;
+    if (!surchargeCode) options.onSurchargeCodeFallback?.(record.Name);
     const segments = splitProductPath(record.ProductPath);
     const pathCodes = segments.map((id) => productIdToCode.get(id) ?? id);
     const stageTransition = buildStageTransition(ruleDef.underwritingRuleGroup);
-    const ruleKey = buildPathedRuleKey(prefix, pathCodes, apiName, stageTransition);
+    const ruleKey = buildPathedRuleKey(prefix, pathCodes, keyLeaf, stageTransition);
 
     const leafProductId = segments[segments.length - 1];
     const typeName = leafProductId ? productIdToType.get(leafProductId) : undefined;

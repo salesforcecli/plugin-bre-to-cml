@@ -187,6 +187,29 @@ describe('buildPathedSurchargeRules', () => {
     const [rule] = buildPathedSurchargeRules('SC', [{ record, ruleDef }], new Map([['p1', 'autoSilver']]), new Map());
     expect(rule.ruleKey).to.equal('SC__autoSilver__RecordName');
   });
+
+  it('uses the parent Surcharge.Code (not the apiName) as the key leaf when resolvable', () => {
+    const record = makeRecord('r1', 'Basic_Tax', 'p1');
+    const ruleDef = { name: 'Basic_Tax', apiName: 'Basic_Tax', productPath: 'p1', surchargeId: 'sc1' };
+    const [rule] = buildPathedSurchargeRules('SC', [{ record, ruleDef }], new Map([['p1', 'commProperty']]), new Map(), {
+      surchargeIdToCode: new Map([['sc1', 'basictaxcode']]),
+    });
+    // Matches the platform-generated ProductSurcharge.RuleKey (Surcharge.Code leaf), not SC__commProperty__Basic_Tax.
+    expect(rule.ruleKey).to.equal('SC__commProperty__basictaxcode');
+    expect(rule.statement).to.include('"SC__commProperty__basictaxcode"');
+  });
+
+  it('falls back to apiName and fires onSurchargeCodeFallback when the Surcharge.Code is unresolved', () => {
+    const record = makeRecord('r1', 'Basic_Tax', 'p1');
+    const ruleDef = { name: 'Basic_Tax', apiName: 'Basic_Tax', productPath: 'p1', surchargeId: 'scMissing' };
+    const missed: string[] = [];
+    const [rule] = buildPathedSurchargeRules('SC', [{ record, ruleDef }], new Map([['p1', 'commProperty']]), new Map(), {
+      surchargeIdToCode: new Map(),
+      onSurchargeCodeFallback: (name) => missed.push(name),
+    });
+    expect(rule.ruleKey).to.equal('SC__commProperty__Basic_Tax');
+    expect(missed).to.deep.equal(['Basic_Tax']);
+  });
 });
 
 describe('mergeSurchargeRules', () => {
