@@ -65,12 +65,25 @@ curated `ConstraintModel` — nesting each rule into its leaf product type with 
 pathed rule key — rather than building a fresh, flat model. It requires an existing CML model for the
 resolved CML API.
 
-<!-- commands -->
+> **Prerequisite:** each surcharge's parent `Surcharge.Code` must be set (non-null). The platform
+> derives the leaf segment of the auto-generated `ProductSurcharge.RuleKey` from `Surcharge.Code`, and
+> a surcharge with a null Code cannot be flipped to `ConstraintEngine` (the org raises a save-hook
+> error). Populate `Surcharge.Code` before converting.
 
-- [`sf cml convert prod-cfg-rules`](#sf-cml-convert-prod-cfg-rules)
-- [`sf cml convert surcharge-rules`](#sf-cml-convert-surcharge-rules)
-- [`sf cml convert underwriting-rules`](#sf-cml-convert-underwriting-rules)
-- [`sf cml import as-expression-set`](#sf-cml-import-as-expression-set)
+After importing the merged CML with `sf cml import as-expression-set`, apply the emitted `_SurchargeUpdate.json` (flips `RuleEngineType` → `ConstraintEngine`) with:
+
+```
+$ DRY_RUN=1 ./scripts/apply-surcharge-update.sh data/SURCHARGE_CML_SurchargeUpdate.json myOrg
+$ ./scripts/apply-surcharge-update.sh data/SURCHARGE_CML_SurchargeUpdate.json myOrg
+```
+
+Requires `jq` and the Salesforce CLI (`sf`). Until `sf cml import record-updates` ships, this helper is the supported apply path for surcharge record updates.
+
+<!-- commands -->
+* [`sf cml convert prod-cfg-rules`](#sf-cml-convert-prod-cfg-rules)
+* [`sf cml convert surcharge-rules`](#sf-cml-convert-surcharge-rules)
+* [`sf cml convert underwriting-rules`](#sf-cml-convert-underwriting-rules)
+* [`sf cml import as-expression-set`](#sf-cml-import-as-expression-set)
 
 ## `sf cml convert prod-cfg-rules`
 
@@ -168,20 +181,16 @@ DESCRIPTION
   the CML with `sf cml import as-expression-set` and apply the org-record changes enumerated in the
   \_SurchargeUpdate.json file to the org separately (in that order).
 
+  The parent Surcharge's Code field must be set (non-null): the platform derives the leaf segment of the auto-generated
+  ProductSurcharge.RuleKey from Surcharge.Code, so the converter uses it to build a matching rule key. A surcharge whose
+  parent Surcharge has a null Code cannot be flipped to ConstraintEngine (the org raises a save-hook error) and will not
+  convert correctly — populate Surcharge.Code before converting.
+
 EXAMPLES
   $ sf cml convert surcharge-rules --cml-api SURCHARGE_CML --target-org myOrg
 
   $ sf cml convert surcharge-rules --cml-api SURCHARGE_CML --surcharge-file path/to/surcharges.json --workspace-dir data --target-org myOrg
 ```
-
-After importing the merged CML with `sf cml import as-expression-set`, apply the emitted `_SurchargeUpdate.json` (flips `RuleEngineType` → `ConstraintEngine`) with:
-
-```
-$ DRY_RUN=1 ./scripts/apply-surcharge-update.sh data/SURCHARGE_CML_SurchargeUpdate.json myOrg
-$ ./scripts/apply-surcharge-update.sh data/SURCHARGE_CML_SurchargeUpdate.json myOrg
-```
-
-Requires `jq` and the Salesforce CLI (`sf`). Until `sf cml import record-updates` ships, this helper is the supported apply path for surcharge record updates.
 
 ## `sf cml convert underwriting-rules`
 
@@ -260,5 +269,4 @@ DESCRIPTION
 EXAMPLES
   $ sf cml import as-expression-set --cml-api MY_TEST --context-definition PricingTransactionCD2 --workspace-dir data --target-org tgtOrg
 ```
-
 <!-- commandsstop -->
