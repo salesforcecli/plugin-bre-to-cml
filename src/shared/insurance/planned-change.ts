@@ -72,7 +72,14 @@ export type PlannedChangeRenderer = {
 };
 
 export function truncateCell(value: string, max = MAX_CELL_LENGTH): string {
-  return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
+  if (value.length <= max) return value;
+  // `max - 1` goes negative for max < 1, which would slice from the END of the string and return
+  // something longer than the budget. The ellipsis alone is the smallest honest rendering.
+  const keep = Math.max(max - 1, 0);
+  let head = value.slice(0, keep);
+  // Never emit the high half of a surrogate pair on its own — it renders as a replacement glyph.
+  if (/[\uD800-\uDBFF]$/.test(head)) head = head.slice(0, -1);
+  return `${head}…`;
 }
 
 /** Renders a single field-level change as `old → new`, with both sides truncated. */
