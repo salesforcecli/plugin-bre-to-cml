@@ -540,6 +540,49 @@ describe('cml convert surcharge-rules', () => {
     expect(plan.updates).to.have.length(0);
   });
 
+  // A rule that lost every condition is the same hazard arriving by a different route: nothing was
+  // unrepresentable, but every expression was dropped by a safety guard, so the rule would have
+  // been placed as `rule(true, ...)` and charged every quote. The record-update plan is the
+  // property that matters most — a withheld rule whose record still got flipped would go dark.
+  it('keeps a rule whose conditions all dropped out of the CML and the record-update plan', async () => {
+    stubOrgConnection(
+      mockConnection({
+        existingCml: GOLD_CML,
+        productCodes: [
+          { Id: '01tROOT00000000001', ProductCode: 'autoSilver', Name: 'Auto Silver' },
+          { Id: '01tCOLL00000000001', ProductCode: 'collision', Name: 'Collision' },
+        ],
+        productTypeTags: [{ ReferenceObjectId: '01tCOLL00000000001', ConstraintModelTag: 'Collision' }],
+      })
+    );
+    await writeSurchargeFile([
+      {
+        Id: 'a0p000000000001',
+        Name: 'Deductible Fee',
+        ProductPath: '01tROOT00000000001/01tCOLL00000000001',
+        // The measured case: In (500, "Premium") on a currency-typed attribute. 'Premium' fails the
+        // numeric literal guard, which drops the condition and leaves nothing to compare.
+        RuleDefinition: ruleDefinition('DeductibleFee', [
+          { operator: 'In', attributeName: 'Deductible', dataType: 'Currency', values: ['500', 'Premium'] },
+        ]),
+      },
+    ]);
+
+    const result = await runCommand();
+
+    expect(warnOutput()).to.match(/SKIPPED Deductible Fee: cannot be expressed in CML/);
+    expect(warnOutput()).to.match(/could not be converted/);
+    expect(logOutput()).to.match(/unconvertible/);
+    expect(result.ruleKeyMapping).to.have.length(0);
+    const merged = await fs.readFile(path.join(workspaceDir, `${CML_API}.cml`), 'utf8');
+    expect(merged).to.not.include('rule(');
+
+    const plan = JSON.parse(await fs.readFile(path.join(workspaceDir, `${CML_API}_SurchargeUpdate.json`), 'utf8')) as {
+      updates: Array<{ id: string }>;
+    };
+    expect(plan.updates).to.have.length(0);
+  });
+
   // ---- Fix #8: a product id that the Product2 query did NOT return (deleted / not visible /
   // filtered) used to silently fall back to the raw Id for that path segment, yielding a rule
   // key that won't match the platform-generated RuleKey. Surface it as a warning, distinct from

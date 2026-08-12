@@ -27,7 +27,7 @@ import {
   splitProductPath,
   SURCHARGE_RULE_ACTION,
 } from '../../../src/shared/insurance/insurance-cml-merge.js';
-import { ParsedRuleDefinition, RuleRecord } from '../../../src/shared/insurance/models.js';
+import { ParsedRuleDefinition, RuleCondition, RuleRecord } from '../../../src/shared/insurance/models.js';
 
 /**
  * Minimal curated "Gold Standard"-shaped model used as the merge fixture. Mirrors the real org
@@ -860,14 +860,17 @@ describe('a rule carrying a datetime value CML cannot represent', () => {
       buildUnderwritingConstraintRules('UW', 'Underwriting eligibility', [{ record, ruleDef }], codes(), tags())
     );
 
-  // The reason the withhold has to happen before the declaration is built: a rule that loses every
-  // condition is NOT skipped, it is placed as an unconditional rule. (Unchanged behavior, pinned
-  // here as the justification — this is the empty-dataType defect's mechanism.)
-  it('is why: a rule whose conditions all drop is placed as `true`, never skipped', () => {
+  // The reason the withhold has to happen before the declaration is built: once
+  // buildConstraintDeclaration has answered, a rule that lost every condition is indistinguishable
+  // from one that never had any — both are `true`. That collapse used to be placed as an
+  // unconditional rule (the empty-dataType defect's mechanism, pinned here as the justification);
+  // it is now refused through this same channel, so the justification is asserted as the behavior.
+  it('is why: a rule whose conditions all drop is withheld rather than placed as `true`', () => {
     const { mergedCml, placements, skips } = surcharge(ruleWith('Number', ['not-a-number']));
-    expect(skips).to.have.length(0);
-    expect(placements).to.have.length(1);
-    expect(mergedCml).to.include('rule(true,');
+    expect(placements).to.have.length(0);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.match(/could not be converted/);
+    expect(mergedCml).to.not.include('rule(');
   });
 
   it('is withheld from the surcharge merge instead of placed', () => {
@@ -988,6 +991,120 @@ describe('a rule applying a substring test to a non-string attribute', () => {
     expect(skips).to.have.length(0);
     expect(placements).to.have.length(1);
     expect(mergedCml).to.include('rule(strcontain(Deductible, "Severe"),');
+  });
+});
+
+/**
+ * A rule whose criteria existed but lost every condition to a safety guard is a conversion failure
+ * reported as success: `buildConstraintDeclaration` answers `true`, and the merge places
+ * `rule(true, ...)` — a surcharge that charges every customer, or an underwriting constraint that
+ * is always satisfied. A rule with NO criteria answers `true` for the opposite reason: it genuinely
+ * applies always, and curated models carry such lines. Only the first is withheld, through the same
+ * channel as the datetime and substring refusals.
+ */
+describe('a rule whose every condition was dropped in conversion', () => {
+  const DEDUCTIBLE_ID = '0tjfiw000000CMBAA2';
+  const record: RuleRecord = { Id: 'r1', Name: 'Deductible Fee', ProductPath: 'p1' };
+
+  const ruleWith = (conditions: RuleCondition[]): ParsedRuleDefinition => ({
+    name: 'Deductible Fee',
+    apiName: 'DeductibleFee',
+    productPath: 'p1',
+    ruleCriteria: [{ rootObjectId: 'root', conditions }],
+  });
+
+  // Refused by the numeric safe-literal guard, so the rule's only condition drops.
+  const unsafeNumeric = (): RuleCondition[] => [
+    { operator: 'Equals', attributeName: 'Deductible', dataType: 'Number', values: ['not-a-number'] },
+  ];
+
+  const CURATED = 'type Driver {\n    decimal Deductible;\n}\n';
+  const codes = (): Map<string, string> => new Map([['p1', 'autoSilver']]);
+  const tags = (): Map<string, string> => new Map([['p1', 'Driver']]);
+
+  const surcharge = (
+    ruleDef: ParsedRuleDefinition,
+    attributeDataTypes?: Map<string, string>
+  ): ReturnType<typeof mergeSurchargeRules> =>
+    mergeSurchargeRules(
+      CURATED,
+      buildPathedSurchargeRules('SC', [{ record, ruleDef }], codes(), tags(), { attributeDataTypes })
+    );
+
+  const underwriting = (ruleDef: ParsedRuleDefinition): ReturnType<typeof mergeUnderwritingConstraints> =>
+    mergeUnderwritingConstraints(
+      CURATED,
+      buildUnderwritingConstraintRules('UW', 'Underwriting eligibility', [{ record, ruleDef }], codes(), tags())
+    );
+
+  it('is withheld from the surcharge merge instead of placed as an unconditional rule', () => {
+    const { mergedCml, placements, skips } = surcharge(ruleWith(unsafeNumeric()));
+    expect(placements).to.have.length(0);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.match(/DeductibleFee/);
+    expect(skips[0].reason).to.match(/could not be converted/);
+    expect(skips[0].reason).to.match(/left on the rule engine/);
+    expect(mergedCml).to.not.include('rule(');
+  });
+
+  // An always-true constraint is the same hazard in the underwriting form.
+  it('is withheld from the underwriting merge instead of placed as an always-true constraint', () => {
+    const { mergedCml, placements, skips } = underwriting(ruleWith(unsafeNumeric()));
+    expect(placements).to.have.length(0);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.match(/DeductibleFee/);
+    expect(mergedCml).to.not.include('constraint DeductibleFee');
+    expect(mergedCml).to.not.include('true');
+  });
+
+  // The measured case: a Deductible behind a Currency picklist, compared with In against a list
+  // mixing a number and a word. The numeric guard refuses 'Premium', the condition drops, and the
+  // rule used to be placed as `rule(true, ...)` — every quote, not the deductibles it names.
+  it('withholds an In list mixing a number with a value the numeric guard refuses', () => {
+    const rule = ruleWith([
+      {
+        operator: 'In',
+        attributeName: 'Deductible',
+        attributeId: DEDUCTIBLE_ID,
+        dataType: 'Picklist',
+        values: ['500', 'Premium'],
+      },
+    ]);
+    const { mergedCml, placements, skips } = surcharge(rule, new Map([[DEDUCTIBLE_ID, 'Currency']]));
+    expect(placements).to.have.length(0);
+    expect(skips).to.have.length(1);
+    expect(mergedCml).to.not.include('rule(');
+  });
+
+  // The regression guard: a rule that genuinely has no criteria still converts to `true`, which is
+  // the correct reading of it and is what curated models already contain.
+  it('still places a rule that genuinely has no criteria as `true`', () => {
+    const noCriteria: ParsedRuleDefinition = { name: 'Flat Fee', apiName: 'FlatFee', productPath: 'p1' };
+    const { mergedCml, placements, skips } = surcharge(noCriteria);
+    expect(skips).to.have.length(0);
+    expect(placements).to.have.length(1);
+    expect(mergedCml).to.include('rule(true,');
+  });
+
+  it('still places a no-criteria rule in the underwriting form too', () => {
+    const noCriteria: ParsedRuleDefinition = { name: 'Flat Fee', apiName: 'FlatFee', productPath: 'p1' };
+    const { mergedCml, placements, skips } = underwriting(noCriteria);
+    expect(skips).to.have.length(0);
+    expect(placements).to.have.length(1);
+    expect(mergedCml).to.include('constraint FlatFee = (true,');
+  });
+
+  // Out of scope for this change, and asserted so the boundary is explicit: a rule that keeps one
+  // of its conditions still merges, even though it now matches more than the source rule did.
+  it('still places a rule that lost only some of its conditions', () => {
+    const partial = ruleWith([
+      ...unsafeNumeric(),
+      { operator: 'Equals', attributeName: 'Deductible', dataType: 'Number', values: ['500'] },
+    ]);
+    const { mergedCml, placements, skips } = surcharge(partial);
+    expect(skips).to.have.length(0);
+    expect(placements).to.have.length(1);
+    expect(mergedCml).to.include('rule(Deductible == 500,');
   });
 });
 

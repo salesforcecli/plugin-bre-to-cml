@@ -238,7 +238,7 @@ const SUBSTRING_OPERATORS: ReadonlySet<string> = new Set(['Contains', 'DoesNotCo
  * the empty-`dataType` defect, and the guard exists so a new cause cannot re-create it. Dropping
  * one condition of several is no better — it widens what the rule matches.
  *
- * There are two causes today, both of them a condition CML has no primitive for.
+ * Two of the three causes today are a condition CML has no primitive for.
  *
  * A date-typed condition whose value carries a time: CML has no datetime primitive, so the
  * alternatives were to emit a timestamp into a `date` slot (platform behavior unverified) or to
@@ -250,9 +250,18 @@ const SUBSTRING_OPERATORS: ReadonlySet<string> = new Set(['Contains', 'DoesNotCo
  * not a substring test at all.
  *
  * In both cases declining the rule and saying so beats emitting something that quietly does nothing.
+ *
+ * The third reason is not about one condition but about the rule as a whole: a rule whose criteria
+ * existed and lost EVERY condition — see {@link collapsesToUnconditional}. It is raised here rather
+ * than through a second mechanism because this function is the single point all three skip-reason
+ * collectors (`buildCmlModel`, `buildPathedSurchargeRules`, `buildUnderwritingConstraintRules`)
+ * already consult, so every caller withholds the rule the same way and a future caller cannot get
+ * half the behaviour.
  */
 export function findUnconvertibleConditions(
-  ruleDef: { ruleCriteria?: RuleCriteria[] },
+  // `apiName` / `name` are read only to name the rule in the whole-rule reason below; every real
+  // caller passes a ParsedRuleDefinition, which carries both.
+  ruleDef: { ruleCriteria?: RuleCriteria[]; apiName?: string; name?: string },
   attributeDataTypes?: AttributeDataTypes
 ): string[] {
   const reasons: string[] = [];
@@ -288,7 +297,52 @@ export function findUnconvertibleConditions(
       );
     }
   }
+
+  // Checked last, and only when nothing above spoke: a condition-specific refusal already says why
+  // the rule is withheld, so the whole-rule reason would just repeat it less usefully.
+  if (reasons.length === 0 && collapsesToUnconditional(ruleDef, attributeDataTypes)) {
+    const ruleName = ruleDef.apiName ?? ruleDef.name ?? 'unknown';
+    reasons.push(
+      `the conditions of rule '${ruleName}' could not be converted — every one of them was dropped (an ` +
+        'unrecognized operator, a missing value, or a value the safe-literal / quotable-string guards ' +
+        'refused), leaving nothing to compare. Converting the rule would emit the unconditional ' +
+        'declaration `true`, which matches every quote rather than the set the rule selects, so the rule ' +
+        'is left on the rule engine. Correct the offending condition values or operators and re-run, or ' +
+        'migrate this rule by hand.'
+    );
+  }
+
   return reasons;
+}
+
+/**
+ * Whether every condition of a rule that HAD conditions was dropped, leaving
+ * {@link buildConstraintDeclaration} nothing to build from.
+ *
+ * That function answers `'true'` from two places that mean opposite things. A rule with no criteria
+ * genuinely applies always, and curated models contain such lines — that `true` is correct. A rule
+ * whose criteria existed but lost every expression is a conversion FAILURE reported as success: the
+ * rule is placed as `rule(true, ...)` (or an always-satisfied constraint) and matches every quote.
+ * For a surcharge that means charging every customer. Only the second is a reason to withhold, and
+ * by the time the declaration exists the two are indistinguishable, so the distinction is drawn
+ * here from the criteria themselves.
+ *
+ * A criteria carrying no conditions dropped nothing either, so a rule made only of those is the
+ * genuinely-applies-always case in a different spelling, not a failure — hence the condition count
+ * rather than a `ruleCriteria.length` test.
+ *
+ * Losing SOME conditions is a related but distinct defect and deliberately out of scope: a criteria
+ * ANDs its conditions, so dropping one widens what the rule matches without collapsing it. That
+ * rule still emits.
+ */
+function collapsesToUnconditional(
+  ruleDef: { ruleCriteria?: RuleCriteria[] },
+  attributeDataTypes?: AttributeDataTypes
+): boolean {
+  const criteria = ruleDef.ruleCriteria ?? [];
+  const conditionCount = criteria.reduce((total, c) => total + (c.conditions?.length ?? 0), 0);
+  if (conditionCount === 0) return false;
+  return criteria.every((c) => buildCriteriaExpression(c, attributeDataTypes) === null);
 }
 
 function buildConditionExpression(condition: RuleCondition, attributeDataTypes?: AttributeDataTypes): string | null {
@@ -328,6 +382,14 @@ function buildCriteriaExpression(criteria: RuleCriteria, attributeDataTypes?: At
   return parts.length > 0 ? parts.join(' && ') : null;
 }
 
+/**
+ * Both `'true'` returns below are deliberate and stay total — the function must answer for any
+ * input, because merge mode builds a rule's statement before deciding whether to place it, and
+ * throwing here would bypass a caller's skip handling. Only the FIRST is a faithful conversion (a
+ * rule with no criteria really does always apply). The second means every expression was dropped,
+ * which {@link findUnconvertibleConditions} classifies as unconvertible so the callers that collect
+ * skip reasons withhold the rule instead of placing this declaration.
+ */
 export function buildConstraintDeclaration(
   ruleDef: { ruleCriteria?: RuleCriteria[] },
   attributeDataTypes?: AttributeDataTypes

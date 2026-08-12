@@ -29,7 +29,7 @@ import {
 } from '../../../src/shared/insurance/insurance-rule-generator.js';
 import { PcmGenerator } from '../../../src/shared/pcm-generator.js';
 import { CML_DATA_TYPES } from '../../../src/shared/constants/constants.js';
-import { ParsedRuleDefinition, RuleCriteria, RuleRecord } from '../../../src/shared/insurance/models.js';
+import { ParsedRuleDefinition, RuleCondition, RuleCriteria, RuleRecord } from '../../../src/shared/insurance/models.js';
 import {
   discoverCmlApiByProducts,
   fetchAttributeDataTypes,
@@ -1319,6 +1319,157 @@ describe('condition data type resolution', () => {
     };
     const resolved = new Map([['0tjfiw000000CMBAA2', 'Checkbox']]);
     expect(buildConstraintDeclaration(rule, resolved)).to.equal('Has_Anti_Theft == true');
+  });
+});
+
+/**
+ * `buildConstraintDeclaration` answers `true` in two situations that mean opposite things.
+ *
+ * A rule with no criteria genuinely applies always, and curated models carry such lines — that
+ * `true` is correct and must not change.
+ *
+ * A rule whose criteria existed but lost every condition to a safety guard (unknown operator,
+ * missing values, a value the safe-literal or quotable-string guard refused) is a conversion
+ * FAILURE reported as success: the rule is placed as `rule(true, ...)` and matches every quote.
+ * For a surcharge that charges every customer; for underwriting it is an always-true constraint.
+ * That rule is withheld and named instead, through the same `findUnconvertibleConditions` channel
+ * the datetime and substring refusals use.
+ */
+describe('a rule whose every condition was dropped in conversion', () => {
+  const DEDUCTIBLE_ID = '0tjfiw000000CMBAA2';
+
+  const criteriaWith = (conditions: RuleCondition[]): RuleCriteria[] => [{ rootObjectId: '01t', conditions }];
+
+  const ruleWith = (conditions: RuleCondition[]): ParsedRuleDefinition => ({
+    name: 'Deductible Fee',
+    apiName: 'DeductibleFee',
+    productPath: 'p1',
+    ruleCriteria: criteriaWith(conditions),
+  });
+
+  // Fails isSafeUnquotedLiteral on the decimal path, so the only condition drops.
+  const unsafeNumeric = (): RuleCondition[] => [
+    { attributeName: 'Deductible', operator: 'Equals', dataType: 'Number', values: ['not-a-number'] },
+  ];
+
+  it('is reported as unconvertible rather than silently collapsing to true', () => {
+    const reasons = findUnconvertibleConditions(ruleWith(unsafeNumeric()));
+    expect(reasons).to.have.length(1);
+    // Names the rule, says the conditions could not be converted, and says where the rule was left.
+    expect(reasons[0]).to.match(/DeductibleFee/);
+    expect(reasons[0]).to.match(/could not be converted/);
+    expect(reasons[0]).to.match(/left on the rule engine/);
+  });
+
+  // The measured case that motivated this: a Deductible behind a Currency picklist compared with
+  // In against a mixed list. The numeric path refuses 'Premium', the condition drops, and the rule
+  // used to arrive as `true` — matching every quote instead of the two deductibles it names.
+  it('covers an In list mixing a number with a value the numeric guard refuses', () => {
+    const rule = ruleWith([
+      {
+        attributeName: 'Deductible',
+        attributeId: DEDUCTIBLE_ID,
+        operator: 'In',
+        dataType: 'Picklist',
+        values: ['500', 'Premium'],
+      },
+    ]);
+    const currencyPicklist = new Map([[DEDUCTIBLE_ID, 'Currency']]);
+
+    expect(buildConstraintDeclaration(rule, currencyPicklist)).to.equal('true');
+    expect(findUnconvertibleConditions(rule, currencyPicklist)).to.have.length(1);
+  });
+
+  // The case that must NOT change: no criteria at all is a rule that really does always apply.
+  it('leaves a rule with no criteria alone, which genuinely applies always', () => {
+    expect(findUnconvertibleConditions({})).to.deep.equal([]);
+    expect(findUnconvertibleConditions({ ruleCriteria: [] })).to.deep.equal([]);
+    expect(buildConstraintDeclaration({ ruleCriteria: [] })).to.equal('true');
+  });
+
+  // A criteria carrying no conditions dropped nothing either — there was never anything to convert,
+  // so it is the always-applies case in a different spelling, not a failure.
+  it('leaves a criteria with no conditions alone', () => {
+    expect(findUnconvertibleConditions({ ruleCriteria: criteriaWith([]) })).to.deep.equal([]);
+  });
+
+  // Out of scope here (see the partial-drop note): one condition of several dropping still emits.
+  it('says nothing about a rule that kept at least one condition', () => {
+    const rule = ruleWith([
+      ...unsafeNumeric(),
+      { attributeName: 'Model', operator: 'Equals', dataType: 'Text', values: ['SUV'] },
+    ]);
+    expect(findUnconvertibleConditions(rule)).to.deep.equal([]);
+    expect(buildConstraintDeclaration(rule)).to.equal('Model == "SUV"');
+  });
+
+  // A condition-specific refusal already explains itself; the generic collapse reason would only
+  // repeat it less usefully.
+  it('does not add a second reason when a named refusal already explains the collapse', () => {
+    const rule = ruleWith([
+      { attributeName: 'Policy_Start', operator: 'Equals', dataType: 'Datetime', values: ['2026-01-01T10:00:00Z'] },
+    ]);
+    const reasons = findUnconvertibleConditions(rule);
+    expect(reasons).to.have.length(1);
+    expect(reasons[0]).to.match(/timestamp/);
+  });
+
+  describe('build mode', () => {
+    const entry = (ruleDef: ParsedRuleDefinition): { record: RuleRecord; ruleDef: ParsedRuleDefinition } => ({
+      record: { Id: 'r1', Name: 'Deductible Fee', ProductPath: 'p1' },
+      ruleDef,
+    });
+    const codes = (): Map<string, string> => new Map([['p1', 'autoSilver']]);
+
+    // Surcharge form: `rule(decl, "InsuranceSurchargeRule", ...)`.
+    it('withholds the rule from the surcharge form instead of emitting rule(true, ...)', () => {
+      const { cmlModel, ruleKeyMapping, skipped } = buildCmlModel(
+        [entry(ruleWith(unsafeNumeric()))],
+        codes(),
+        'SC',
+        'Surcharge eligibility',
+        'InsuranceSurchargeRule'
+      );
+
+      expect(skipped).to.have.length(1);
+      expect(skipped[0].name).to.equal('Deductible Fee');
+      expect(skipped[0].reason).to.match(/DeductibleFee/);
+      // No mapping entry, so the record is never flipped to the constraint engine.
+      expect(ruleKeyMapping).to.have.length(0);
+      expect(cmlModel.getType('autoSilver')).to.be.undefined;
+    });
+
+    // Underwriting form: `constraint <name> = (decl, "label");`. An always-true constraint is the
+    // same hazard as an always-firing surcharge rule.
+    it('withholds the rule from the underwriting constraint form too', () => {
+      const { cmlModel, ruleKeyMapping, skipped } = buildCmlModel(
+        [entry(ruleWith(unsafeNumeric()))],
+        codes(),
+        'UW',
+        'Underwriting eligibility'
+      );
+
+      expect(skipped).to.have.length(1);
+      expect(ruleKeyMapping).to.have.length(0);
+      expect(cmlModel.getType('autoSilver')).to.be.undefined;
+    });
+
+    it('still emits an unconditional rule for a rule that genuinely has no criteria', () => {
+      const noCriteria: ParsedRuleDefinition = { name: 'Flat Fee', apiName: 'FlatFee', productPath: 'p1' };
+      const { cmlModel, ruleKeyMapping, skipped } = buildCmlModel(
+        [entry(noCriteria)],
+        codes(),
+        'SC',
+        'Surcharge eligibility',
+        'InsuranceSurchargeRule'
+      );
+
+      expect(skipped).to.have.length(0);
+      expect(ruleKeyMapping).to.have.length(1);
+      const constraints = cmlModel.getType('autoSilver')?.constraints ?? [];
+      expect(constraints).to.have.length(1);
+      expect(constraints[0].generateCml()).to.include('rule(true,');
+    });
   });
 });
 
