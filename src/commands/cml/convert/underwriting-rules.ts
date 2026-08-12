@@ -122,7 +122,8 @@ export default class CmlConvertUnderwritingRules extends InsuranceRuleConvertCom
       this.constraintLabel,
       ruleDefs,
       productIdToCode,
-      productIdToType
+      productIdToType,
+      this.attributeDataTypes
     );
     rules.forEach((r) => this.log(`  -> ${r.recordName} => ${r.constraintName} (type: ${r.typeName ?? 'UNRESOLVED'})`));
 

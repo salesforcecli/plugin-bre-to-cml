@@ -24,7 +24,7 @@ import { CmlModel } from '../types/types.js';
 import { generateCsvForAssociations } from '../utils/association.utils.js';
 import { ParsedRuleDefinition, RecordUpdate, RecordUpdatePlan, RuleKeyEntry, RuleRecord } from './models.js';
 import { buildCmlModel, isSafeAssociationReferenceValue, sanitizeName } from './insurance-rule-generator.js';
-import { discoverCmlApiByProducts, fetchProductCodes } from './insurance-org.js';
+import { discoverCmlApiByProducts, fetchAttributeDataTypes, fetchProductCodes } from './insurance-org.js';
 import { splitProductPath } from './insurance-cml-merge.js';
 
 Messages.importMessagesDirectoryFromMetaUrl(import.meta.url);
@@ -87,6 +87,14 @@ export abstract class InsuranceRuleConvertCommand<R extends RuleRecord> extends 
   // When defined, eligibility is emitted as a CML `rule(...)` statement tagged with this rule
   // type instead of a `constraint`. Subclasses that want the constraint form leave it undefined.
   protected readonly ruleType?: string;
+
+  /**
+   * AttributeDefinition id -> the data type its condition values must be compared as, resolved once
+   * per run and shared by build and merge mode. Populated by {@link runConvert} before either mode
+   * builds a declaration; empty when no condition carries an attribute id.
+   */
+  protected attributeDataTypes: ReadonlyMap<string, string> = new Map();
+
   protected abstract readonly recordLabel: string;
   protected abstract readonly keyPrefix: string;
   protected abstract readonly constraintLabel: string;
@@ -123,6 +131,7 @@ export abstract class InsuranceRuleConvertCommand<R extends RuleRecord> extends 
 
     const ruleDefs = this.parseAllRecords(records);
     const { productIdToCode, productIdToName } = await this.resolveProductCodes(conn, ruleDefs);
+    this.attributeDataTypes = await this.resolveAttributeDataTypes(conn, ruleDefs);
 
     const api = ctx.cmlApi ?? (await this.discoverCmlApi(conn, ruleDefs, productIdToCode));
     const safeApi = api.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -137,7 +146,8 @@ export abstract class InsuranceRuleConvertCommand<R extends RuleRecord> extends 
       this.keyPrefix,
       this.constraintLabel,
       this.ruleType,
-      productIdToName
+      productIdToName,
+      this.attributeDataTypes
     );
     ruleKeyMapping.forEach((m) => this.log(`  -> ${m.name} => ${m.ruleKey}`));
 
@@ -284,6 +294,43 @@ export abstract class InsuranceRuleConvertCommand<R extends RuleRecord> extends 
     }
     this.log(`Parsed ${parsed.length} valid rule definitions`);
     return parsed;
+  }
+
+  /**
+   * Resolves the comparable data type of every attribute the rules reference.
+   *
+   * A condition reports `dataType: 'Picklist'`, which is not a comparable type — a Deductible whose
+   * values are 250/500/1000 sits behind a Currency picklist. Unresolved, its values are emitted
+   * quoted while the same model declares the attribute `decimal`, so the rule compares a decimal
+   * against a string and never fires.
+   *
+   * A failure here is downgraded to a warning rather than aborting the convert: without resolution
+   * every value falls back to the string-quoted path, which is the pre-existing behavior.
+   */
+  private async resolveAttributeDataTypes(
+    conn: Connection,
+    ruleDefs: Array<{ ruleDef: ParsedRuleDefinition }>
+  ): Promise<ReadonlyMap<string, string>> {
+    const attributeIds = new Set<string>();
+    for (const { ruleDef } of ruleDefs) {
+      for (const criteria of ruleDef.ruleCriteria ?? []) {
+        for (const condition of criteria.conditions ?? []) {
+          if (condition.attributeId) attributeIds.add(condition.attributeId);
+        }
+      }
+    }
+    if (attributeIds.size === 0) return new Map();
+
+    try {
+      return await fetchAttributeDataTypes(conn, attributeIds);
+    } catch (err) {
+      this.warn(
+        `Could not resolve attribute data types (${
+          err instanceof Error ? err.message : String(err)
+        }); picklist values will be compared as strings and numeric comparisons may not fire`
+      );
+      return new Map();
+    }
   }
 
   private async resolveProductCodes(

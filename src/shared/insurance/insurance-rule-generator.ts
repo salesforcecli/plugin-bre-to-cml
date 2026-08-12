@@ -25,17 +25,58 @@ import {
   UnderwritingRuleGroup,
 } from './models.js';
 
+/**
+ * Source data type -> CML data type. Keyed uppercase because payloads are inconsistent about case
+ * ('Datetime' and 'DateTime' both occur in real RuleDefinitions), and because PcmGenerator — which
+ * declares these same attributes in the same model — normalizes the same way.
+ */
+const SOURCE_DATA_TYPE_TO_CML: Record<string, string> = {
+  NUMBER: CML_DATA_TYPES.INTEGER,
+  INTEGER: CML_DATA_TYPES.INTEGER,
+  PERCENT: CML_DATA_TYPES.DECIMAL,
+  CURRENCY: CML_DATA_TYPES.DECIMAL,
+  DECIMAL: CML_DATA_TYPES.DECIMAL,
+  DOUBLE: CML_DATA_TYPES.DECIMAL,
+  BOOLEAN: CML_DATA_TYPES.BOOLEAN,
+  DATE: CML_DATA_TYPES.DATE,
+  DATETIME: CML_DATA_TYPES.DATE,
+  TEXT: CML_DATA_TYPES.STRING,
+  STRING: CML_DATA_TYPES.STRING,
+};
+
+/**
+ * Resolves a source data type to a CML data type. An absent or unrecognized type falls back to
+ * STRING, which quotes the value — the conservative direction, since an unquoted value reaches the
+ * curated model verbatim.
+ *
+ * The `!dataType` guard also covers the empty string. Returning '' would be neither a known type
+ * nor STRING, so the value would take the unquoted path, fail the safe-literal guard, drop its
+ * condition, and collapse the whole declaration to `true` — a rule that then applies to everything.
+ */
 function dataTypeToCml(dataType?: string): string {
-  const types: Record<string, string> = {
-    Number: CML_DATA_TYPES.INTEGER,
-    Integer: CML_DATA_TYPES.INTEGER,
-    Percent: CML_DATA_TYPES.DECIMAL,
-    Currency: CML_DATA_TYPES.DECIMAL,
-    Boolean: CML_DATA_TYPES.BOOLEAN,
-    Date: CML_DATA_TYPES.DATE,
-    DateTime: CML_DATA_TYPES.DATE,
-  };
-  return (dataType && types[dataType]) ?? CML_DATA_TYPES.STRING;
+  if (!dataType) return CML_DATA_TYPES.STRING;
+  return SOURCE_DATA_TYPE_TO_CML[dataType.trim().toUpperCase()] ?? CML_DATA_TYPES.STRING;
+}
+
+/**
+ * AttributeDefinition id -> the data type its values must be compared as, resolved from the org by
+ * {@link fetchAttributeDataTypes}.
+ *
+ * Needed because a condition reports `dataType: 'Picklist'`, and a picklist carries no comparable
+ * type of its own — a Deductible whose values are 250/500/1000 sits behind a Currency picklist.
+ * Left unresolved, its values are emitted quoted while PcmGenerator declares the attribute
+ * `decimal`, so the model compares a decimal against a string literal and the rule never fires.
+ */
+export type AttributeDataTypes = ReadonlyMap<string, string>;
+
+/**
+ * The org's AttributeDefinition is authoritative for an attribute's type, so a resolved entry wins
+ * over the condition's own `dataType` snapshot. Conditions keyed only by contextTagName carry no
+ * attribute id and always fall back to the snapshot.
+ */
+function conditionDataType(condition: RuleCondition, attributeDataTypes?: AttributeDataTypes): string | undefined {
+  const resolved = condition.attributeId ? attributeDataTypes?.get(condition.attributeId) : undefined;
+  return resolved ?? condition.dataType;
 }
 
 export function sanitizeName(name: string): string {
@@ -147,7 +188,7 @@ export function isSafeAssociationReferenceValue(value: string): boolean {
   return !/[,'"\\\r\n]/.test(value);
 }
 
-function buildConditionExpression(condition: RuleCondition): string | null {
+function buildConditionExpression(condition: RuleCondition, attributeDataTypes?: AttributeDataTypes): string | null {
   if (!isKnownOperator(condition.operator)) return null;
 
   const op = condition.operator;
@@ -156,7 +197,7 @@ function buildConditionExpression(condition: RuleCondition): string | null {
   }
 
   const values = condition.values ?? [];
-  const cmlDataType = dataTypeToCml(condition.dataType);
+  const cmlDataType = dataTypeToCml(conditionDataType(condition, attributeDataTypes));
 
   // Determine whether this operator/dataType pair emits its RHS UNQUOTED. Relational operators
   // always do; Equals/NotEquals do whenever the cmlDataType is not STRING. On the unquoted path we
@@ -179,12 +220,12 @@ function buildConditionExpression(condition: RuleCondition): string | null {
   return convertToCmlExpression(attrName, op, condition.values, cmlDataType);
 }
 
-function buildCriteriaExpression(criteria: RuleCriteria): string | null {
+function buildCriteriaExpression(criteria: RuleCriteria, attributeDataTypes?: AttributeDataTypes): string | null {
   const parts: string[] = [];
 
   if (criteria.conditions) {
     for (const condition of criteria.conditions) {
-      const expr = buildConditionExpression(condition);
+      const expr = buildConditionExpression(condition, attributeDataTypes);
       if (expr) parts.push(expr);
     }
   }
@@ -192,12 +233,17 @@ function buildCriteriaExpression(criteria: RuleCriteria): string | null {
   return parts.length > 0 ? parts.join(' && ') : null;
 }
 
-export function buildConstraintDeclaration(ruleDef: { ruleCriteria?: RuleCriteria[] }): string {
+export function buildConstraintDeclaration(
+  ruleDef: { ruleCriteria?: RuleCriteria[] },
+  attributeDataTypes?: AttributeDataTypes
+): string {
   if (!ruleDef.ruleCriteria || ruleDef.ruleCriteria.length === 0) {
     return 'true';
   }
 
-  const expressions = ruleDef.ruleCriteria.map(buildCriteriaExpression).filter((e): e is string => e !== null);
+  const expressions = ruleDef.ruleCriteria
+    .map((criteria) => buildCriteriaExpression(criteria, attributeDataTypes))
+    .filter((e): e is string => e !== null);
 
   if (expressions.length === 0) return 'true';
   if (expressions.length === 1) return expressions[0];
@@ -226,12 +272,15 @@ export function collectAttributes(ruleDefs: Array<{ ruleDef: { ruleCriteria?: Ru
  * noise on exactly the inputs the guard sanitized. Unlike `collectAttributes`, names are returned
  * sanitized to match how they appear in the emitted declaration.
  */
-export function collectEmittedAttributes(ruleDefs: Array<{ ruleDef: { ruleCriteria?: RuleCriteria[] } }>): Set<string> {
+export function collectEmittedAttributes(
+  ruleDefs: Array<{ ruleDef: { ruleCriteria?: RuleCriteria[] } }>,
+  attributeDataTypes?: AttributeDataTypes
+): Set<string> {
   const attrs = new Set<string>();
   for (const { ruleDef } of ruleDefs) {
     for (const criteria of ruleDef.ruleCriteria ?? []) {
       for (const cond of criteria.conditions ?? []) {
-        if (buildConditionExpression(cond) === null) continue;
+        if (buildConditionExpression(cond, attributeDataTypes) === null) continue;
         const name = cond.attributeName ?? cond.contextTagName;
         if (name) attrs.add(sanitizeName(name));
       }
@@ -241,13 +290,17 @@ export function collectEmittedAttributes(ruleDefs: Array<{ ruleDef: { ruleCriter
 }
 
 /**
- * Derives the real CML data type for each collected attribute from its condition `dataType`.
- * When an attribute appears with more than one distinct CML type (a conflict), or its type is
- * unknown, it falls back to STRING. Returned alongside (not replacing) the Set from
- * collectAttributes, which merge mode still depends on.
+ * Derives the real CML data type for each collected attribute from its resolved data type (falling
+ * back to the condition's own `dataType`). When an attribute appears with more than one distinct CML
+ * type (a conflict), or its type is unknown, it falls back to STRING. Returned alongside (not
+ * replacing) the Set from collectAttributes, which merge mode still depends on.
+ *
+ * Shares `conditionDataType` with the declaration builder so an attribute is never declared as one
+ * type and then compared as another.
  */
 export function collectAttributeTypes(
-  ruleDefs: Array<{ ruleDef: { ruleCriteria?: RuleCriteria[] } }>
+  ruleDefs: Array<{ ruleDef: { ruleCriteria?: RuleCriteria[] } }>,
+  attributeDataTypes?: AttributeDataTypes
 ): Map<string, string> {
   const types = new Map<string, string>();
   const conflicting = new Set<string>();
@@ -256,7 +309,7 @@ export function collectAttributeTypes(
       for (const cond of criteria.conditions ?? []) {
         const name = cond.attributeName ?? cond.contextTagName;
         if (!name) continue;
-        const cmlType = dataTypeToCml(cond.dataType);
+        const cmlType = dataTypeToCml(conditionDataType(cond, attributeDataTypes));
         const existing = types.get(name);
         if (existing === undefined) {
           types.set(name, cmlType);
@@ -287,7 +340,10 @@ export function buildCmlModel(
   // drops the binding. Optional + last so the legacy (code-as-reference) call sites stay valid; the
   // convert layer supplies only Names that passed isSafeAssociationReferenceValue, hence the
   // unconditional ProductCode fallback below for any product missing a safe Name.
-  productIdToName?: Map<string, string>
+  productIdToName?: Map<string, string>,
+  // Org-resolved attribute types, so a picklist attribute is declared and compared as the type
+  // behind the picklist (e.g. decimal for a Currency picklist) rather than degrading to string.
+  attributeDataTypes?: AttributeDataTypes
 ): { cmlModel: CmlModel; ruleKeyMapping: RuleKeyEntry[] } {
   const cmlModel = new CmlModel();
 
@@ -313,7 +369,7 @@ export function buildCmlModel(
     const productType = new CmlType(typeName, undefined, undefined);
 
     const attrs = collectAttributes(productRules);
-    const attrTypes = collectAttributeTypes(productRules);
+    const attrTypes = collectAttributeTypes(productRules, attributeDataTypes);
     for (const attrName of attrs) {
       const cmlType = attrTypes.get(attrName) ?? CML_DATA_TYPES.STRING;
       productType.addAttribute(new CmlAttribute(null, sanitizeName(attrName), cmlType));
@@ -324,7 +380,7 @@ export function buildCmlModel(
       const stageTransition = buildStageTransition(ruleDef.underwritingRuleGroup);
       const ruleKey = generateRuleKey(keyPrefix, productCode, apiName, stageTransition);
 
-      const declaration = buildConstraintDeclaration(ruleDef);
+      const declaration = buildConstraintDeclaration(ruleDef, attributeDataTypes);
       const constraint = ruleType
         ? CmlConstraint.createRuleConstraint(declaration, ruleType, ruleKey, 'True')
         : new CmlConstraint(CONSTRAINT_TYPES.CONSTRAINT, declaration, `"${constraintLabel}: ${record.Name}"`);

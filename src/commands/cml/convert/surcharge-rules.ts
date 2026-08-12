@@ -139,6 +139,7 @@ export default class CmlConvertSurchargeRules extends InsuranceRuleConvertComman
 
     const rules = buildPathedSurchargeRules(this.keyPrefix, ruleDefs, productIdToCode, productIdToType, {
       surchargeIdToCode,
+      attributeDataTypes: this.attributeDataTypes,
       onSurchargeCodeFallback: (recordName) =>
         this.warn(
           `Could not resolve Surcharge.Code for ${recordName}; rule key leaf derived from apiName and may not match the platform-generated RuleKey (surcharge may silently not fire)`

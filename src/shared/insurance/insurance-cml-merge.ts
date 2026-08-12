@@ -18,6 +18,7 @@ import { CmlConstraint } from '../types/types.js';
 import { CONSTRAINT_TYPES } from '../constants/constants.js';
 import { ParsedRuleDefinition, RuleRecord } from './models.js';
 import {
+  AttributeDataTypes,
   buildConstraintDeclaration,
   collectAttributeTypes,
   collectEmittedAttributes,
@@ -359,6 +360,12 @@ export type BuildPathedSurchargeRulesOptions = {
   surchargeIdToCode?: Map<string, string>;
   /** Called with the rule's recordName when its Surcharge.Code could not be resolved (key leaf fell back to apiName). */
   onSurchargeCodeFallback?: (recordName: string) => void;
+  /**
+   * Org-resolved attribute types (see {@link AttributeDataTypes}). Required for a numeric picklist
+   * to be compared as a number: without it the merged rule compares a decimal attribute — as the
+   * curated model already declares it — against a quoted string, and the surcharge never fires.
+   */
+  attributeDataTypes?: AttributeDataTypes;
 };
 
 /**
@@ -389,12 +396,12 @@ export function buildPathedSurchargeRules(
     const leafProductId = segments[segments.length - 1];
     const typeName = leafProductId ? productIdToType.get(leafProductId) : undefined;
 
-    const declaration = buildConstraintDeclaration(ruleDef);
+    const declaration = buildConstraintDeclaration(ruleDef, options.attributeDataTypes);
     const statement = buildSurchargeRuleStatement(declaration, ruleKey);
     // M7: only attributes from conditions that actually emitted CML (non-null buildConditionExpression)
     // count as "referenced". Attributes from conditions the safe-literal guard / unknown-operator
     // filter dropped never appear in the declaration, so warning about them would be spurious noise.
-    const referencedAttributes = Array.from(collectEmittedAttributes([{ ruleDef }]));
+    const referencedAttributes = Array.from(collectEmittedAttributes([{ ruleDef }], options.attributeDataTypes));
 
     return {
       recordId: record.Id,
@@ -435,7 +442,10 @@ export function buildUnderwritingConstraintRules(
   constraintLabel: string,
   ruleDefs: Array<{ record: RuleRecord; ruleDef: ParsedRuleDefinition }>,
   productIdToCode: Map<string, string>,
-  productIdToType: Map<string, string>
+  productIdToType: Map<string, string>,
+  // Org-resolved attribute types, so a picklist attribute is compared as the type behind the
+  // picklist and declared with that same type in referencedAttributes.
+  attributeDataTypes?: AttributeDataTypes
 ): UnderwritingConstraintRule[] {
   return ruleDefs.map(({ record, ruleDef }) => {
     const apiName = ruleDef.apiName ?? record.Name;
@@ -447,7 +457,7 @@ export function buildUnderwritingConstraintRules(
     const leafProductId = segments[segments.length - 1];
     const typeName = leafProductId ? productIdToType.get(leafProductId) : undefined;
 
-    const declaration = buildConstraintDeclaration(ruleDef);
+    const declaration = buildConstraintDeclaration(ruleDef, attributeDataTypes);
     // Mirrors buildCmlModel's constraint naming: sanitized apiName, with the stage transition
     // appended so two rules sharing an apiName under the same product (gated on different
     // transitions) don't collide.
@@ -463,8 +473,8 @@ export function buildUnderwritingConstraintRules(
     // collectAttributeTypes keys its map by the RAW attribute name, whereas
     // collectEmittedAttributes returns SANITIZED names, so we sanitize each raw key before
     // matching it against the emitted-name set.
-    const emittedSanitized = collectEmittedAttributes([{ ruleDef }]);
-    const attrTypesByRawName = collectAttributeTypes([{ ruleDef }]);
+    const emittedSanitized = collectEmittedAttributes([{ ruleDef }], attributeDataTypes);
+    const attrTypesByRawName = collectAttributeTypes([{ ruleDef }], attributeDataTypes);
     const referencedAttributes: Array<{ name: string; cmlType: string }> = [];
     for (const [rawName, cmlType] of attrTypesByRawName) {
       const sanitized = sanitizeName(rawName);

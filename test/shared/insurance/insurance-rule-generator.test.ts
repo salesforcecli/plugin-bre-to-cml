@@ -20,6 +20,7 @@ import {
   buildConstraintDeclaration,
   buildStageTransition,
   collectAttributes,
+  collectAttributeTypes,
   decodeHtmlEntities,
   generateRuleKey,
   isSafeAssociationReferenceValue,
@@ -28,6 +29,7 @@ import {
 import { ParsedRuleDefinition, RuleCriteria, RuleRecord } from '../../../src/shared/insurance/models.js';
 import {
   discoverCmlApiByProducts,
+  fetchAttributeDataTypes,
   fetchProductCodes,
   quoteSoqlIdList,
 } from '../../../src/shared/insurance/insurance-org.js';
@@ -885,5 +887,189 @@ describe('fetchProductCodes', () => {
     const conn = mockConnection({});
     const result = await fetchProductCodes(conn, new Set());
     expect(result.size).to.equal(0);
+  });
+});
+
+describe('condition data type resolution', () => {
+  const DEDUCTIBLE_ID = '0tjfiw000000CMBAA2';
+  const LIMIT_ID = '0tjfiw000000CM9AAM';
+
+  // Shaped after a live ProductSurcharge.RuleDefinition: the conditions declare dataType
+  // 'Picklist' and carry the AttributeDefinition id, but nothing about the comparable type.
+  const picklistRule = (): { ruleCriteria: RuleCriteria[] } => ({
+    ruleCriteria: [
+      {
+        rootObjectId: '01tfiw000000bKaAAI',
+        criteriaIndex: 1,
+        conditions: [
+          {
+            contextTagName: 'SalesTransactionItemAttribute',
+            attributeName: 'Deductible',
+            attributeId: DEDUCTIBLE_ID,
+            attributePicklistValueId: '0v6fiw000000GJSAA2',
+            operator: 'Equals',
+            dataType: 'Picklist',
+            values: ['500'],
+          },
+          {
+            contextTagName: 'SalesTransactionItemAttribute',
+            attributeName: 'Limit',
+            attributeId: LIMIT_ID,
+            attributePicklistValueId: '0v6fiw000000GJTAA2',
+            operator: 'NotEquals',
+            dataType: 'Picklist',
+            values: ['2000'],
+          },
+        ],
+      },
+    ] as RuleCriteria[],
+  });
+
+  const currencyPicklists = (): Map<string, string> =>
+    new Map([
+      [DEDUCTIBLE_ID, 'Currency'],
+      [LIMIT_ID, 'Currency'],
+    ]);
+
+  const oneCondition = (dataType: string, values: string[], operator = 'Equals'): { ruleCriteria: RuleCriteria[] } => ({
+    ruleCriteria: [
+      {
+        rootObjectId: '01t',
+        conditions: [{ attributeName: 'Attr', operator, dataType, values }],
+      },
+    ] as RuleCriteria[],
+  });
+
+  // A Picklist declares no comparable type of its own — the type lives on the AttributePicklist
+  // behind it. Unresolved, a numeric picklist value reaches the curated model quoted, so a decimal
+  // attribute is compared against a string literal and the rule never fires.
+  it('emits numeric picklist values unquoted when the picklist resolves to Currency', () => {
+    expect(buildConstraintDeclaration(picklistRule(), currencyPicklists())).to.equal(
+      'Deductible == 500 && Limit != 2000'
+    );
+  });
+
+  it('keeps text picklist values quoted', () => {
+    const resolved = new Map([
+      [DEDUCTIBLE_ID, 'Text'],
+      [LIMIT_ID, 'Text'],
+    ]);
+    expect(buildConstraintDeclaration(picklistRule(), resolved)).to.equal('Deductible == "500" && Limit != "2000"');
+  });
+
+  // No resolution available (attribute deleted, or not queryable) must stay on the safe quoted
+  // path rather than guessing a numeric comparison.
+  it('quotes picklist values when the picklist type cannot be resolved', () => {
+    expect(buildConstraintDeclaration(picklistRule())).to.equal('Deductible == "500" && Limit != "2000"');
+  });
+
+  it('declares a resolved numeric picklist attribute as decimal, matching the emitted literal', () => {
+    const ruleDefs = [
+      {
+        record: { Id: 'r1', Name: 'Rule1', ProductPath: 'p1' } as RuleRecord,
+        ruleDef: { name: 'Rule1', apiName: 'Rule1', productPath: 'p1', ...picklistRule() } as ParsedRuleDefinition,
+      },
+    ];
+    const { cmlModel } = buildCmlModel(
+      ruleDefs,
+      new Map([['p1', 'autoSilver']]),
+      'SC',
+      'Test',
+      'InsuranceSurchargeRule',
+      undefined,
+      currencyPicklists()
+    );
+
+    const type = cmlModel.getType('autoSilver');
+    expect(type?.getAttribute('Deductible')?.type).to.equal('decimal');
+    expect(type?.getAttribute('Limit')?.type).to.equal('decimal');
+  });
+
+  // An empty dataType used to resolve to '' — neither a known type nor STRING — which took the
+  // unquoted path, failed the safe-literal guard, dropped every condition and collapsed the
+  // declaration to `true`. A surcharge rule then applies unconditionally.
+  it('treats an empty dataType as string instead of dropping the condition', () => {
+    expect(buildConstraintDeclaration(oneCondition('', ['SUV']))).to.equal('Attr == "SUV"');
+  });
+
+  it('does not collapse a rule to true when a dataType is empty', () => {
+    expect(buildConstraintDeclaration(oneCondition('', ['SUV']))).to.not.equal('true');
+  });
+
+  it('resolves dataType case-insensitively', () => {
+    expect(buildConstraintDeclaration(oneCondition('number', ['2020']))).to.equal('Attr == 2020');
+    expect(buildConstraintDeclaration(oneCondition('CURRENCY', ['10.5']))).to.equal('Attr == 10.5');
+  });
+
+  // Real payloads spell it 'Datetime'; the map only had 'DateTime'.
+  it('resolves the Datetime spelling used by real payloads', () => {
+    expect(buildConstraintDeclaration(oneCondition('Datetime', ['2026-03-01']))).to.equal('Attr == 2026-03-01');
+  });
+
+  it('emits Decimal and Double values unquoted', () => {
+    expect(buildConstraintDeclaration(oneCondition('Decimal', ['12.5']))).to.equal('Attr == 12.5');
+    expect(buildConstraintDeclaration(oneCondition('Double', ['12.5']))).to.equal('Attr == 12.5');
+  });
+
+  it('still quotes genuinely unknown data types', () => {
+    expect(buildConstraintDeclaration(oneCondition('Lookup', ['01tfiw000000bKaAAI']))).to.equal(
+      'Attr == "01tfiw000000bKaAAI"'
+    );
+  });
+
+  it('derives attribute types from the resolved picklist type', () => {
+    const types = collectAttributeTypes([{ ruleDef: picklistRule() }], currencyPicklists());
+    expect(types.get('Deductible')).to.equal('decimal');
+  });
+});
+
+describe('fetchAttributeDataTypes', () => {
+  it('resolves a picklist attribute to the picklist data type', async () => {
+    const conn = mockConnection({
+      AttributeDefinition: {
+        records: [
+          { Id: '0tjfiw000000CMBAA2', DataType: 'Picklist', Picklist: { DataType: 'Currency' } },
+          { Id: '0tjfiw000000CM9AAM', DataType: 'Picklist', Picklist: { DataType: 'Currency' } },
+        ],
+      },
+    });
+    const result = await fetchAttributeDataTypes(conn, new Set(['0tjfiw000000CMBAA2', '0tjfiw000000CM9AAM']));
+    expect(result.get('0tjfiw000000CMBAA2')).to.equal('Currency');
+    expect(result.get('0tjfiw000000CM9AAM')).to.equal('Currency');
+  });
+
+  it('resolves a non-picklist attribute to its own data type', async () => {
+    const conn = mockConnection({
+      AttributeDefinition: {
+        records: [{ Id: '0tjfiw000000CMBAA2', DataType: 'Number', Picklist: null }],
+      },
+    });
+    const result = await fetchAttributeDataTypes(conn, new Set(['0tjfiw000000CMBAA2']));
+    expect(result.get('0tjfiw000000CMBAA2')).to.equal('Number');
+  });
+
+  // Leaving the entry out (rather than recording 'Picklist') keeps the caller on the safe quoted
+  // path instead of asking it to interpret a type that carries no comparable type.
+  it('omits a picklist whose picklist type is unavailable', async () => {
+    const conn = mockConnection({
+      AttributeDefinition: {
+        records: [{ Id: '0tjfiw000000CMBAA2', DataType: 'Picklist', Picklist: null }],
+      },
+    });
+    const result = await fetchAttributeDataTypes(conn, new Set(['0tjfiw000000CMBAA2']));
+    expect(result.has('0tjfiw000000CMBAA2')).to.equal(false);
+  });
+
+  it('returns an empty map without querying for an empty id set', async () => {
+    let queried = false;
+    const conn = {
+      query: () => {
+        queried = true;
+        return Promise.resolve({ records: [] });
+      },
+    } as unknown as Connection;
+    const result = await fetchAttributeDataTypes(conn, new Set());
+    expect(result.size).to.equal(0);
+    expect(queried).to.equal(false);
   });
 });

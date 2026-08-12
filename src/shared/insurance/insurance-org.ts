@@ -34,6 +34,48 @@ export function quoteSoqlIdList(ids: Iterable<string>): string {
     .join(',');
 }
 
+/** Ids per SOQL `IN (...)` batch. Mirrors record-update-apply so a large rule set cannot overflow. */
+const MAX_SOQL_ID_CHUNK = 500;
+
+function chunk<T>(items: readonly T[], size: number): T[][] {
+  return Array.from({ length: Math.ceil(items.length / size) }, (_, i) => items.slice(i * size, i * size + size));
+}
+
+/**
+ * Resolves each AttributeDefinition id to the data type its values must be compared as.
+ *
+ * `Picklist` is not itself a comparable type — the comparable type lives on the AttributePicklist
+ * behind it — so a picklist resolves to `Picklist.DataType` (e.g. Currency for a Deductible whose
+ * values are 250/500/1000) and every other attribute to its own `DataType`.
+ *
+ * An attribute whose picklist type is unavailable (deleted, or not visible to the running user) is
+ * omitted rather than recorded as 'Picklist', which keeps the caller on the safe string-quoted path
+ * instead of asking it to interpret a type that carries no comparable type of its own.
+ */
+export async function fetchAttributeDataTypes(
+  conn: Connection,
+  attributeIds: Set<string>
+): Promise<Map<string, string>> {
+  const idToDataType = new Map<string, string>();
+  const ids = Array.from(attributeIds).filter((id) => SALESFORCE_ID_PATTERN.test(id));
+  if (ids.length === 0) return idToDataType;
+
+  for (const batch of chunk(ids, MAX_SOQL_ID_CHUNK)) {
+    // eslint-disable-next-line no-await-in-loop
+    const result = await conn.query<{
+      Id: string;
+      DataType: string | null;
+      Picklist: { DataType: string | null } | null;
+    }>(`SELECT Id, DataType, Picklist.DataType FROM AttributeDefinition WHERE Id IN (${quoteSoqlIdList(batch)})`);
+    for (const attribute of result.records) {
+      const resolved =
+        attribute.DataType?.toUpperCase() === 'PICKLIST' ? attribute.Picklist?.DataType : attribute.DataType;
+      if (resolved) idToDataType.set(attribute.Id, resolved);
+    }
+  }
+  return idToDataType;
+}
+
 /** Optional hooks for {@link fetchProductCodes}. Additive so existing callers need no changes. */
 export type FetchProductCodesOptions = {
   /**
