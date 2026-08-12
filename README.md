@@ -58,6 +58,18 @@ sf plugins
 
 ## Commands
 
+> **Review generated files before you import them or apply them to records.** Everything this plugin
+> emits — the `.cml` model, the association CSV, and the `_SurchargeUpdate.json` /
+> `_UnderwritingUpdate.json` record-update plans — is the output of an automated conversion of your
+> org's BRE data. Verifying that it expresses the logic you intend is your responsibility, not the
+> plugin's. Two things are worth checking in particular. Conversion skips rules it cannot place and
+> reports each one as a `SKIPPED` warning, so a generated model can be incomplete even when the
+> command succeeds. And the import commands change the org: `as-expression-set` replaces the active
+> model, and `record-updates` writes to records, where flipping `RuleEngineType` to
+> `ConstraintEngine` stops the platform evaluating that record's BRE rules. Preview with
+> `--dry-run`, read the preview rather than confirming past it, and validate the migrated rules
+> behave as expected in a sandbox before running any of this against production.
+
 ### Insurance: merging surcharge rules into an existing model
 
 `cml convert surcharge-rules` **always** merges generated surcharge rules into an org's existing
