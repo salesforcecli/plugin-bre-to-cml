@@ -40,7 +40,7 @@ import {
 import { confirmOrThrow } from '../../../shared/insurance/confirm-org-changes.js';
 
 Messages.importMessagesDirectoryFromMetaUrl(import.meta.url);
-const messages = Messages.loadMessages('@salesforce/plugin-bre-to-cml', 'cml.import.record-updates');
+const messages = Messages.loadMessages('@salesforce/plugin-bre-to-cml', 'insurance.import.record-updates');
 
 export { RecordUpdateSkipResult };
 
@@ -219,7 +219,7 @@ export default class CmlImportRecordUpdates extends SfCommand<CmlImportRecordUpd
       const error = applyFailuresError(
         failures,
         applied,
-        `sf cml import record-updates --file ${file} --target-org ${username}`
+        `sf insurance import record-updates --file ${file} --target-org ${username}`
       );
       // The apply is not transactional, so a throw discards a result that describes a real,
       // partially-migrated org. Under --json the count alone leaves automation nothing to act on.

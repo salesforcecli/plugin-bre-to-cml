@@ -223,7 +223,7 @@ export abstract class InsuranceRuleConvertCommand<R extends RuleRecord> extends 
       `  2. Activate the CML: sf cml import as-expression-set --cml-api ${api} --context-definition <CD_NAME> --target-org <org>`
     );
     this.log(
-      `  3. Apply the org-record changes: sf cml import record-updates --file ${recordUpdateFile} --target-org <org>`
+      `  3. Apply the org-record changes: sf insurance import record-updates --file ${recordUpdateFile} --target-org <org>`
     );
 
     return { cmlFile: cmlPath, associationsFile: associationsPath, ruleKeyMapping, recordUpdateFile };
@@ -486,7 +486,7 @@ export abstract class InsuranceRuleConvertCommand<R extends RuleRecord> extends 
       `  2. Activate the CML: sf cml import as-expression-set --cml-api ${api} --context-definition <CD_NAME> --target-org <org>`
     );
     this.log(
-      `  3. Apply the org-record changes: sf cml import record-updates --file ${recordUpdateFile} --target-org <org>`
+      `  3. Apply the org-record changes: sf insurance import record-updates --file ${recordUpdateFile} --target-org <org>`
     );
 
     return { cmlFile: cmlPath, associationsFile: associationsPath, ruleKeyMapping, recordUpdateFile };

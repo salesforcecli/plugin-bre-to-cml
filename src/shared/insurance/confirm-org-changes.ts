@@ -20,7 +20,7 @@
  * PlannedChange[] — built from read-only operations — before calling this, and MUST NOT issue any
  * write until it resolves.
  *
- * Used today by `cml import record-updates`; the matrix is command-agnostic, so
+ * Used today by `insurance import record-updates`; the matrix is command-agnostic, so
  * `cml import as-expression-set` can gate on it when that work lands (§7 step 12).
  */
 

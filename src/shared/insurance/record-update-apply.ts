@@ -15,7 +15,7 @@
  */
 
 /**
- * Org-facing half of `sf cml import record-updates`
+ * Org-facing half of `sf insurance import record-updates`
  * (export/review/import design, work item W-23654540 §5).
  *
  * Split into a read phase and an apply phase on purpose: the command must be able to compute and

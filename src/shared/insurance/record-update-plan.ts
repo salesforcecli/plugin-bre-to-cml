@@ -15,7 +15,7 @@
  */
 
 /**
- * Load + validate side of `sf cml import record-updates`
+ * Load + validate side of `sf insurance import record-updates`
  * (export/review/import design, work item W-23654540 §3, §8).
  *
  * The `<safeApi>_{Underwriting,Surcharge}Update.json` file is explicitly meant to be reviewed and

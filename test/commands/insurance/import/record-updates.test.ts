@@ -22,7 +22,7 @@ import { expect } from 'chai';
 import { stubPrompter, stubSfCommandUx } from '@salesforce/sf-plugins-core';
 import CmlImportRecordUpdates, {
   type CmlImportRecordUpdatesResult,
-} from '../../../../src/commands/cml/import/record-updates.js';
+} from '../../../../src/commands/insurance/import/record-updates.js';
 
 const SURCHARGE_ID = 'a0p000000000001';
 const SURCHARGE_ID_2 = 'a0p000000000002';
@@ -58,7 +58,7 @@ const surchargeUpdate = (overrides: Record<string, unknown> = {}): Record<string
   ...overrides,
 });
 
-describe('cml import record-updates', () => {
+describe('insurance import record-updates', () => {
   const $$ = new TestContext();
   const testOrg = new MockTestOrgData();
   let sfCommandStubs: ReturnType<typeof stubSfCommandUx>;

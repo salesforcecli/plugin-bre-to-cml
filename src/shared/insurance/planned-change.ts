@@ -20,7 +20,7 @@
  * complete PlannedChange[] from read-only operations, renders it, and only then prompts — so an
  * operator always sees the exact field-level changes before anything is written.
  *
- * Used today by `cml import record-updates`. Nothing here is specific to record updates, so
+ * Used today by `insurance import record-updates`. Nothing here is specific to record updates, so
  * `cml import as-expression-set` can render its own plan through it when its gate lands (§7 step 12).
  */
 

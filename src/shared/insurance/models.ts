@@ -73,7 +73,7 @@ export type RuleKeyEntry = {
 // Convert is file-only: instead of mutating the org live, it serializes the
 // exact org-record changes it used to apply into a reviewable/correctable
 // `<safeApi>_{Underwriting,Surcharge}Update.json` manifest. The operator
-// reviews that file and applies it with `sf cml import record-updates`, which
+// reviews that file and applies it with `sf insurance import record-updates`, which
 // is the consumer of every field below. See the export/review/import design
 // on work item W-23654540 (§3).
 // ---------------------------------------------------------------------------
@@ -89,7 +89,7 @@ export type RecordUpdate = {
   sobject: 'UnderwritingRuleGroup' | 'UnderwritingRule' | 'ProductSurcharge';
   /** 15/18-char Salesforce Id (re-validated on apply). */
   id: string;
-  // Record Name -- REQUIRED, and ENFORCED on apply: `sf cml import record-updates` re-reads the
+  // Record Name -- REQUIRED, and ENFORCED on apply: `sf insurance import record-updates` re-reads the
   // record and refuses the whole file when the org's Name disagrees, so an edited id cannot
   // retarget a valid-but-wrong record of the same type. Convert itself still never writes.
   name: string;
