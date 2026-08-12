@@ -153,8 +153,24 @@ Aborted. No changes were applied to the org.
 
 # error.applyFailures
 
-%s of the record updates failed. The org is partially migrated: earlier updates were applied and are not rolled back.
+%s of the record updates failed and %s succeeded. The org is partially migrated: the updates that succeeded are not rolled back.
 
 # error.applyFailures.actions
 
 - Fix the reported errors, then re-run (already-applied records are skipped): %s
+
+# error.applyFailuresNoneApplied
+
+%s of the record updates failed and none were applied, so this run left the org unchanged.
+
+# error.applyFailuresNoneApplied.actions
+
+- Fix the reported errors, then re-run. Nothing needs undoing first, because nothing was written: %s
+
+# error.applyFailuresOutcomeUnknown
+
+%s of the record updates failed and %s succeeded. %s of the failures happened after the request had been sent, so whether the org holds those changes is unknown; any update that did succeed is not rolled back.
+
+# error.applyFailuresOutcomeUnknown.actions
+
+- Re-read the records reported above as OUTCOME UNKNOWN to find out whether the org holds them, then fix the reported errors and re-run (already-applied records are skipped): %s

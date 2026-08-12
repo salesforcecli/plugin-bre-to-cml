@@ -28,6 +28,7 @@ import {
   IdentityProblem,
   IdentityProblemKind,
   PlannedRecordChange,
+  RecordUpdateFailure,
   applyRecordUpdates,
   planRecordUpdates,
   verifySurchargeUpdates,
@@ -224,10 +225,10 @@ export default class CmlImportRecordUpdates extends SfCommand<CmlImportRecordUpd
     this.log(messages.getMessage('info.applySummary', [applied, skippedRecords.size, failures.length]));
 
     if (failures.length > 0) {
-      const error = messages.createError(
-        'error.applyFailures',
-        [failures.length],
-        [`sf cml import record-updates --file ${file} --target-org ${username}`]
+      const error = applyFailuresError(
+        failures,
+        applied,
+        `sf cml import record-updates --file ${file} --target-org ${username}`
       );
       // The apply is not transactional, so a throw discards a result that describes a real,
       // partially-migrated org. Under --json the count alone leaves automation nothing to act on.
@@ -306,6 +307,24 @@ function identityError(problems: IdentityProblem[]): SfError {
   const error = messages.createError(`error.${kinds[0]}`, [detail]);
   error.actions = kinds.flatMap((kind) => messages.getMessages(`error.${kind}.actions`));
   return error;
+}
+
+/**
+ * The end-of-run failure, in the only three states this command can be in.
+ *
+ * "Earlier updates were applied and are not rolled back" is false on a run where nothing landed —
+ * which is not hypothetical: a plan whose surcharges all have a null parent `Surcharge.Code` has
+ * every flip rejected by the org's save hook. And "nothing was applied" would be false-confident
+ * whenever a request failed *after* being sent, which is exactly what `outcomeUnknown` records: a
+ * timeout or a 500 can arrive after the server committed, so neither claim can be made.
+ */
+function applyFailuresError(failures: RecordUpdateFailure[], applied: number, rerun: string): SfError {
+  const unknown = failures.filter((f) => f.outcomeUnknown).length;
+  if (unknown > 0) {
+    return messages.createError('error.applyFailuresOutcomeUnknown', [failures.length, applied, unknown], [rerun]);
+  }
+  if (applied === 0) return messages.createError('error.applyFailuresNoneApplied', [failures.length], [rerun]);
+  return messages.createError('error.applyFailures', [failures.length, applied], [rerun]);
 }
 
 function toPlannedChange(change: PlannedRecordChange): PlannedChange {

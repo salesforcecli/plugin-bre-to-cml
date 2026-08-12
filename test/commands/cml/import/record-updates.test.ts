@@ -837,6 +837,37 @@ describe('cml import record-updates', () => {
     expect(data.plannedChanges.map((c) => c.id)).to.deep.equal([SURCHARGE_ID, SURCHARGE_ID_2]);
   });
 
+  it('does not claim earlier updates were applied on a run where nothing was applied', async () => {
+    // The shape a real org produced: every ProductSurcharge in the plan had a parent Surcharge with
+    // a null Code, so the save hook rejected every flip and zero writes landed. Telling the operator
+    // the org is partially migrated sends them hunting for changes that do not exist.
+    stubOrgConnection({
+      current: {
+        ProductSurcharge: [
+          { Id: SURCHARGE_ID, Name: 'Collision Fee', RuleEngineType: 'BusinessRuleEngine' },
+          { Id: SURCHARGE_ID_2, Name: 'Theft Fee', RuleEngineType: 'BusinessRuleEngine' },
+        ],
+      },
+      saveResults: (_sobject, payloads) =>
+        payloads.map(() => ({
+          success: false,
+          errors: [{ message: 'Specify a value for the Surcharge Code field.: Surcharge ID' }],
+        })),
+    });
+    await writePlan(surchargePlanFile([surchargeUpdate(), surchargeUpdate({ id: SURCHARGE_ID_2, name: 'Theft Fee' })]));
+
+    const error = await runExpectingError(['--no-prompt']);
+
+    expect(error.name).to.equal('ApplyFailuresNoneAppliedError');
+    expect(error.message).to.match(/2 of the record updates failed/);
+    expect(error.message, 'nothing was applied, so nothing was left behind').to.match(/none were applied/);
+    expect(error.message, 'this is the false claim').to.not.match(/earlier updates were applied/);
+    expect(error.message, 'a run that wrote nothing did not partially migrate anything').to.not.match(
+      /partially migrated/
+    );
+    expect((error as SfError).data).to.have.property('applied', 0);
+  });
+
   it('says the outcome is unknown when the request itself failed after being sent', async () => {
     stubOrgConnection({
       current: {
@@ -854,6 +885,13 @@ describe('cml import record-updates', () => {
     // Claiming "not written" would be exactly wrong for a timeout after the server committed.
     expect(warnOutput()).to.match(/OUTCOME UNKNOWN Collision Fee/);
     expect(warnOutput()).to.match(/may or may not hold this change/);
+    // The top-level error must not resolve the uncertainty either way: nothing was confirmed
+    // applied, so "partially migrated" overstates it, and "left the org unchanged" understates it.
+    expect(error.name).to.equal('ApplyFailuresOutcomeUnknownError');
+    expect(error.message).to.match(/whether the org holds those changes is unknown/);
+    expect(error.message).to.not.match(/none were applied/);
+    expect(error.message).to.not.match(/left the org unchanged/);
+    expect(((error as SfError).actions ?? []).join('\n')).to.match(/Re-read/);
   });
 
   it('warns (without failing) when the regenerated RuleKey does not match the converted key', async () => {
