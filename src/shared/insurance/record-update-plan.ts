@@ -50,6 +50,18 @@ export const SOBJECT_APPLY_ORDER: ReadonlyArray<RecordUpdate['sobject']> = [
   'ProductSurcharge',
 ];
 
+/**
+ * Which sObjects each kind may carry. `kind` selects behaviour the sObjects themselves do not
+ * imply — most importantly the post-flip RuleKey readback, which the command dispatches purely on
+ * `kind`. A file labelled `underwriting-update` that contains ProductSurcharge updates would flip
+ * them with that verification silently skipped, losing the one check that catches "imports cleanly
+ * but never fires".
+ */
+const KIND_SOBJECTS: Readonly<Record<RecordUpdatePlan['kind'], ReadonlyArray<RecordUpdate['sobject']>>> = {
+  'underwriting-update': ['UnderwritingRuleGroup', 'UnderwritingRule'],
+  'surcharge-update': ['ProductSurcharge'],
+};
+
 const SALESFORCE_ID_PATTERN = /^[a-zA-Z0-9]{15}([a-zA-Z0-9]{3})?$/;
 
 /** The one field whose value is itself a JSON document, so it needs structural (not raw) compare. */
@@ -102,18 +114,25 @@ export function parseRecordUpdatePlan(raw: string, source: string, options: Pars
   if (!isNonEmptyString(plan.cmlApi)) fail(source, 'missing or non-string cmlApi');
   if (!Array.isArray(plan.updates)) fail(source, 'updates must be an array');
 
-  const updates = (plan.updates as unknown[]).map((u, i) => parseUpdate(u, source, i, options));
+  const typedKind = kind as RecordUpdatePlan['kind'];
+  const updates = (plan.updates as unknown[]).map((u, i) => parseUpdate(u, source, i, typedKind, options));
 
   return {
     schemaVersion: 1,
-    kind: kind as RecordUpdatePlan['kind'],
+    kind: typedKind,
     cmlApi: plan.cmlApi as string,
     generatedAt: typeof plan.generatedAt === 'string' ? plan.generatedAt : '',
     updates,
   };
 }
 
-function parseUpdate(value: unknown, source: string, index: number, options: ParsePlanOptions): RecordUpdate {
+function parseUpdate(
+  value: unknown,
+  source: string,
+  index: number,
+  kind: RecordUpdatePlan['kind'],
+  options: ParsePlanOptions
+): RecordUpdate {
   const at = `updates[${index}]`;
   if (!isRecord(value)) return fail(source, `${at} is not an object`);
 
@@ -122,6 +141,14 @@ function parseUpdate(value: unknown, source: string, index: number, options: Par
     fail(source, `${at} has unsupported sobject ${JSON.stringify(sobject) ?? '<missing>'}`);
   }
   const typedSobject = sobject as RecordUpdate['sobject'];
+  if (!KIND_SOBJECTS[kind].includes(typedSobject)) {
+    fail(
+      source,
+      `${at} has sobject ${typedSobject}, which a '${kind}' file cannot contain; allowed: ${KIND_SOBJECTS[kind].join(
+        ', '
+      )}`
+    );
+  }
 
   if (typeof value.id !== 'string' || !SALESFORCE_ID_PATTERN.test(value.id)) {
     fail(source, `${at} has a malformed Salesforce id ${JSON.stringify(value.id) ?? '<missing>'}`);

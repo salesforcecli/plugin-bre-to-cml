@@ -132,6 +132,31 @@ describe('record-update-plan parseRecordUpdatePlan', () => {
     parseFails(surchargePlan([surchargeUpdate({ sobject: 'Account' })]), /unsupported sobject/);
   });
 
+  it('rejects a mislabelled file whose sobject does not belong to its kind', () => {
+    // The command dispatches the post-flip RuleKey readback on `kind` alone, so a surcharge update
+    // smuggled into an underwriting-update file would be flipped with zero verification.
+    parseFails(
+      JSON.stringify({
+        schemaVersion: 1,
+        kind: 'underwriting-update',
+        cmlApi: 'UW_AUTO',
+        updates: [surchargeUpdate()],
+      }),
+      /sobject ProductSurcharge, which a 'underwriting-update' file cannot contain/
+    );
+    parseFails(
+      surchargePlan([
+        {
+          sobject: 'UnderwritingRuleGroup',
+          id: '0RG000000000001AAA',
+          name: 'Auto Eligibility Group',
+          fields: [{ field: 'RuleEngineType', value: 'ConstraintEngine' }],
+        },
+      ]),
+      /which a 'surcharge-update' file cannot contain/
+    );
+  });
+
   it('rejects a malformed Salesforce id (an edited file must not reach the org)', () => {
     parseFails(surchargePlan([surchargeUpdate({ id: 'not-an-id' })]), /malformed Salesforce id/);
   });
