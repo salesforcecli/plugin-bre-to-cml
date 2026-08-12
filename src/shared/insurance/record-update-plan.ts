@@ -258,20 +258,51 @@ export function dynamicRuleDefinitionApiName(value: string | null | undefined): 
 }
 
 /**
+ * Deep JSON equality: objects compare key-order-insensitively, arrays stay ordered. This is
+ * exactly "same document, possibly re-serialized" — which is the distinction the blob compare
+ * needs to draw.
+ */
+function jsonDeepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((item, i) => jsonDeepEqual(item, b[i]));
+  }
+  if (!isRecord(a) || !isRecord(b)) return false;
+
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every((key) => Object.hasOwn(b, key) && jsonDeepEqual(a[key], b[key]));
+}
+
+/**
  * Field-type-aware "is the org already in the desired state?" check (§5.3).
  *
- * `DynamicRuleDefinition` is compared structurally on just the fields convert mutates, so that a
- * re-run after the org re-serializes the blob — or after a reviewer reformats it — is correctly
- * recognized as a no-op instead of rewriting it. Scalar fields compare raw.
+ * `DynamicRuleDefinition` is compared as a whole JSON document rather than raw text, so a re-run
+ * after the org re-serializes the blob — or after a reviewer reformats it — is correctly
+ * recognized as a no-op instead of rewriting it. The comparison covers the *entire* document, not
+ * just the fields convert mutates: the apply writes the file's blob verbatim, so a reviewer's
+ * hand-correction anywhere in it (a threshold in `ruleCriteria`, say) is a substantive change that
+ * must not be silently dropped as "already current". Scalar fields compare raw.
  */
 export function isAlreadyCurrent(field: string, currentValue: string | null | undefined, newValue: string): boolean {
   if (currentValue == null) return false;
   if (field !== JSON_BLOB_FIELD) return currentValue === newValue;
 
-  const current = dynamicRuleDefinitionSignature(currentValue);
-  const desired = dynamicRuleDefinitionSignature(newValue);
+  const current = parseBlob(currentValue);
+  const desired = parseBlob(newValue);
   // An unparseable side means we cannot reason structurally; fall back to the raw comparison.
-  if (!current || !desired) return currentValue === newValue;
+  if (current === undefined || desired === undefined) return currentValue === newValue;
 
-  return current.ruleKey === desired.ruleKey && current.ruleEngineType === desired.ruleEngineType;
+  return jsonDeepEqual(current, desired);
+}
+
+function parseBlob(value: string): unknown {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    // `undefined` is the "unparseable" sentinel, and JSON can never produce it.
+    return parsed;
+  } catch {
+    return undefined;
+  }
 }

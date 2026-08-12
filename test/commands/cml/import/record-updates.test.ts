@@ -343,6 +343,43 @@ describe('cml import record-updates', () => {
     expect(logOutput()).to.include('Updated 0, skipped 1 (already current), failed 0.');
   });
 
+  it('applies a hand-corrected blob whose ruleKey and ruleEngineType already match the org', async () => {
+    // The reviewer corrected a threshold in ruleCriteria; the two fields convert rewrites were
+    // already current. The blob is written verbatim, so treating this as "already current" would
+    // silently discard the correction and exit 0.
+    const orgBlob =
+      '{"apiName":"MinDriverAge","ruleKey":"UW_001","underwritingRuleGroup":{"ruleEngineType":"ConstraintEngine"},"ruleCriteria":[{"values":["18"]}]}';
+    const handCorrected = orgBlob.replace('"18"', '"21"');
+    stubOrgConnection({
+      current: { UnderwritingRule: [{ Id: RULE_ID, Name: 'Min Driver Age', DynamicRuleDefinition: orgBlob }] },
+    });
+    await writePlan(
+      JSON.stringify({
+        schemaVersion: 1,
+        kind: 'underwriting-update',
+        cmlApi: 'UW_AUTO',
+        generatedAt: '2026-06-28T12:00:00.000Z',
+        updates: [
+          {
+            sobject: 'UnderwritingRule',
+            id: RULE_ID,
+            name: 'Min Driver Age',
+            apiName: 'MinDriverAge',
+            fields: [{ field: 'DynamicRuleDefinition', value: handCorrected }],
+          },
+        ],
+      })
+    );
+
+    const result = await runCommand(['--no-prompt']);
+
+    expect(result.plannedChanges[0].operation).to.equal('Update');
+    expect(result.skipped, 'a substantive hand-correction is not "already current"').to.deep.equal([]);
+    expect(updateCalls).to.deep.equal([
+      { sobject: 'UnderwritingRule', payloads: [{ Id: RULE_ID, DynamicRuleDefinition: handCorrected }] },
+    ]);
+  });
+
   it('rejects a file whose kind is not a record-update kind', async () => {
     stubOrgConnection({});
     await writePlan(JSON.stringify({ schemaVersion: 1, kind: 'product-update', cmlApi: 'SC_AUTO', updates: [] }));

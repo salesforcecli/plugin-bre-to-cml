@@ -205,6 +205,42 @@ describe('record-update-plan isAlreadyCurrent', () => {
     expect(isAlreadyCurrent('DynamicRuleDefinition', orgNormalized, desired)).to.equal(true);
   });
 
+  it('does not drop a reviewer’s hand-correction elsewhere in the blob', () => {
+    // ruleKey and the nested ruleEngineType already match the org, but the reviewer corrected a
+    // threshold. The apply writes the file's blob verbatim, so calling this "already current"
+    // silently discards the edit and exits 0 — the exact failure the reviewable file exists to
+    // prevent.
+    const org =
+      '{"ruleKey":"UW_001","underwritingRuleGroup":{"ruleEngineType":"ConstraintEngine"},"ruleCriteria":[{"rootObjectId":"01t","conditions":[{"attributeName":"DriverAge","operator":"GreaterThanOrEqual","values":["18"]}]}]}';
+    const handCorrected = org.replace('"18"', '"21"');
+
+    expect(isAlreadyCurrent('DynamicRuleDefinition', org, handCorrected)).to.equal(false);
+  });
+
+  it('still treats a pure reformat or key reorder as a no-op', () => {
+    const desired =
+      '{"ruleKey":"UW_001","ruleCriteria":[{"rootObjectId":"01t","values":["18"]}],"underwritingRuleGroup":{"ruleEngineType":"ConstraintEngine"}}';
+    const orgReserialized =
+      '{\n  "underwritingRuleGroup": { "ruleEngineType": "ConstraintEngine" },\n  "ruleCriteria": [ { "values": ["18"], "rootObjectId": "01t" } ],\n  "ruleKey": "UW_001"\n}';
+
+    expect(isAlreadyCurrent('DynamicRuleDefinition', orgReserialized, desired)).to.equal(true);
+  });
+
+  it('treats a reordered array as a real change, since array order is meaningful', () => {
+    expect(
+      isAlreadyCurrent('DynamicRuleDefinition', '{"ruleCriteria":["a","b"]}', '{"ruleCriteria":["b","a"]}')
+    ).to.equal(false);
+  });
+
+  it('detects a field the file adds or removes relative to the org blob', () => {
+    expect(
+      isAlreadyCurrent('DynamicRuleDefinition', '{"ruleKey":"UW_001"}', '{"ruleKey":"UW_001","status":"Active"}')
+    ).to.equal(false);
+    expect(
+      isAlreadyCurrent('DynamicRuleDefinition', '{"ruleKey":"UW_001","status":"Active"}', '{"ruleKey":"UW_001"}')
+    ).to.equal(false);
+  });
+
   it('detects a DynamicRuleDefinition whose ruleKey differs', () => {
     expect(isAlreadyCurrent('DynamicRuleDefinition', '{"ruleKey":"OLD_KEY"}', '{"ruleKey":"UW_001"}')).to.equal(false);
   });
