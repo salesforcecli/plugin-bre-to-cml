@@ -17,6 +17,7 @@ import { expect } from 'chai';
 import {
   dynamicRuleDefinitionApiName,
   dynamicRuleDefinitionSignature,
+  formatBlobChange,
   isAlreadyCurrent,
   parseRecordUpdatePlan,
 } from '../../../src/shared/insurance/record-update-plan.js';
@@ -465,6 +466,62 @@ describe('record-update-plan isAlreadyCurrent — org-side differences that inte
     delete fileSide.effectiveToDate;
 
     expect(compare(realisticBlob({ effectiveToDate: null }), fileSide)).to.equal(false);
+  });
+});
+
+/**
+ * The preview side of the same decision. Every case above is an `Update` whose two mutated fields
+ * already match, so the pairwise cell reads `X → X` on both of them — exactly the "confirmed
+ * without having seen anything" failure B1 existed to fix, re-introduced by B2's whole-document
+ * compare. Whatever makes `isAlreadyCurrent` say "rewrite" must be nameable in the cell, or the
+ * operator is consenting blind.
+ */
+describe('record-update-plan formatBlobChange — the difference the skip decision acted on', () => {
+  const orgWithExtraKey = realisticBlob({ lastEvaluatedDate: '2026-08-01' });
+  const orgMissingStatus = ((): Record<string, unknown> => {
+    const side = realisticBlob();
+    delete side.status;
+    return side;
+  })();
+  const orgWithBareNumber = realisticBlob({
+    ruleCriteria: [
+      {
+        rootObjectId: '01tAUTO00000000001',
+        conditions: [{ attributeName: 'DriverAge', operator: 'GreaterThanOrEqual', values: [21] }],
+      },
+    ],
+  });
+  const fileWithoutEffectiveTo = ((): Record<string, unknown> => {
+    const side = realisticBlob();
+    delete side.effectiveToDate;
+    return side;
+  })();
+
+  const cases: Array<[string, Record<string, unknown>, Record<string, unknown>, string]> = [
+    ['a server-computed field only the org carries', orgWithExtraKey, realisticBlob(), 'lastEvaluatedDate'],
+    ['a key the org dropped', orgMissingStatus, realisticBlob(), 'status'],
+    ['a number the org unquoted', orgWithBareNumber, realisticBlob(), 'ruleCriteria[0].conditions[0].values[0]'],
+    [
+      'an optional key the file omits',
+      realisticBlob({ effectiveToDate: null }),
+      fileWithoutEffectiveTo,
+      'effectiveToDate',
+    ],
+  ];
+
+  cases.forEach(([label, org, file, expectedPath]) => {
+    it(`names ${label}, rather than showing two identical pairs`, () => {
+      const orgText = JSON.stringify(org);
+      const fileText = JSON.stringify(file);
+      // Precondition: this really is the defect's shape — an Update whose mutated fields agree.
+      expect(isAlreadyCurrent('DynamicRuleDefinition', orgText, fileText), 'fixture must be an Update').to.equal(false);
+      expect(dynamicRuleDefinitionSignature(orgText)).to.deep.equal(dynamicRuleDefinitionSignature(fileText));
+
+      const rendered = formatBlobChange(orgText, fileText) ?? '';
+
+      expect(rendered).to.not.include('→', `nothing changed among the pairs, so none may be shown: ${rendered}`);
+      expect(rendered).to.include(expectedPath);
+    });
   });
 });
 

@@ -247,3 +247,105 @@ describe('planned-change DynamicRuleDefinition semantic diff', () => {
     expect(formatBlobSummary(null)).to.equal(undefined);
   });
 });
+
+/**
+ * The B1 invariant, as a predicate: a cell whose every `label: before → after` pair renders the
+ * same string on both sides has shown the operator nothing, whatever the row's Operation says.
+ */
+const rendersOnlyIdenticalPairs = (cell: string): boolean => {
+  const pairs = [...cell.matchAll(/: ([^,;]*) → ([^,;]*)/g)];
+  return pairs.length > 0 && pairs.every(([, before, after]) => before === after);
+};
+
+/**
+ * B2 made the already-current decision compare the WHOLE blob document, while the preview kept
+ * rendering only the two fields convert mutates. A row can therefore be an `Update` whose every
+ * displayed pair is identical — the operator is told the record will be rewritten and shown nothing
+ * that differs. These pin the disclosure that closes that gap.
+ */
+describe('planned-change DynamicRuleDefinition differences outside the mutated fields', () => {
+  /** The reviewer lowered the minimum driver age; both mutated fields were already current. */
+  const handCorrected = convertedBlob.replace('"21"', '"18"');
+
+  it('discloses the other difference instead of rendering a cell of identical pairs', () => {
+    // Verbatim from the live-org run: `ruleKey: X → X, underwritingRuleGroup.ruleEngineType: Y → Y`
+    // on a row marked Update, with no way to see what actually differed.
+    const rendered = formatBlobChange(convertedBlob, handCorrected);
+
+    expect(rendered, 'both sides parse, so the semantic renderer must still own the cell').to.not.equal(undefined);
+    expect(rendersOnlyIdenticalPairs(rendered ?? ''), `useless cell: ${rendered ?? ''}`).to.equal(false);
+    expect(rendered).to.equal(
+      'ruleKey and underwritingRuleGroup.ruleEngineType unchanged; ' +
+        '1 other field differs: ruleCriteria[0].conditions[0].values[0]'
+    );
+  });
+
+  it('keeps the mutated diff and appends the rest when both changed', () => {
+    const current = orgBlob.replace('policy tier', 'policy band');
+    const rendered = formatBlobChange(current, convertedBlob);
+
+    expect(rendered).to.equal(
+      'ruleKey: (none) → UW__auto__minDriverAge, ' +
+        'underwritingRuleGroup.ruleEngineType: BusinessRuleEngine → ConstraintEngine; ' +
+        'also 1 other field differs: description'
+    );
+  });
+
+  it('leaves the plain pairwise diff alone when only the mutated fields changed', () => {
+    const rendered = formatBlobChange(orgBlob, convertedBlob);
+
+    expect(rendered, 'the common case must not grow a clause about differences that do not exist').to.not.match(
+      /other field/
+    );
+    expect(rendered).to.equal(
+      'ruleKey: (none) → UW__auto__minDriverAge, ' +
+        'underwritingRuleGroup.ruleEngineType: BusinessRuleEngine → ConstraintEngine'
+    );
+  });
+
+  it('names what fits and counts the overflow, rather than dumping every path', () => {
+    // Five differences whose dotted paths together run well past the cell budget.
+    const edited = JSON.parse(convertedBlob) as Record<string, unknown>;
+    edited.apiName = 'MinDriverAgeRuleV2';
+    edited.description = 'Driver must be at least 18 years old';
+    const criteria = (edited.ruleCriteria as Array<Record<string, unknown>>)[0];
+    criteria.rootObjectId = '01tMOTO00000000001';
+    ((criteria.conditions as Array<Record<string, unknown>>)[0].values as string[])[0] = '18';
+    (edited.underwritingRuleGroup as Record<string, unknown>).fromStage = 'Draft';
+    const rendered = formatBlobChange(convertedBlob, JSON.stringify(edited)) ?? '';
+
+    expect(rendered).to.match(/^ruleKey and underwritingRuleGroup\.ruleEngineType unchanged; 5 other fields differ: /);
+    expect(rendered, 'an operator who cannot see every path must at least know how many are hidden').to.match(
+      /\+2 more$/
+    );
+    const named = rendered.slice(rendered.indexOf('differ: ') + 'differ: '.length);
+    expect(named.length, `the disclosure must respect the cell budget: ${named}`).to.be.at.most(60);
+    expect(named.split(', ')[0], 'at least one path is always named').to.equal('apiName');
+  });
+
+  it('reads an entity-encoded current blob, so the preview and the skip decision agree', () => {
+    // Both read the org value through the same tolerant parse. If the preview used a stricter one it
+    // would fall back to the raw diff on exactly the rows the skip decision called an Update.
+    const encoded = convertedBlob.replace(/"/g, '&quot;');
+
+    expect(formatBlobChange(encoded, handCorrected)).to.equal(
+      'ruleKey and underwritingRuleGroup.ruleEngineType unchanged; ' +
+        '1 other field differs: ruleCriteria[0].conditions[0].values[0]'
+    );
+  });
+
+  it('says nothing about other fields when the record has no blob at all', () => {
+    // There is no document to compare against, and `(none) → value` is already a visibly different
+    // pair, so nothing is being hidden from the operator.
+    const rendered = formatBlobChange(null, convertedBlob) ?? '';
+
+    expect(rendered).to.not.match(/other field/);
+    expect(rendersOnlyIdenticalPairs(rendered)).to.equal(false);
+  });
+
+  it('still declines the cell when the current blob cannot be read structurally', () => {
+    // The contract the caller depends on: no invented value, fall back to the raw diff.
+    expect(formatBlobChange('{broken', handCorrected)).to.equal(undefined);
+    expect(formatBlobChange(convertedBlob, '{broken')).to.equal(undefined);
+  });
+});

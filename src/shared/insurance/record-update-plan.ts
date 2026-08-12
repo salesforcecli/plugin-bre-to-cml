@@ -324,18 +324,58 @@ const BLOB_SIGNATURE_FIELDS: ReadonlyArray<[keyof BlobSignature, string]> = [
   ['ruleEngineType', 'underwritingRuleGroup.ruleEngineType'],
 ];
 
+/** The same two fields as dotted paths, to subtract them from a whole-document difference list. */
+const BLOB_SIGNATURE_PATHS: ReadonlySet<string> = new Set(BLOB_SIGNATURE_FIELDS.map(([, label]) => label));
+
+/** How much of the cell the named-path list may take, matching the per-value budget. */
+const OTHER_PATHS_BUDGET = 60;
+
+/** A single path is truncated well short of the list budget, so one long path cannot crowd out all others. */
+const OTHER_PATH_BUDGET = 40;
+
 const renderSignatureValue = (value: unknown): string => {
   if (value == null) return NO_VALUE;
   return truncateCell(typeof value === 'string' ? value : JSON.stringify(value));
 };
 
 /**
- * Renders a `DynamicRuleDefinition` change as a semantic diff of just the fields convert mutates.
+ * Names the differing paths that fit the cell budget, then counts the rest.
+ *
+ * Always names at least one, even if it alone exceeds the budget: a disclosure with no example is
+ * barely more actionable than the identical-pairs cell this exists to replace.
+ */
+function nameOtherPaths(paths: readonly string[]): string {
+  const named: string[] = [];
+  let used = 0;
+  for (const path of paths) {
+    const rendered = truncateCell(path, OTHER_PATH_BUDGET);
+    const cost = rendered.length + (named.length > 0 ? ', '.length : 0);
+    if (named.length > 0 && used + cost > OTHER_PATHS_BUDGET) break;
+    named.push(rendered);
+    used += cost;
+  }
+  const overflow = paths.length - named.length;
+  return overflow > 0 ? `${named.join(', ')}, +${overflow} more` : named.join(', ');
+}
+
+/** e.g. `3 other fields differ: status, description, +1 more`. */
+const describeOtherPaths = (paths: readonly string[]): string =>
+  `${paths.length} other ${paths.length === 1 ? 'field differs' : 'fields differ'}: ${nameOtherPaths(paths)}`;
+
+/**
+ * Renders a `DynamicRuleDefinition` change as a semantic diff of just the fields convert mutates,
+ * plus a disclosure of any difference elsewhere in the document.
  *
  * A real blob is several hundred characters whose first 60 are identical before and after, so a
  * truncated raw `old → new` renders byte-identically on both sides and the operator confirms
- * without having seen anything. Returns undefined when either side cannot be read structurally, so
- * the caller falls back to the raw diff rather than inventing a value.
+ * without having seen anything (B1). But {@link isAlreadyCurrent} compares the WHOLE document (B2),
+ * so a row can be an `Update` because of a field this diff does not show — and then every pair it
+ * does show reads `X → X`, which is the same "confirmed without seeing anything" failure wearing a
+ * different hat. The pairs are therefore only rendered when they actually changed, and anything
+ * that changed outside them is named.
+ *
+ * Returns undefined when either side cannot be read structurally, so the caller falls back to the
+ * raw diff rather than inventing a value.
  */
 export function formatBlobChange(currentValue: string | null | undefined, newValue: string): string | undefined {
   const desired = dynamicRuleDefinitionSignature(newValue);
@@ -344,12 +384,35 @@ export function formatBlobChange(currentValue: string | null | undefined, newVal
   const current = currentValue == null ? undefined : dynamicRuleDefinitionSignature(currentValue);
   if (currentValue != null && !current) return undefined;
 
-  return BLOB_SIGNATURE_FIELDS.map(
+  const pairs = BLOB_SIGNATURE_FIELDS.map(
     ([key, label]) => `${label}: ${renderSignatureValue(current?.[key])} → ${renderSignatureValue(desired[key])}`
   ).join(', ');
+
+  // Nothing to diff against, and `(none) → value` is already visibly different on both sides: every
+  // field in the document is new, so there is no subset worth singling out as "other".
+  if (currentValue == null) return pairs;
+
+  const other = documentDifferences(parseBlob(currentValue), parseBlob(newValue)).filter(
+    (path) => !BLOB_SIGNATURE_PATHS.has(path)
+  );
+  if (other.length === 0) return pairs;
+
+  const signatureChanged = BLOB_SIGNATURE_FIELDS.some(
+    ([key]) => documentDifferences(current?.[key], desired[key]).length > 0
+  );
+  return signatureChanged
+    ? `${pairs}; also ${describeOtherPaths(other)}`
+    : `${BLOB_SIGNATURE_FIELDS.map(([, label]) => label).join(' and ')} unchanged; ${describeOtherPaths(other)}`;
 }
 
-/** The same semantic view of a single blob, for rendering an already-current row. */
+/**
+ * The same semantic view of a single blob, for rendering an already-current row.
+ *
+ * This needs no "other fields" disclosure: the row only exists because {@link isAlreadyCurrent}
+ * found the two documents deep-equal, so by construction there is nothing outside these fields to
+ * disclose. (The one already-current path that does not prove that — the raw-text fallback for an
+ * unparseable blob — never reaches here, because an unparseable value yields no signature.)
+ */
 export function formatBlobSummary(value: string | null | undefined): string | undefined {
   const signature = value == null ? undefined : dynamicRuleDefinitionSignature(value);
   if (!signature) return undefined;
@@ -375,22 +438,37 @@ export function dynamicRuleDefinitionApiName(
   return typeof parsed.apiName === 'string' ? { apiName: parsed.apiName } : { failure: 'absent' };
 }
 
-/**
- * Deep JSON equality: objects compare key-order-insensitively, arrays stay ordered. This is
- * exactly "same document, possibly re-serialized" — which is the distinction the blob compare
- * needs to draw.
- */
-function jsonDeepEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (Array.isArray(a) || Array.isArray(b)) {
-    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
-    return a.every((item, i) => jsonDeepEqual(item, b[i]));
-  }
-  if (!isRecord(a) || !isRecord(b)) return false;
+/** Stands in for the path of a difference at the root, where there is no key to name. */
+const ROOT_PATH = '(whole document)';
 
-  const keys = Object.keys(a);
-  if (keys.length !== Object.keys(b).length) return false;
-  return keys.every((key) => Object.hasOwn(b, key) && jsonDeepEqual(a[key], b[key]));
+/**
+ * Every dotted path at which two parsed JSON documents differ: objects compare
+ * key-order-insensitively, arrays stay ordered. An empty result is exactly "same document, possibly
+ * re-serialized" — the distinction the blob compare needs to draw.
+ *
+ * Deliberately the single definition of blob difference in this module. {@link isAlreadyCurrent}
+ * decides whether to write from it and {@link formatBlobChange} describes the write from it, so the
+ * preview cannot claim a document is unchanged that the skip decision is about to rewrite, or the
+ * reverse. A second, separately-written comparison would eventually disagree with this one, and a
+ * preview that contradicts what gets applied is worse than no preview.
+ *
+ * An array whose length differs is reported at the array itself rather than per element: the
+ * element indices are not stable across an insertion, so naming them would mislead more than the
+ * array's own name does.
+ */
+function documentDifferences(a: unknown, b: unknown, path = ''): string[] {
+  if (a === b) return [];
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return [path === '' ? ROOT_PATH : path];
+    return a.flatMap((item, i) => documentDifferences(item, b[i], `${path}[${i}]`));
+  }
+  if (!isRecord(a) || !isRecord(b)) return [path === '' ? ROOT_PATH : path];
+
+  return [...new Set([...Object.keys(a), ...Object.keys(b)])].flatMap((key) => {
+    const child = path === '' ? key : `${path}.${key}`;
+    if (!Object.hasOwn(a, key) || !Object.hasOwn(b, key)) return [child];
+    return documentDifferences(a[key], b[key], child);
+  });
 }
 
 /**
@@ -412,5 +490,5 @@ export function isAlreadyCurrent(field: string, currentValue: string | null | un
   // An unparseable side means we cannot reason structurally; fall back to the raw comparison.
   if (current === UNPARSEABLE || desired === UNPARSEABLE) return currentValue === newValue;
 
-  return jsonDeepEqual(current, desired);
+  return documentDifferences(current, desired).length === 0;
 }

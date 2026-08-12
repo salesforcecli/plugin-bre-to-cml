@@ -382,6 +382,59 @@ describe('cml import record-updates', () => {
     expect(preview.newValue).to.equal(newBlob);
   });
 
+  it('tells the operator what differs when the blob changed outside the fields convert mutates', async () => {
+    // The live-org symptom, at the layer the operator actually reads. Both mutated fields were
+    // already flipped by an earlier run, and the reviewer then corrected a threshold, so the row is
+    // a correct Update whose every pairwise value would render identically on both sides.
+    const orgBlob = JSON.stringify({
+      apiName: 'SubmittedApprove1',
+      description: 'Driver must be at least 21 years old to qualify for this policy tier',
+      name: 'SubmittedApprove1',
+      productPath: '01tROOT00000000001/01tAUTO00000000001',
+      ruleKey: 'UW__autoSilver__SubmittedToApproved__SubmittedApprove1',
+      ruleCriteria: [
+        { rootObjectId: '01tAUTO00000000001', conditions: [{ attributeName: 'DriverAge', values: ['21'] }] },
+      ],
+      underwritingRuleGroup: { fromStage: 'Submitted', toStage: 'Approved', ruleEngineType: 'ConstraintEngine' },
+    });
+    const handCorrected = orgBlob.replace('"21"', '"18"');
+
+    stubOrgConnection({
+      current: { UnderwritingRule: [{ Id: RULE_ID, Name: 'SubmittedApprove1', DynamicRuleDefinition: orgBlob }] },
+    });
+    await writePlan(
+      JSON.stringify({
+        schemaVersion: 1,
+        kind: 'underwriting-update',
+        cmlApi: 'UW_AUTO',
+        generatedAt: '2026-06-28T12:00:00.000Z',
+        updates: [
+          {
+            sobject: 'UnderwritingRule',
+            id: RULE_ID,
+            name: 'SubmittedApprove1',
+            apiName: 'SubmittedApprove1',
+            fields: [{ field: 'DynamicRuleDefinition', value: handCorrected }],
+          },
+        ],
+      })
+    );
+
+    const result = await runCommand(['--dry-run']);
+
+    const rows = (sfCommandStubs.table.getCall(0).args[0] as { data: Array<Record<string, unknown>> }).data;
+    const cell = String(rows[0].Change);
+    // B2 is not weakened: the documents differ, so the row stays an Update and still gets written.
+    expect(rows[0].Operation).to.equal('Update');
+    // B1 is not weakened either: never a pair that reads the same on both sides with nothing else.
+    expect(cell, `every value shown is unchanged: ${cell}`).to.not.include('→');
+    expect(cell).to.equal(
+      'ruleKey and underwritingRuleGroup.ruleEngineType unchanged; ' +
+        '1 other field differs: ruleCriteria[0].conditions[0].values[0]'
+    );
+    expect(result.plannedChanges[0].newValue).to.equal(handCorrected);
+  });
+
   it('--dry-run renders the plan and writes nothing', async () => {
     stubOrgConnection({
       current: {
