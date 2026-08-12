@@ -44,6 +44,11 @@ type UnderwritingRuleRecord = RuleRecord & {
   UnderwritingRuleGroup: { Name: string | null } | null;
 };
 
+/** A rule of some group that did NOT reach the merged CML, with what it would need to get there. */
+type UnplacedRule = { id: string; name: string; leafProductId: string | undefined };
+
+type GroupState = { name: string | null; placed: string[]; unplaced: UnplacedRule[] };
+
 export type CmlConvertUnderwritingRulesResult = InsuranceRuleConvertResult;
 
 // eslint-disable-next-line sf-plugin/only-extend-SfCommand
@@ -70,6 +75,9 @@ export default class CmlConvertUnderwritingRules extends InsuranceRuleConvertCom
   protected readonly soql =
     'SELECT Id, Name, ApiName, DynamicRuleDefinition, ProductPath, RuleKey, UnderwritingRuleGroupId, UnderwritingRuleGroup.Name FROM UnderwritingRule WHERE RuleKey = null';
   protected readonly recordUpdateKind = 'underwriting-update' as const;
+
+  /** Merge-skip reason per UnderwritingRule id, populated by {@link runMergeConvert}. */
+  private skipReasonByRecordId: ReadonlyMap<string, string> = new Map();
 
   public async run(): Promise<CmlConvertUnderwritingRulesResult> {
     const { flags } = await this.parse(CmlConvertUnderwritingRules);
@@ -128,6 +136,9 @@ export default class CmlConvertUnderwritingRules extends InsuranceRuleConvertCom
     rules.forEach((r) => this.log(`  -> ${r.recordName} => ${r.constraintName} (type: ${r.typeName ?? 'UNRESOLVED'})`));
 
     const { mergedCml, placements, skips, attributeWarnings } = mergeUnderwritingConstraints(existing.cmlText, rules);
+    // Kept so the withheld-flip warning can quote WHY each blocking rule missed the CML, instead of
+    // sending the operator back up the log to correlate SKIPPED lines with group ids by hand.
+    this.skipReasonByRecordId = new Map(skips.map((s) => [s.rule.recordId, s.reason]));
 
     this.log(
       `\nMerge summary: ${placements.filter((p) => p.status === 'inserted').length} inserted, ${
@@ -231,7 +242,6 @@ export default class CmlConvertUnderwritingRules extends InsuranceRuleConvertCom
     // its constraints in place. Flipping is not: the disabled rules stop firing immediately, with
     // nothing in the plan or the org to indicate which logic went dark.
     const placedRecordIds = new Set(ruleKeyMapping.map((m) => m.recordId));
-    type GroupState = { name: string | null; placed: string[]; unplaced: string[] };
     const groups = new Map<string, GroupState>();
     for (const record of records) {
       const groupId = record.UnderwritingRuleGroupId;
@@ -240,7 +250,12 @@ export default class CmlConvertUnderwritingRules extends InsuranceRuleConvertCom
       // Name resolved from the queried relationship so the apply-time identity guard has something
       // to cross-check; first non-null wins (the rows of one group should agree on it).
       state.name = state.name ?? record.UnderwritingRuleGroup?.Name ?? null;
-      (placedRecordIds.has(record.Id) ? state.placed : state.unplaced).push(record.Name);
+      if (placedRecordIds.has(record.Id)) {
+        state.placed.push(record.Name);
+      } else {
+        const segments = splitProductPath(record.ProductPath);
+        state.unplaced.push({ id: record.Id, name: record.Name, leafProductId: segments[segments.length - 1] });
+      }
       groups.set(groupId, state);
     }
 
@@ -254,17 +269,7 @@ export default class CmlConvertUnderwritingRules extends InsuranceRuleConvertCom
         continue;
       }
       if (state.unplaced.length > 0) {
-        this.warn(
-          `Not flipping UnderwritingRuleGroup '${state.name ?? groupId}' (${groupId}): ${
-            state.unplaced.length
-          } of its ${
-            state.placed.length + state.unplaced.length
-          } rules were not merged into the CML (${state.unplaced.join(
-            ', '
-          )}). Flipping it would stop those rules being evaluated with no constraint behind them; instead the converted constraint(s) for ${state.placed.join(
-            ', '
-          )} stay inert until you fix the skip reasons above and re-run.`
-        );
+        this.warn(this.partialGroupWarning(groupId, state));
         withheld.push(groupId);
         continue;
       }
@@ -296,6 +301,65 @@ export default class CmlConvertUnderwritingRules extends InsuranceRuleConvertCom
     updates.push(...this.buildBlobRewrites(records, ruleKeyMapping, flippedGroupIds));
 
     return updates;
+  }
+
+  /**
+   * The withheld-flip warning for a partially-migrated group. This message is the only thing the
+   * operator has to act on, so it has to name a remedy rather than a symptom:
+   *
+   * The reason it most often quotes, `no CML type tag found for the leaf product of X`, names a
+   * symptom. `fetchProductTypeTags` reads that tag from ExpressionSetConstraintObj rows with
+   * ConstraintModelTagType='Type', so the remedy is to add the row binding that leaf Product2 to a
+   * type block — stated here rather than left to be reverse-engineered out of the merge internals.
+   *
+   * And "fix it and re-run" is the wrong instruction when the leaf product is not in the org's
+   * Product2 at all: nothing can bind a type tag to a product that is not there, so the group stays
+   * withheld however many times it is re-run. Convert already warned about exactly those ids while
+   * resolving product codes, so that case is separated out instead of folded into "fix and re-run".
+   */
+  private partialGroupWarning(groupId: string, state: GroupState): string {
+    const total = state.placed.length + state.unplaced.length;
+    const blockers = state.unplaced.map((r) => r.name).join(', ');
+    const unplaceable = state.unplaced.flatMap((r) =>
+      r.leafProductId && this.productIdsMissingFromOrg.has(r.leafProductId)
+        ? [`${r.name} (leaf product ${r.leafProductId})`]
+        : []
+    );
+
+    const parts = [
+      `Not flipping UnderwritingRuleGroup '${state.name ?? groupId}' (${groupId}): ${
+        state.unplaced.length
+      } of its ${total} rules were not merged into the CML (${blockers}). Flipping it would stop those rules being ` +
+        `evaluated with no constraint behind them; instead the converted constraint(s) for ${state.placed.join(
+          ', '
+        )} ` +
+        'stay inert until every rule in the group merges.',
+    ];
+
+    // Only promise a re-run when at least one blocker could actually be placed by one.
+    if (unplaceable.length < state.unplaced.length) {
+      parts.push("Each blocking rule's reason is on its SKIPPED line above; fix those and re-run to flip the group.");
+    }
+
+    if (state.unplaced.some((r) => this.skipReasonByRecordId.get(r.id)?.startsWith('no CML type tag'))) {
+      parts.push(
+        "A 'no CML type tag' reason means that rule's leaf product is not bound to any type block in this model: add " +
+          "an ExpressionSetConstraintObj row with ConstraintModelTagType='Type', ReferenceObjectId set to the leaf " +
+          "Product2 and ConstraintModelTag set to the target type name (or repoint the rule's ProductPath at a product " +
+          'that already has one).'
+      );
+    }
+
+    if (unplaceable.length > 0) {
+      parts.push(
+        `Re-running will not help for ${unplaceable.join(
+          ', '
+        )}: that product was not returned by the Product2 query (warned above), so no type tag can be ` +
+          'bound to it and the rule cannot be placed in this org until the product exists and is visible to this user.'
+      );
+    }
+
+    return parts.join(' ');
   }
 
   /**

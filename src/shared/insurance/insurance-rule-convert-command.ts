@@ -95,6 +95,16 @@ export abstract class InsuranceRuleConvertCommand<R extends RuleRecord> extends 
    */
   protected attributeDataTypes: ReadonlyMap<string, string> = new Map();
 
+  /**
+   * Product2 ids named by some rule's ProductPath that the Product2 query did not return — the same
+   * condition {@link resolveProductCodes} already warns about per id, captured so later reporting can
+   * tell an operator that a rule is blocked permanently (the product does not exist / is not visible
+   * here) rather than blocked until the next run. Deliberately populated only on the path that emits
+   * that warning: when the query itself fails no id is recorded, so nothing can claim a product was
+   * absent when we simply never learned.
+   */
+  protected productIdsMissingFromOrg: ReadonlySet<string> = new Set();
+
   protected abstract readonly recordLabel: string;
   protected abstract readonly keyPrefix: string;
   protected abstract readonly constraintLabel: string;
@@ -360,14 +370,17 @@ export abstract class InsuranceRuleConvertCommand<R extends RuleRecord> extends 
       // ids mean the Product2 row is invalid / deleted / outside the visible scope — generation
       // will silently fall back to the raw Id for that path segment, again yielding a non-matching
       // platform RuleKey. Surface this case explicitly so the operator can investigate.
+      const missingFromOrg = new Set<string>();
       for (const id of productIds) {
         if (!productIdToCode.has(id)) {
+          missingFromOrg.add(id);
           this.warn(
             `Product ${id} was not returned by Product2 query (not found, not visible, or filtered out); ` +
               'rule key for paths through this product will fall back to the raw Id and may not match the platform-generated RuleKey'
           );
         }
       }
+      this.productIdsMissingFromOrg = missingFromOrg;
       this.validateAssociationNames(productIdToName);
       return { productIdToCode, productIdToName };
     } catch (e) {

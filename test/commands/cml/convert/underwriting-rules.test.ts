@@ -399,6 +399,69 @@ describe('cml convert underwriting-rules', () => {
     expect(warnOutput()).to.match(/no Name resolved/);
   });
 
+  // ---- The partial-group warning is the only thing an operator has to act on, so it has to name a
+  // remedy rather than a symptom, and it must not promise a re-run that cannot succeed.
+  describe('partial-group warning content', () => {
+    const partialGroup = (leafId: string): UwFixture[] => [
+      uwRecord({ id: '1KX000000000081', name: 'Kept Rule', groupId: '1KQ000000000081', groupName: 'Blocked Group' }),
+      uwRecord({
+        id: '1KX000000000082',
+        name: 'Blocking Rule',
+        groupId: '1KQ000000000081',
+        groupName: 'Blocked Group',
+        leafId,
+      }),
+    ];
+
+    /** Just the partial-group warning, so an assertion cannot accidentally match a neighbouring one. */
+    const partialWarning = (): string =>
+      sfCommandStubs.warn
+        .getCalls()
+        .flatMap((c) => c.args)
+        .map(String)
+        .find((m) => m.includes('Not flipping UnderwritingRuleGroup')) ?? '';
+
+    it('names the ExpressionSetConstraintObj Type binding that a missing type tag actually needs', async () => {
+      await runCommand(partialGroup(ORPHAN_ID));
+
+      const warning = partialWarning();
+      expect(warning, 'the partial-group warning should have been emitted').to.include('Blocking Rule');
+      // The skip reason says "no CML type tag found for the leaf product of X" — the remedy is a
+      // ExpressionSetConstraintObj row with ConstraintModelTagType='Type' binding that leaf Product2
+      // to a type block, which is what fetchProductTypeTags reads. Say so.
+      expect(warning).to.include('ExpressionSetConstraintObj');
+      expect(warning).to.include("ConstraintModelTagType='Type'");
+      expect(warning).to.match(/re-run/i);
+    });
+
+    it('tells the operator to re-run when the blocking rule\u2019s leaf product does exist in the org', async () => {
+      await runCommand(partialGroup(ORPHAN_ID));
+
+      const warning = partialWarning();
+      expect(warning).to.match(/re-run/i);
+      // Nothing here is permanently blocked, so the message must not say it is.
+      expect(warning).to.not.match(/cannot be placed in this org/i);
+    });
+
+    it('says a re-run cannot help when the blocking rule\u2019s leaf product is absent from Product2', async () => {
+      await runCommand(partialGroup(ORPHAN_ID), {
+        // The observed live-org case: the leaf product is not in Product2 at all, so no type tag can
+        // ever resolve for it and the group is withheld permanently, not until the next run.
+        productCodes: ALL_PRODUCT_CODES.filter((p) => p.Id !== ORPHAN_ID),
+      });
+
+      // Convert already knows this and warns about it moments earlier.
+      expect(warnOutput()).to.include(`Product ${ORPHAN_ID} was not returned by Product2 query`);
+
+      const warning = partialWarning();
+      expect(warning).to.match(/cannot be placed in this org/i);
+      expect(warning).to.include(ORPHAN_ID);
+      expect(warning).to.include('Blocking Rule');
+      // ...and it must not simultaneously send the operator round the retry loop it just ruled out.
+      expect(warning, 'nothing here is fixable by re-running').to.not.match(/fix those and re-run/i);
+    });
+  });
+
   // ---- The blob rewrite must agree with the flip decision. Withholding a group's flip while its
   // placed rule's blob still asserts `underwritingRuleGroup.ruleEngineType: ConstraintEngine` leaves
   // the applied org in a self-contradictory state: the blob says ConstraintEngine, the group record
