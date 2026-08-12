@@ -142,8 +142,11 @@ const ALWAYS_UNQUOTED_OPERATORS: ReadonlySet<string> = new Set([
   'GreaterThanOrEquals',
 ]);
 
-// Operators that emit a value via doubleQuotedIfNeeded — unquoted unless cmlDataType === STRING.
-const VALUE_EQUALITY_OPERATORS: ReadonlySet<string> = new Set(['Equals', 'NotEquals']);
+// Operators whose values are emitted unquoted unless cmlDataType === STRING. Equals/NotEquals go
+// through doubleQuotedIfNeeded; In/NotIn expand into a chain of `==` comparisons that follows the
+// same rule. In/NotIn are also the only multi-value operators here, so the guard below has to clear
+// every element of the list, not just the first.
+const VALUE_EQUALITY_OPERATORS: ReadonlySet<string> = new Set(['Equals', 'NotEquals', 'In', 'NotIn']);
 
 function isSafeNumericLiteral(value: string): boolean {
   return /^-?\d+(\.\d+)?$/.test(value.trim());

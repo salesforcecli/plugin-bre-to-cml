@@ -370,6 +370,73 @@ describe('buildConstraintDeclaration', () => {
     expect(buildConstraintDeclaration(ruleDef)).to.equal('IsActive == true');
   });
 
+  // In/NotIn emit their values unquoted on a non-string type, exactly as Equals does, so the
+  // safe-literal guard has to cover them too — otherwise a hostile value reaches the curated model
+  // verbatim through the one operator that was left out of the unquoted classification.
+  it('drops a numeric-typed In condition whose value is not a safe numeric literal (injection guard)', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [
+            { attributeName: 'Year', operator: 'In', dataType: 'Number', values: ['2020) || evil('] },
+            { attributeName: 'Model', operator: 'Equals', dataType: 'String', values: ['SUV'] },
+          ],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('Model == "SUV"');
+  });
+
+  // In is the only multi-value operator on this path, so the guard must clear EVERY element — a
+  // per-list check that stopped at the first value would let the second one through unquoted.
+  it('drops an In condition when any later value in the list is hostile (injection guard)', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [
+            {
+              attributeName: 'Deductible',
+              operator: 'In',
+              dataType: 'Currency',
+              values: ['500', '1000) , "InsuranceSurchargeRule", "x", "True"); evil('],
+            },
+          ],
+        },
+      ] as RuleCriteria[],
+    };
+    const declaration = buildConstraintDeclaration(ruleDef);
+    expect(declaration).to.equal('true');
+    expect(declaration).to.not.include('evil');
+  });
+
+  it('drops a NotIn condition whose value is not a safe literal (injection guard)', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [{ attributeName: 'IsActive', operator: 'NotIn', dataType: 'Boolean', values: ['true) || x('] }],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('true');
+  });
+
+  // A string-typed In stays on the quoted path, where the escaper — not the literal guard — is what
+  // has to hold, so the backslash rejection must still apply to every element of the list.
+  it('drops a string In condition when any value contains a backslash (H3 quote break-out)', () => {
+    const ruleDef = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [{ attributeName: 'Model', operator: 'In', dataType: 'String', values: ['SUV', 'evil\\'] }],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(buildConstraintDeclaration(ruleDef)).to.equal('true');
+  });
+
   it('drops a Date-typed Equals whose value is not a bare date literal (C1 injection)', () => {
     const ruleDef = {
       ruleCriteria: [
@@ -1083,6 +1150,59 @@ describe('condition data type resolution', () => {
   // representable, so it is not this guard's business.
   it('reports nothing unconvertible for a timestamp on a text attribute', () => {
     expect(findUnconvertibleConditions(oneCondition('Text', ['2026-01-01T10:00:00Z']))).to.deep.equal([]);
+  });
+
+  // In/NotIn expand into `==` chains, so a quoted value on a non-string attribute is the same
+  // never-fires mismatch the Picklist resolution above fixes — `Deductible == "500"` against the
+  // `decimal Deductible` the model declares.
+  it('emits In values unquoted when the type is not string', () => {
+    expect(buildConstraintDeclaration(oneCondition('Currency', ['500', '1000'], 'In'))).to.equal(
+      '(Attr == 500 || Attr == 1000)'
+    );
+    expect(buildConstraintDeclaration(oneCondition('Checkbox', ['true', 'false'], 'In'))).to.equal(
+      '(Attr == true || Attr == false)'
+    );
+  });
+
+  it('emits NotIn values unquoted when the type is not string', () => {
+    expect(buildConstraintDeclaration(oneCondition('Number', ['500', '1000'], 'NotIn'))).to.equal(
+      '!(Attr == 500 || Attr == 1000)'
+    );
+  });
+
+  it('keeps In and NotIn values quoted on a string type', () => {
+    expect(buildConstraintDeclaration(oneCondition('Text', ['SUV', 'Sedan'], 'In'))).to.equal(
+      '(Attr == "SUV" || Attr == "Sedan")'
+    );
+    expect(buildConstraintDeclaration(oneCondition('Text', ['SUV'], 'NotIn'))).to.equal('!(Attr == "SUV")');
+  });
+
+  // Unresolvable type stays on the quoted path, the same conservative direction Equals takes.
+  it('quotes In values when the type cannot be resolved', () => {
+    expect(buildConstraintDeclaration(oneCondition('Lookup', ['500'], 'In'))).to.equal('(Attr == "500")');
+  });
+
+  // The end-to-end case: a Deductible behind a Currency picklist, declared `decimal`, compared with
+  // In. Resolution and emission have to agree or the rule imports cleanly and never fires.
+  it('emits In values unquoted for a picklist that resolves to Currency', () => {
+    const rule = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [
+            {
+              attributeName: 'Deductible',
+              attributeId: DEDUCTIBLE_ID,
+              operator: 'In',
+              dataType: 'Picklist',
+              values: ['500', '1000'],
+            },
+          ],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(buildConstraintDeclaration(rule, currencyPicklists())).to.equal('(Deductible == 500 || Deductible == 1000)');
+    expect(collectAttributeTypes([{ ruleDef: rule }], currencyPicklists()).get('Deductible')).to.equal('decimal');
   });
 
   it('emits Decimal and Double values unquoted', () => {

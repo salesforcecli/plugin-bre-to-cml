@@ -34,11 +34,30 @@ export function doubleQuotedIfNeeded(value: string | string[] | undefined, dataT
   return `${dataType === 'string' ? doubleQuoted(singleValue) ?? '' : singleValue ?? "''"}`;
 }
 
-export function generateInCmlExpression(left: string, right: string | string[]): string {
+/**
+ * Whether values of this resolved CML type are emitted quoted. An absent type means the caller
+ * resolved none, and quoting is the conservative direction — an unquoted value reaches the curated
+ * model verbatim. (`doubleQuotedIfNeeded` predates this and reads an absent type as non-string;
+ * `In`/`NotIn` are new to type-awareness, so an omitted type keeps their long-standing quoting.)
+ */
+function quotesValues(dataType: string | undefined): boolean {
+  return dataType === undefined || dataType === 'string';
+}
+
+/**
+ * Expands an In list into a chain of `==` comparisons. Because those are equality comparisons, the
+ * values follow the same quoting rule Equals follows: quoted only for `string`. Quoting a value
+ * against an attribute the model declares `decimal` compares a number with a string literal, and
+ * the comparison never fires.
+ *
+ * `dataType` is optional and last so existing callers that pass none keep emitting quoted values.
+ */
+export function generateInCmlExpression(left: string, right: string | string[], dataType?: string): string {
+  const emit = (value: string): string => (quotesValues(dataType) ? doubleQuoted(value) : value);
   if (typeof right === 'string') {
-    return `${left} == ${doubleQuoted(right)}`;
+    return `${left} == ${emit(right)}`;
   }
-  return right.map((r) => `${left} == ${doubleQuoted(r)}`).join(' || ');
+  return right.map((r) => `${left} == ${emit(r)}`).join(' || ');
 }
 
 function firstValue(right: string | string[] | undefined): string | undefined {
@@ -75,12 +94,12 @@ export function convertToCmlExpression(
       return `!strcontain(${left}, ${doubleQuoted(firstValue(right))})`;
     case 'In':
       if (right) {
-        return `(${generateInCmlExpression(left, right)})`;
+        return `(${generateInCmlExpression(left, right, dataType)})`;
       }
       return `${left} == null`;
     case 'NotIn':
       if (right) {
-        return `!(${generateInCmlExpression(left, right)})`;
+        return `!(${generateInCmlExpression(left, right, dataType)})`;
       }
       return `${left} != null`;
     default: {
