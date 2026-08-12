@@ -30,6 +30,7 @@ import {
   fetchSurchargeCodes,
   mergeSurchargeRules,
   splitProductPath,
+  UNCONVERTIBLE_SKIP_PREFIX,
 } from '../../../shared/insurance/insurance-cml-merge.js';
 
 Messages.importMessagesDirectoryFromMetaUrl(import.meta.url);
@@ -162,9 +163,18 @@ export default class CmlConvertSurchargeRules extends InsuranceRuleConvertComman
     // they're staring at one duplicate or fifty missing-type-tag rules. Buckets match the merge
     // module's skip-reason vocabulary; anything that doesn't match a known reason falls into "other".
     if (skips.length > 0) {
-      const counts = { duplicate: 0, emptyPath: 0, noTypeTag: 0, typeBlockMissing: 0, typeBlockAmbiguous: 0, other: 0 };
+      const counts = {
+        duplicate: 0,
+        emptyPath: 0,
+        noTypeTag: 0,
+        typeBlockMissing: 0,
+        typeBlockAmbiguous: 0,
+        unconvertible: 0,
+        other: 0,
+      };
       for (const s of skips) {
-        if (s.reason.startsWith('duplicate pathed rule key')) counts.duplicate += 1;
+        if (s.reason.startsWith(UNCONVERTIBLE_SKIP_PREFIX)) counts.unconvertible += 1;
+        else if (s.reason.startsWith('duplicate pathed rule key')) counts.duplicate += 1;
         else if (s.reason.startsWith('empty ProductPath')) counts.emptyPath += 1;
         else if (s.reason.startsWith('no CML type tag')) counts.noTypeTag += 1;
         else if (s.reason.includes('not found in existing model')) counts.typeBlockMissing += 1;
@@ -174,7 +184,8 @@ export default class CmlConvertSurchargeRules extends InsuranceRuleConvertComman
       this.log(
         `Skip breakdown: ${counts.duplicate} duplicate-key, ${counts.emptyPath} empty-ProductPath, ` +
           `${counts.noTypeTag} no-type-tag, ${counts.typeBlockMissing} type-block-missing, ` +
-          `${counts.typeBlockAmbiguous} type-block-ambiguous, ${counts.other} other`
+          `${counts.typeBlockAmbiguous} type-block-ambiguous, ${counts.unconvertible} unconvertible, ` +
+          `${counts.other} other`
       );
     }
 

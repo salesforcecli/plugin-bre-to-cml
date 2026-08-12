@@ -29,6 +29,7 @@ import {
   fetchProductTypeTags,
   mergeUnderwritingConstraints,
   splitProductPath,
+  UNCONVERTIBLE_SKIP_PREFIX,
 } from '../../../shared/insurance/insurance-cml-merge.js';
 
 Messages.importMessagesDirectoryFromMetaUrl(import.meta.url);
@@ -158,10 +159,12 @@ export default class CmlConvertUnderwritingRules extends InsuranceRuleConvertCom
         noTypeTag: 0,
         typeBlockMissing: 0,
         typeBlockAmbiguous: 0,
+        unconvertible: 0,
         other: 0,
       };
       for (const s of skips) {
-        if (s.reason.startsWith('duplicate constraint name')) counts.duplicateConstraint += 1;
+        if (s.reason.startsWith(UNCONVERTIBLE_SKIP_PREFIX)) counts.unconvertible += 1;
+        else if (s.reason.startsWith('duplicate constraint name')) counts.duplicateConstraint += 1;
         else if (s.reason.startsWith('empty ProductPath')) counts.emptyPath += 1;
         else if (s.reason.startsWith('no CML type tag')) counts.noTypeTag += 1;
         else if (s.reason.includes('not found in existing model')) counts.typeBlockMissing += 1;
@@ -171,7 +174,8 @@ export default class CmlConvertUnderwritingRules extends InsuranceRuleConvertCom
       this.log(
         `Skip breakdown: ${counts.duplicateConstraint} duplicate-constraint-name, ${counts.emptyPath} empty-ProductPath, ` +
           `${counts.noTypeTag} no-type-tag, ${counts.typeBlockMissing} type-block-missing, ` +
-          `${counts.typeBlockAmbiguous} type-block-ambiguous, ${counts.other} other`
+          `${counts.typeBlockAmbiguous} type-block-ambiguous, ${counts.unconvertible} unconvertible, ` +
+          `${counts.other} other`
       );
     }
 

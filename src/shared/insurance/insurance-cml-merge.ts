@@ -22,6 +22,7 @@ import {
   buildConstraintDeclaration,
   collectAttributeTypes,
   collectEmittedAttributes,
+  findUnconvertibleConditions,
   sanitizeName,
   buildStageTransition,
 } from './insurance-rule-generator.js';
@@ -66,6 +67,12 @@ export type PathedSurchargeRule = {
   statement: string;
   /** Sanitized attribute names referenced by the rule declaration (for visibility warnings). */
   referencedAttributes: string[];
+  /**
+   * Set when {@link findUnconvertibleConditions} found something in this rule CML cannot express.
+   * The merge refuses such a rule outright — `statement` is built anyway (the shapes stay uniform)
+   * but must never be placed.
+   */
+  unconvertibleReason?: string;
 };
 
 export type MergePlacement = {
@@ -127,6 +134,8 @@ export type UnderwritingConstraintRule = {
    * missing attribute declarations into the leaf type block during merge.
    */
   referencedAttributes: Array<{ name: string; cmlType: string }>;
+  /** See {@link PathedSurchargeRule.unconvertibleReason}. */
+  unconvertibleReason?: string;
 };
 
 /**
@@ -345,6 +354,16 @@ function findTypeBlock(
   return { openIdx, closeIdx };
 }
 
+/**
+ * Prefix every merge skip raised by {@link findUnconvertibleConditions} carries, so the commands'
+ * skip breakdown can bucket it the way it buckets the other reasons.
+ */
+export const UNCONVERTIBLE_SKIP_PREFIX = 'cannot be expressed in CML';
+
+function joinReasons(reasons: string[]): string | undefined {
+  return reasons.length > 0 ? `${UNCONVERTIBLE_SKIP_PREFIX}: ${reasons.join(' ')}` : undefined;
+}
+
 /** Builds the `rule(...)` statement for a surcharge, using the same constraint generator as build mode. */
 export function buildSurchargeRuleStatement(declaration: string, ruleKey: string): string {
   return CmlConstraint.createRuleConstraint(declaration, SURCHARGE_RULE_ACTION, ruleKey, 'True').generateCml();
@@ -412,6 +431,7 @@ export function buildPathedSurchargeRules(
       typeName,
       statement,
       referencedAttributes,
+      unconvertibleReason: joinReasons(findUnconvertibleConditions(ruleDef, options.attributeDataTypes)),
     };
   });
 }
@@ -493,6 +513,7 @@ export function buildUnderwritingConstraintRules(
       constraintName,
       statement,
       referencedAttributes,
+      unconvertibleReason: joinReasons(findUnconvertibleConditions(ruleDef, attributeDataTypes)),
     };
   });
 }
@@ -531,6 +552,13 @@ export function mergeSurchargeRules(existingCml: string, rules: PathedSurchargeR
   const placedKeys = new Set<string>();
 
   for (const rule of rules) {
+    // Checked first: a rule CML cannot express must not be placed on any path, and placing it
+    // would mean placing a declaration its dropped conditions had already emptied to `true`.
+    if (rule.unconvertibleReason) {
+      skips.push({ rule, reason: rule.unconvertibleReason });
+      continue;
+    }
+
     if (placedKeys.has(rule.ruleKey)) {
       skips.push({
         rule,
@@ -640,6 +668,12 @@ export function mergeUnderwritingConstraints(existingCml: string, rules: Underwr
   const placedNames = new Set<string>();
 
   for (const rule of rules) {
+    // Checked first, for the same reason as in mergeSurchargeRules.
+    if (rule.unconvertibleReason) {
+      skips.push({ rule, reason: rule.unconvertibleReason });
+      continue;
+    }
+
     if (rule.pathProductCodes.length === 0) {
       skips.push({
         rule,

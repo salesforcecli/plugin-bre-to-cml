@@ -827,6 +827,112 @@ describe('buildPathedSurchargeRules (referencedAttributes scoping — M7)', () =
   });
 });
 
+/**
+ * CML has no datetime primitive — `date` is the closest slot, and it has no room for a time.
+ * Emitting the timestamp anyway relies on unverified platform behavior; dropping just the offending
+ * condition is worse, because nothing downstream withholds a rule whose declaration collapsed to
+ * `true` (the first test below pins that), so the rule would arrive matching everything. Both merge
+ * paths therefore withhold the whole rule and say why, the way they already do for a rule they
+ * cannot place.
+ */
+describe('a rule carrying a datetime value CML cannot represent', () => {
+  const record: RuleRecord = { Id: 'r1', Name: 'StartRule', ProductPath: 'p1' };
+
+  const ruleWith = (dataType: string, values: string[], operator = 'Equals'): ParsedRuleDefinition => ({
+    name: 'StartRule',
+    apiName: 'StartRule',
+    productPath: 'p1',
+    ruleCriteria: [
+      { rootObjectId: 'root', conditions: [{ operator, attributeName: 'Policy_Start', dataType, values }] },
+    ],
+  });
+
+  const CURATED = 'type Driver {\n    date Policy_Start;\n}\n';
+  const codes = (): Map<string, string> => new Map([['p1', 'autoSilver']]);
+  const tags = (): Map<string, string> => new Map([['p1', 'Driver']]);
+
+  const surcharge = (ruleDef: ParsedRuleDefinition): ReturnType<typeof mergeSurchargeRules> =>
+    mergeSurchargeRules(CURATED, buildPathedSurchargeRules('SC', [{ record, ruleDef }], codes(), tags(), {}));
+
+  const underwriting = (ruleDef: ParsedRuleDefinition): ReturnType<typeof mergeUnderwritingConstraints> =>
+    mergeUnderwritingConstraints(
+      CURATED,
+      buildUnderwritingConstraintRules('UW', 'Underwriting eligibility', [{ record, ruleDef }], codes(), tags())
+    );
+
+  // The reason the withhold has to happen before the declaration is built: a rule that loses every
+  // condition is NOT skipped, it is placed as an unconditional rule. (Unchanged behavior, pinned
+  // here as the justification — this is the empty-dataType defect's mechanism.)
+  it('is why: a rule whose conditions all drop is placed as `true`, never skipped', () => {
+    const { mergedCml, placements, skips } = surcharge(ruleWith('Number', ['not-a-number']));
+    expect(skips).to.have.length(0);
+    expect(placements).to.have.length(1);
+    expect(mergedCml).to.include('rule(true,');
+  });
+
+  it('is withheld from the surcharge merge instead of placed', () => {
+    const { mergedCml, placements, skips } = surcharge(ruleWith('Datetime', ['2026-01-01T10:00:00Z']));
+    expect(placements).to.have.length(0);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.match(/Policy_Start/);
+    expect(skips[0].reason).to.match(/2026-01-01T10:00:00Z/);
+    expect(mergedCml).to.not.include('rule(');
+  });
+
+  it('is withheld from the underwriting merge instead of placed', () => {
+    const { mergedCml, placements, skips } = underwriting(ruleWith('Datetime', ['2026-01-01T10:00:00Z']));
+    expect(placements).to.have.length(0);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.match(/Policy_Start/);
+    expect(mergedCml).to.not.include('constraint StartRule');
+  });
+
+  // The whole rule goes, not just the offending condition: dropping one condition of a multi-part
+  // rule widens what the rule matches, which is the failure mode being avoided.
+  it('takes the whole rule with it, rather than merging the conditions that did convert', () => {
+    const ruleDef: ParsedRuleDefinition = {
+      name: 'StartRule',
+      apiName: 'StartRule',
+      productPath: 'p1',
+      ruleCriteria: [
+        {
+          rootObjectId: 'root',
+          conditions: [
+            { operator: 'Equals', attributeName: 'Model', dataType: 'Text', values: ['SUV'] },
+            {
+              operator: 'Equals',
+              attributeName: 'Policy_Start',
+              dataType: 'Datetime',
+              values: ['2026-01-01T10:00:00Z'],
+            },
+          ],
+        },
+      ],
+    };
+    const { mergedCml, skips } = surcharge(ruleDef);
+    expect(skips).to.have.length(1);
+    expect(mergedCml).to.not.include('Model == "SUV"');
+  });
+
+  // A Date attribute is just as unable to hold a time, so the same guard applies to it.
+  it('applies to a Date attribute handed a timestamp, not only to a Datetime one', () => {
+    expect(surcharge(ruleWith('Date', ['2026-01-01T10:00:00Z'])).skips).to.have.length(1);
+  });
+
+  // Unchanged: a value with no time component has always converted cleanly and still must.
+  it('leaves a bare date alone', () => {
+    const { mergedCml, placements, skips } = surcharge(ruleWith('Datetime', ['2026-03-01']));
+    expect(skips).to.have.length(0);
+    expect(placements).to.have.length(1);
+    expect(mergedCml).to.include('rule(Policy_Start == 2026-03-01,');
+  });
+
+  it('leaves a bare date alone on a relational comparison too', () => {
+    const { mergedCml } = surcharge(ruleWith('Date', ['2026-03-01'], 'GreaterThan'));
+    expect(mergedCml).to.include('rule(Policy_Start > 2026-03-01,');
+  });
+});
+
 describe('mergeUnderwritingConstraints (attribute-presence probe is type-sensitive)', () => {
   const record: RuleRecord = { Id: 'r1', Name: 'AgeRule', ProductPath: 'p1' };
   const ruleDef: ParsedRuleDefinition = {

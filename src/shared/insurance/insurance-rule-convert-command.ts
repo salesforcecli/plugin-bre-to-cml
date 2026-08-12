@@ -150,7 +150,7 @@ export abstract class InsuranceRuleConvertCommand<R extends RuleRecord> extends 
       return this.runMergeConvert(ctx, conn, records, ruleDefs, productIdToCode, api, safeApi, workspaceDir);
     }
 
-    const { cmlModel, ruleKeyMapping } = buildCmlModel(
+    const { cmlModel, ruleKeyMapping, skipped } = buildCmlModel(
       ruleDefs,
       productIdToCode,
       this.keyPrefix,
@@ -160,6 +160,9 @@ export abstract class InsuranceRuleConvertCommand<R extends RuleRecord> extends 
       this.attributeDataTypes
     );
     ruleKeyMapping.forEach((m) => this.log(`  -> ${m.name} => ${m.ruleKey}`));
+    // Mirrors the merge modes' SKIPPED lines: a rule the generator refused is named with its
+    // reason, never dropped in silence.
+    skipped.forEach((s) => this.warn(`  SKIPPED ${s.name}: ${s.reason}`));
 
     const recordUpdateFile = await this.writeRecordUpdateFile(records, ruleKeyMapping, api, safeApi, workspaceDir);
 

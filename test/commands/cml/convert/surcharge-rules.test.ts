@@ -460,6 +460,46 @@ describe('cml convert surcharge-rules', () => {
     expect(logs).to.match(/no-type-tag/);
   });
 
+  // A rule CML cannot express is withheld and named, so the operator learns which rule stayed on
+  // the rule engine and why. Left to the generic path it would have arrived as `rule(true, ...)`.
+  it('names the rule it withheld for carrying a value CML cannot express, and buckets it', async () => {
+    stubOrgConnection(
+      mockConnection({
+        existingCml: GOLD_CML,
+        productCodes: [
+          { Id: '01tROOT00000000001', ProductCode: 'autoSilver', Name: 'Auto Silver' },
+          { Id: '01tCOLL00000000001', ProductCode: 'collision', Name: 'Collision' },
+        ],
+        productTypeTags: [{ ReferenceObjectId: '01tCOLL00000000001', ConstraintModelTag: 'Collision' }],
+      })
+    );
+    await writeSurchargeFile([
+      {
+        Id: 'a0p000000000001',
+        Name: 'Renewal Fee',
+        ProductPath: '01tROOT00000000001/01tCOLL00000000001',
+        RuleDefinition: ruleDefinition('RenewalFee', [
+          {
+            operator: 'GreaterThan',
+            attributeName: 'Policy_Start',
+            dataType: 'Datetime',
+            values: ['2026-01-01T10:00:00Z'],
+          },
+        ]),
+      },
+    ]);
+
+    const result = await runCommand();
+
+    expect(warnOutput()).to.match(/SKIPPED Renewal Fee: cannot be expressed in CML/);
+    expect(logOutput()).to.match(/unconvertible/);
+    // Withheld from the CML, and therefore from the record updates that would flip it to the
+    // constraint engine — the rule keeps firing on the rule engine instead of going dark.
+    expect(result.ruleKeyMapping).to.have.length(0);
+    const merged = await fs.readFile(path.join(workspaceDir, `${CML_API}.cml`), 'utf8');
+    expect(merged).to.not.include('rule(');
+  });
+
   // ---- Fix #8: a product id that the Product2 query did NOT return (deleted / not visible /
   // filtered) used to silently fall back to the raw Id for that path segment, yielding a rule
   // key that won't match the platform-generated RuleKey. Surface it as a warning, distinct from

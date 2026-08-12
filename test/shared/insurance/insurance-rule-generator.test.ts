@@ -22,6 +22,7 @@ import {
   collectAttributes,
   collectAttributeTypes,
   decodeHtmlEntities,
+  findUnconvertibleConditions,
   generateRuleKey,
   isSafeAssociationReferenceValue,
   sanitizeName,
@@ -731,6 +732,56 @@ describe('buildCmlModel', () => {
     expect(scoreAttr?.type).to.equal('string');
   });
 
+  // Build mode has no merge to skip out of, so the refusal happens here: the rule contributes no
+  // constraint and no ruleKeyMapping entry (so its record is never flipped to the constraint
+  // engine), and the reason is handed back for the command to warn with.
+  it('withholds a rule carrying a value CML cannot represent, and says which', () => {
+    const timestamped = (id: string, name: string): { record: RuleRecord; ruleDef: ParsedRuleDefinition } => ({
+      record: makeRecord(id, name, 'p1'),
+      ruleDef: makeRuleDef(name, name, 'p1', [
+        {
+          rootObjectId: 'p1',
+          conditions: [
+            {
+              attributeName: 'Policy_Start',
+              operator: 'Equals',
+              dataType: 'Datetime',
+              values: ['2026-01-01T10:00:00Z'],
+            },
+          ],
+        },
+      ]),
+    });
+    const ruleDefs = [
+      timestamped('r1', 'TimestampRule'),
+      {
+        record: makeRecord('r2', 'PlainRule', 'p1'),
+        ruleDef: makeRuleDef('PlainRule', 'PlainRule', 'p1', [
+          {
+            rootObjectId: 'p1',
+            conditions: [{ attributeName: 'Age', operator: 'LessThan', dataType: 'Number', values: ['60'] }],
+          },
+        ]),
+      },
+    ];
+    const { cmlModel, ruleKeyMapping, skipped } = buildCmlModel(
+      ruleDefs,
+      new Map([['p1', 'autoSilver']]),
+      'UW',
+      'Test'
+    );
+
+    expect(skipped.map((s) => s.name)).to.deep.equal(['TimestampRule']);
+    expect(skipped[0].recordId).to.equal('r1');
+    expect(skipped[0].reason).to.match(/Policy_Start/);
+    expect(ruleKeyMapping.map((m) => m.recordId)).to.deep.equal(['r2']);
+
+    const cml = cmlModel.generateCml();
+    expect(cml).to.not.include('TimestampRule');
+    expect(cml).to.not.include('Policy_Start');
+    expect(cml).to.include('constraint PlainRule');
+  });
+
   it('falls back to product ID when code is not in map', () => {
     const ruleDefs = [
       { record: makeRecord('r1', 'Rule1', '01tXXX'), ruleDef: makeRuleDef('Rule1', 'Rule1', '01tXXX') },
@@ -1010,6 +1061,27 @@ describe('condition data type resolution', () => {
   // Real payloads spell it 'Datetime'; the map only had 'DateTime'.
   it('resolves the Datetime spelling used by real payloads', () => {
     expect(buildConstraintDeclaration(oneCondition('Datetime', ['2026-03-01']))).to.equal('Attr == 2026-03-01');
+  });
+
+  // CML's `date` cannot hold a time, so a value carrying one is not convertible at all — see
+  // findUnconvertibleConditions, which withholds the whole rule rather than let it reach here and
+  // lose a condition. A bare date is unaffected.
+  it('reports a rule as unconvertible when a date-typed condition carries a time component', () => {
+    const reasons = findUnconvertibleConditions(oneCondition('Datetime', ['2026-01-01T10:00:00Z']));
+    expect(reasons).to.have.length(1);
+    expect(reasons[0]).to.match(/Attr/);
+    expect(reasons[0]).to.match(/2026-01-01T10:00:00Z/);
+  });
+
+  it('reports nothing unconvertible for a bare date', () => {
+    expect(findUnconvertibleConditions(oneCondition('Datetime', ['2026-03-01']))).to.deep.equal([]);
+    expect(findUnconvertibleConditions(oneCondition('Date', ['2026-03-01'], 'GreaterThan'))).to.deep.equal([]);
+  });
+
+  // A timestamp compared as text is a plain quoted string comparison — odd, but faithfully
+  // representable, so it is not this guard's business.
+  it('reports nothing unconvertible for a timestamp on a text attribute', () => {
+    expect(findUnconvertibleConditions(oneCondition('Text', ['2026-01-01T10:00:00Z']))).to.deep.equal([]);
   });
 
   it('emits Decimal and Double values unquoted', () => {
