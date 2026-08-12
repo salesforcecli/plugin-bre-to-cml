@@ -209,20 +209,65 @@ export default class CmlConvertUnderwritingRules extends InsuranceRuleConvertCom
    * present). Groups are emitted first so a faithful apply mirrors the original ordering. The blob
    * rewrite uses a RAW JSON.parse of the org's stored value (NOT decodeHtmlEntities) — byte-for-byte
    * the same mutation the live path performed.
+   *
+   * `ruleKeyMapping` is the authoritative "landed in the CML" set: runMergeConvert builds it from
+   * the merge's `placements` (inserted + replaced) only, so every skipped rule is absent from it.
    */
   protected buildRecordUpdates(records: UnderwritingRuleRecord[], ruleKeyMapping: RuleKeyEntry[]): RecordUpdate[] {
     const updates: RecordUpdate[] = [];
 
-    // (1) UnderwritingRuleGroup flips — union of every referenced group, name resolved from the
-    // queried relationship so the apply-time identity guard has something to cross-check.
-    const groupNames = new Map<string, string | null>();
+    // (1) UnderwritingRuleGroup flips. The flip is the migration's point of no return: once a group
+    // is on ConstraintEngine the platform stops evaluating its BRE rules and evaluates the CML
+    // constraints instead. So a group may only be flipped when EVERY one of its rules in this run
+    // actually landed in the merged CML — deriving the set from all queried records flipped groups
+    // whose rules were skipped (blank ProductPath, unresolved type tag, missing/ambiguous type
+    // block, duplicate constraint name), silently disabling rules with nothing behind them.
+    //
+    // Partial groups (some rules placed, some skipped) are withheld too, and warned about. Neither
+    // choice is free: withholding leaves the placed constraints inert, flipping disables the
+    // skipped rules' logic. Withholding is the safer default because it is recoverable — the org is
+    // left exactly as it was, and re-running after fixing the skip reasons flips the group with all
+    // its constraints in place. Flipping is not: the disabled rules stop firing immediately, with
+    // nothing in the plan or the org to indicate which logic went dark.
+    const placedRecordIds = new Set(ruleKeyMapping.map((m) => m.recordId));
+    type GroupState = { name: string | null; placed: string[]; unplaced: string[] };
+    const groups = new Map<string, GroupState>();
     for (const record of records) {
-      if (record.UnderwritingRuleGroupId) {
-        groupNames.set(record.UnderwritingRuleGroupId, record.UnderwritingRuleGroup?.Name ?? null);
-      }
+      const groupId = record.UnderwritingRuleGroupId;
+      if (!groupId) continue;
+      const state = groups.get(groupId) ?? { name: null, placed: [], unplaced: [] };
+      // Name resolved from the queried relationship so the apply-time identity guard has something
+      // to cross-check; first non-null wins (the rows of one group should agree on it).
+      state.name = state.name ?? record.UnderwritingRuleGroup?.Name ?? null;
+      (placedRecordIds.has(record.Id) ? state.placed : state.unplaced).push(record.Name);
+      groups.set(groupId, state);
     }
-    for (const [groupId, groupName] of groupNames) {
-      if (!groupName) {
+
+    const withheld: string[] = [];
+    for (const [groupId, state] of groups) {
+      if (state.placed.length === 0) {
+        // Nothing of this group reached the CML. Every one of its rules was already reported as
+        // SKIPPED with a reason, so a per-group warning would only repeat that; the count is logged
+        // below so the operator can reconcile it against the merge summary.
+        withheld.push(groupId);
+        continue;
+      }
+      if (state.unplaced.length > 0) {
+        this.warn(
+          `Not flipping UnderwritingRuleGroup '${state.name ?? groupId}' (${groupId}): ${
+            state.unplaced.length
+          } of its ${
+            state.placed.length + state.unplaced.length
+          } rules were not merged into the CML (${state.unplaced.join(
+            ', '
+          )}). Flipping it would stop those rules being evaluated with no constraint behind them; instead the converted constraint(s) for ${state.placed.join(
+            ', '
+          )} stay inert until you fix the skip reasons above and re-run.`
+        );
+        withheld.push(groupId);
+        continue;
+      }
+      if (!state.name) {
         // Without a Name the apply can't run its identity guard; skip rather than write blind.
         this.warn(`Skipping UnderwritingRuleGroup ${groupId}: no Name resolved (cannot verify identity on apply)`);
         continue;
@@ -230,9 +275,16 @@ export default class CmlConvertUnderwritingRules extends InsuranceRuleConvertCom
       updates.push({
         sobject: 'UnderwritingRuleGroup',
         id: groupId,
-        name: groupName,
+        name: state.name,
         fields: [{ field: 'RuleEngineType', value: 'ConstraintEngine' }],
       });
+    }
+    if (withheld.length > 0) {
+      this.log(
+        `Withheld ${
+          withheld.length
+        } UnderwritingRuleGroup flip(s) whose rules did not all reach the merged CML: ${withheld.join(', ')}`
+      );
     }
 
     // (2) UnderwritingRule DynamicRuleDefinition rewrites — same subset and same mutation as live.
