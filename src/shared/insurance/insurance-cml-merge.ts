@@ -154,8 +154,16 @@ export function buildPathedRuleKey(
   return parts.join('__');
 }
 
-/** Splits a `ProductPath` into its ordered Product2 ids (slash-separated). */
-export function splitProductPath(productPath: string): string[] {
+/**
+ * Splits a `ProductPath` into its ordered Product2 ids (slash-separated).
+ *
+ * ProductPath is nullable in the org even on records that carry a rule, so nullish input yields an
+ * empty path rather than throwing. Callers rely on that: an empty path is already a recognized skip
+ * (see the empty-ProductPath guard in mergeSurchargeRules), whereas throwing here aborted the whole
+ * conversion run before any record could be skipped.
+ */
+export function splitProductPath(productPath: string | null | undefined): string[] {
+  if (!productPath) return [];
   return productPath
     .split('/')
     .map((s) => s.trim())

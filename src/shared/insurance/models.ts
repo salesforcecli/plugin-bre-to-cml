@@ -58,7 +58,9 @@ export type ParsedRuleDefinition = {
 export type RuleRecord = {
   Id: string;
   Name: string;
-  ProductPath: string;
+  // Nullable in the org: records can carry a rule with no ProductPath at all. Parse it through
+  // splitProductPath rather than calling string methods on it directly.
+  ProductPath: string | null;
 };
 
 export type RuleKeyEntry = {

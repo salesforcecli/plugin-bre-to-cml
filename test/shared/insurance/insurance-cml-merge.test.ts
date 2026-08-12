@@ -114,6 +114,13 @@ describe('splitProductPath', () => {
     expect(splitProductPath('p1')).to.deep.equal(['p1']);
   });
 
+  // ProductPath is nullable in the org even on records that carry a rule. Throwing here aborted the
+  // entire conversion run before any record could reach the empty-ProductPath skip.
+  it('returns an empty array for a null or undefined path', () => {
+    expect(splitProductPath(null)).to.deep.equal([]);
+    expect(splitProductPath(undefined)).to.deep.equal([]);
+  });
+
   it('returns an empty array for an empty string', () => {
     expect(splitProductPath('')).to.deep.equal([]);
   });
@@ -162,6 +169,27 @@ describe('buildPathedSurchargeRules', () => {
     expect(rule.statement).to.equal(
       'rule(true, "InsuranceSurchargeRule", "SC__autoSilver__auto__collision__CMLCodeAmount1", "True");'
     );
+  });
+
+  // Records can carry a rule with ProductPath null in the org. Building must yield an empty path so
+  // the record reaches the empty-ProductPath skip, rather than throwing and aborting the whole run.
+  it('yields empty pathProductCodes for a null ProductPath instead of throwing', () => {
+    const ruleDefs = [
+      { record: { Id: 'r1', Name: 'Auto_HighRiskTax', ProductPath: null }, ruleDef: makeRuleDef('Fee', '') },
+    ];
+
+    const build = (): ReturnType<typeof buildPathedSurchargeRules> =>
+      buildPathedSurchargeRules('SC', ruleDefs, new Map(), new Map());
+    expect(build).to.not.throw();
+
+    const [rule] = build();
+    expect(rule.pathProductCodes).to.deep.equal([]);
+
+    // And the merge then reports it as a skip rather than placing it.
+    const { placements, skips } = mergeSurchargeRules(GOLD_CML, [rule]);
+    expect(placements).to.have.length(0);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.match(/empty ProductPath|non-pathed/i);
   });
 
   it('falls back to the product id when a segment code is unknown', () => {

@@ -522,7 +522,7 @@ export function buildCmlModel(
     // groups, and skip a rule with a blank ProductPath (it can't be nested under any product)
     // instead of materializing an empty-named type. Mirrors the trimming in
     // collectAllProductIds / collectRootProductIds.
-    const rootProductId = entry.record.ProductPath.split('/')[0]?.trim();
+    const rootProductId = (entry.record.ProductPath ?? '').split('/')[0]?.trim();
     if (!rootProductId) continue;
     if (!rulesByProduct.has(rootProductId)) {
       rulesByProduct.set(rootProductId, []);
