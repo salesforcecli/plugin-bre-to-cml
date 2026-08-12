@@ -165,16 +165,25 @@ export default class CmlImportRecordUpdates extends SfCommand<CmlImportRecordUpd
       return result;
     }
 
+    // Two independent reasons the prompt cannot run, kept apart so the error names the real one.
+    // Under --json the suppression is deliberate, not a property of the terminal: `confirm` against
+    // an unanswerable stdin writes prompt text to stdout and throws, which would corrupt the JSON
+    // stream. An operator sitting at a real terminal must not be told their terminal is the problem
+    // and sent to "run interactively", which they already are.
+    const jsonMode = this.jsonEnabled();
+    const ttyInteractive = Boolean(process.stdout.isTTY && process.stdin.isTTY);
+
     await confirmOrThrow(
       this,
       {
         noPrompt: flags['no-prompt'],
-        interactive: Boolean(process.stdout.isTTY && process.stdin.isTTY) && !this.jsonEnabled(),
+        interactive: ttyInteractive && !jsonMode,
       },
       {
         skippingPrompt: messages.getMessage('warn.skippingPrompt'),
         confirmApply: messages.getMessage('confirm.apply'),
-        confirmationRequired: () => messages.createError('error.confirmationRequired'),
+        confirmationRequired: () =>
+          messages.createError(jsonMode ? 'error.confirmationRequiredJson' : 'error.confirmationRequired'),
         aborted: () => messages.createError('error.aborted'),
       }
     );

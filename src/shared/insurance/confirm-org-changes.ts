@@ -44,7 +44,11 @@ export type ConfirmText = {
   skippingPrompt: string;
   /** The confirmation question (no question mark, no Y/N — `confirm` adds those). */
   confirmApply: string;
-  /** Built lazily: non-interactive invocation without `--no-prompt`. Must carry remediation actions. */
+  /**
+   * Built lazily: the prompt could not run and `--no-prompt` was not passed. Must carry remediation
+   * actions, and must name which cause applied — a terminal that cannot prompt and a `--json` run
+   * that must not prompt need different remediation.
+   */
   confirmationRequired: () => Error;
   /** Built lazily: the operator answered "no". */
   aborted: () => Error;

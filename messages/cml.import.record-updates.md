@@ -108,6 +108,14 @@ Confirmation is required to apply changes to the org, but the terminal isn't int
 
 - Run again with --no-prompt to apply without confirmation (consider --dry-run first), or run interactively.
 
+# error.confirmationRequiredJson
+
+Confirmation is required to apply changes to the org, but the confirmation prompt is suppressed under --json because prompting would write prompt text into the JSON output stream.
+
+# error.confirmationRequiredJson.actions
+
+- Run again with --no-prompt to apply without confirmation, or with --dry-run to review the planned changes without writing.
+
 # error.aborted
 
 Aborted. No changes were applied to the org.

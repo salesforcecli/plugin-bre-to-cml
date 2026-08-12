@@ -739,6 +739,34 @@ describe('cml import record-updates', () => {
     const error = await runExpectingError();
 
     expect(error.message).to.match(/Confirmation is required/);
+    // This diagnosis is the true one for this cause, and must stay attached to it.
+    expect(error.message).to.match(/terminal isn't interactive/);
     expect(updateCalls).to.deep.equal([]);
+  });
+
+  it('blames --json, not the terminal, when --json is what suppressed the prompt', async () => {
+    stubOrgConnection({
+      current: {
+        ProductSurcharge: [{ Id: SURCHARGE_ID, Name: 'Collision Fee', RuleEngineType: 'BusinessRuleEngine' }],
+      },
+    });
+    await writePlan(surchargePlanFile([surchargeUpdate()]));
+    // A fully interactive terminal, so --json is the only thing standing between the operator and
+    // the prompt. Telling them "the terminal isn't interactive" is factually wrong, and telling
+    // them to "run interactively" is a dead end for someone who already is.
+    const prompter = stubInteractiveTerminal(true);
+
+    const error = await runExpectingError(['--json']);
+
+    expect(prompter.confirm.callCount, '--json must still suppress the prompt').to.equal(0);
+    expect(error.message).to.match(/suppressed under --json/);
+    expect(error.message, 'the terminal is interactive here').to.not.match(/terminal isn't interactive/);
+    const actions = ((error as SfError).actions ?? []).join('\n');
+    expect(actions).to.match(/--no-prompt/);
+    expect(actions).to.match(/--dry-run/);
+    expect(actions, 'pointing an interactive operator at "run interactively" is a dead end').to.not.match(
+      /run interactively/
+    );
+    expect(updateCalls, 'the gate must still refuse to write').to.deep.equal([]);
   });
 });
