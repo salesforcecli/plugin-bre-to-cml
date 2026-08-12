@@ -68,6 +68,7 @@ const MAX_CELL_LENGTH = 60;
 export type PlannedChangeRenderer = {
   styledHeader(text: string): void;
   table(options: { data: Array<Record<string, unknown>> }): void;
+  log(message: string): void;
   warn(message: string): unknown;
 };
 
@@ -113,14 +114,23 @@ export type PlannedChangeText = {
    * The explicit non-transactional notice (§4). Changes are applied in order and are NOT rolled
    * back, so a mid-apply failure can leave the org partially migrated — the operator must be told
    * this before confirming, not after a failure.
+   *
+   * Omit on a path that will not write (e.g. `--dry-run`). A caution about a hazard that cannot
+   * occur is noise, and it dilutes the warnings that describe real ones.
    */
-  notTransactional: string;
+  notTransactional?: string;
 };
 
 /**
- * Renders the preview: styled header, one row per field-level change, then the count summary and
- * the non-transactional notice as warnings (so they also ride the `--json` `warnings` array while
- * the table itself is suppressed).
+ * Renders the preview: styled header, one row per field-level change, the count summary, and — only
+ * when the caller is on a path that will write — the non-transactional notice.
+ *
+ * The summary goes to `log`, not `warn`, on purpose. `warn` is not merely a louder `log`: it writes
+ * to stderr, so under `--dry-run` (whose entire output IS the summary) redirecting stdout to a file
+ * drops it; and `SfCommand.warn` pushes unconditionally to the `warnings` array, so emitting
+ * boilerplate through it makes every successful `--json` run return a non-empty `warnings`, which
+ * both trips consumers that treat `warnings.length > 0` as a problem signal and buries the genuine
+ * warnings (ProductCode drift, per-record save failures) among the routine ones.
  */
 export function renderPlannedChanges(
   renderer: PlannedChangeRenderer,
@@ -138,6 +148,6 @@ export function renderPlannedChanges(
       Change: c.change,
     })),
   });
-  renderer.warn(text.summary);
-  renderer.warn(text.notTransactional);
+  renderer.log(text.summary);
+  if (text.notTransactional !== undefined) renderer.warn(text.notTransactional);
 }

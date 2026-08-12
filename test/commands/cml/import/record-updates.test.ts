@@ -249,7 +249,7 @@ describe('cml import record-updates', () => {
     expect(updateCalls[1].payloads[0].DynamicRuleDefinition).to.equal('{"apiName":"MinDriverAge","ruleKey":"UW_001"}');
   });
 
-  it('renders the preview table, both warnings, and all of it before the write', async () => {
+  it('renders the preview table, the summary and the notice, and all of it before the write', async () => {
     stubOrgConnection({
       current: {
         ProductSurcharge: [
@@ -285,7 +285,7 @@ describe('cml import record-updates', () => {
         Change: 'ConstraintEngine (unchanged)',
       },
     ]);
-    expect(warnOutput()).to.include(`1 to update, 1 already current (will be skipped) in org ${testOrg.username}.`);
+    expect(logOutput()).to.include(`1 to update, 1 already current (will be skipped) in org ${testOrg.username}.`);
     // The non-transactional notice must reach the operator before they can consent, not after.
     expect(warnOutput()).to.include('are NOT rolled back');
     expect(sfCommandStubs.table.calledBefore(sfCommandStubs.warn), 'table renders before the warnings').to.equal(true);
@@ -313,7 +313,7 @@ describe('cml import record-updates', () => {
 
     const result = await runCommand(['--dry-run']);
 
-    const summary = warnOutput()
+    const summary = logOutput()
       .split('\n')
       .find((line) => line.includes('to update'));
     expect(summary).to.equal(`3 to update, 2 already current (will be skipped) in org ${testOrg.username}.`);
@@ -399,6 +399,47 @@ describe('cml import record-updates', () => {
     expect(result.plannedChanges[0].change).to.equal('BusinessRuleEngine → ConstraintEngine');
     expect(updateCalls, 'dry run must not write to the org').to.deep.equal([]);
     expect(logOutput()).to.include('Dry run only');
+  });
+
+  it('--dry-run puts the summary on stdout and raises no warnings at all', async () => {
+    stubOrgConnection({
+      current: {
+        ProductSurcharge: [{ Id: SURCHARGE_ID, Name: 'Collision Fee', RuleEngineType: 'BusinessRuleEngine' }],
+      },
+    });
+    await writePlan(surchargePlanFile([surchargeUpdate()]));
+
+    const result = await runCommand(['--dry-run']);
+
+    // The summary is the entire point of a dry run. Emitted through warn() it goes to stderr, so
+    // `sf ... --dry-run > plan.txt` silently drops the one line the operator wanted.
+    expect(logOutput()).to.include('1 to update, 0 already current (will be skipped) in org');
+    expect(warnOutput(), 'the count summary is informational, not a warning').to.not.include('to update');
+    // A dry run writes nothing, so there is no partial-migration hazard to caution about. Boilerplate
+    // warnings on every successful run make `warnings.length > 0` useless as a problem signal under
+    // --json, and bury the genuine warnings (drift, save failures) among the routine ones.
+    expect(sfCommandStubs.warn.callCount, 'a clean dry run must raise no warnings').to.equal(0);
+    expect(updateCalls).to.deep.equal([]);
+    // The numbers the operator was shown are structured data too, not only display text.
+    expect(result.plannedCounts).to.deep.equal({ updates: 1, alreadyCurrent: 0 });
+  });
+
+  it('still warns that the apply is not transactional on the path that will write', async () => {
+    stubOrgConnection({
+      current: {
+        ProductSurcharge: [
+          { Id: SURCHARGE_ID, Name: 'Collision Fee', RuleEngineType: 'BusinessRuleEngine' },
+          { Id: SURCHARGE_ID_2, Name: 'Theft Fee', RuleEngineType: 'ConstraintEngine' },
+        ],
+      },
+    });
+    await writePlan(surchargePlanFile([surchargeUpdate(), surchargeUpdate({ id: SURCHARGE_ID_2, name: 'Theft Fee' })]));
+
+    const result = await runCommand(['--no-prompt']);
+
+    // Suppressing it under --dry-run must not suppress it where the hazard is real.
+    expect(warnOutput()).to.include('are NOT rolled back');
+    expect(result.plannedCounts).to.deep.equal({ updates: 1, alreadyCurrent: 1 });
   });
 
   it('exits 0 with no prompt and no writes when the plan is empty', async () => {

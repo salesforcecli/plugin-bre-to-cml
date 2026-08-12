@@ -32,6 +32,7 @@ import {
 import {
   NO_VALUE,
   PlannedChange,
+  PlannedChangeCounts,
   countPlannedChanges,
   formatChange,
   renderPlannedChanges,
@@ -62,6 +63,16 @@ export type CmlImportRecordUpdatesResult = {
   dryRun: boolean;
   /** Every field-level change the command resolved from a fresh org re-read, including skips. */
   plannedChanges: PlannedChange[];
+  /**
+   * Pre-write counts over `plannedChanges` — exactly the numbers the operator was shown before
+   * confirming, in the same field-level unit. Populated on every run that gets as far as the
+   * preview, including `--dry-run`, so a `--json` consumer never has to re-derive them from
+   * `plannedChanges` or scrape the display text.
+   */
+  plannedCounts: {
+    updates: number;
+    alreadyCurrent: number;
+  };
   /** Records written. */
   applied: number;
   skipped: RecordUpdateSkipResult[];
@@ -122,6 +133,7 @@ export default class CmlImportRecordUpdates extends SfCommand<CmlImportRecordUpd
       cmlApi: plan.cmlApi,
       dryRun,
       plannedChanges: [],
+      plannedCounts: { updates: 0, alreadyCurrent: 0 },
       applied: 0,
       skipped: [],
       failed: [],
@@ -146,18 +158,8 @@ export default class CmlImportRecordUpdates extends SfCommand<CmlImportRecordUpd
     result.plannedChanges = changes.map(toPlannedChange);
     result.skipped = changes.filter((c) => c.alreadyCurrent).map(toSkipResult);
 
-    // `countPlannedChanges` is shared and buckets all five operations, but `toPlannedChange` emits
-    // only 'Update' and 'Skip (already current)'. Reporting the create/reuse buckets here would
-    // print two permanent zeros AND contradict the skip count: "0 already current (reused)"
-    // immediately followed by "N to skip" — where N is skipped precisely because it IS current.
-    // This is the last line the operator reads before authorizing writes, so it names only the
-    // two outcomes this command can actually produce.
-    const counts = countPlannedChanges(result.plannedChanges);
-    renderPlannedChanges(this, result.plannedChanges, {
-      header: messages.getMessage('warn.header', [username]),
-      summary: messages.getMessage('warn.summary', [counts.updates, counts.skips, username]),
-      notTransactional: messages.getMessage('warn.notTransactional'),
-    });
+    const counts = this.renderPreview(result.plannedChanges, username, dryRun);
+    result.plannedCounts = { updates: counts.updates, alreadyCurrent: counts.skips };
     for (const advisory of advisories) this.warn(advisory);
 
     if (dryRun) {
@@ -233,6 +235,29 @@ export default class CmlImportRecordUpdates extends SfCommand<CmlImportRecordUpd
     }
 
     return result;
+  }
+
+  /**
+   * Renders the read-only preview the operator consents to, and returns the counts it displayed.
+   *
+   * `countPlannedChanges` is shared and buckets all five operations, but `toPlannedChange` emits
+   * only 'Update' and 'Skip (already current)'. Reporting the create/reuse buckets here would print
+   * two permanent zeros AND contradict the skip count: "0 already current (reused)" immediately
+   * followed by "N to skip" — where those N are skipped precisely because they ARE current. This is
+   * the last line the operator reads before authorizing writes, so it names only the two outcomes
+   * this command can actually produce.
+   */
+  private renderPreview(changes: PlannedChange[], username: string, dryRun: boolean): PlannedChangeCounts {
+    const counts = countPlannedChanges(changes);
+    renderPlannedChanges(this, changes, {
+      header: messages.getMessage('warn.header', [username]),
+      summary: messages.getMessage('warn.summary', [counts.updates, counts.skips, username]),
+      // A dry run writes nothing, so there is no partial-migration hazard to caution about. Warning
+      // anyway would put boilerplate in every --json run's `warnings` array, where the ProductCode
+      // drift advisory and the per-record save failures need to stand out.
+      notTransactional: dryRun ? undefined : messages.getMessage('warn.notTransactional'),
+    });
+    return counts;
   }
 
   private async loadPlan(file: string): Promise<RecordUpdatePlan> {

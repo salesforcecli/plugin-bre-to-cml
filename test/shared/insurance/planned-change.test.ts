@@ -17,6 +17,7 @@ import { expect } from 'chai';
 import {
   PlannedChange,
   PlannedChangeOperation,
+  PlannedChangeText,
   countPlannedChanges,
   formatChange,
   renderPlannedChanges,
@@ -142,30 +143,40 @@ describe('planned-change renderPlannedChanges', () => {
     expect(countPlannedChanges(changes)).to.deep.equal({ creates: 0, updates: 1, reuses: 0, skips: 1 });
   });
 
-  it('renders a header, one row per change, and both warnings', () => {
-    const warnings: string[] = [];
-    const headers: string[] = [];
-    let rows: Array<Record<string, unknown>> = [];
+  type Captured = {
+    headers: string[];
+    rows: Array<Record<string, unknown>>;
+    logs: string[];
+    warnings: string[];
+  };
 
+  const render = (text: PlannedChangeText): Captured => {
+    const captured: Captured = { headers: [], rows: [], logs: [], warnings: [] };
     renderPlannedChanges(
       {
-        styledHeader: (t: string) => headers.push(t),
+        styledHeader: (t: string) => captured.headers.push(t),
         table: (options) => {
-          rows = options.data;
+          captured.rows = options.data;
         },
-        warn: (m: string) => warnings.push(m),
+        log: (m: string) => captured.logs.push(m),
+        warn: (m: string) => captured.warnings.push(m),
       },
       changes,
-      {
-        header: 'These changes will be applied to me@example.com',
-        summary: '1 to update',
-        notTransactional: 'NOT rolled back',
-      }
+      text
     );
+    return captured;
+  };
 
-    expect(headers).to.deep.equal(['These changes will be applied to me@example.com']);
-    expect(rows).to.have.length(2);
-    expect(rows[0]).to.deep.equal({
+  it('renders a header, one row per change, and the summary', () => {
+    const captured = render({
+      header: 'These changes will be applied to me@example.com',
+      summary: '1 to update',
+      notTransactional: 'NOT rolled back',
+    });
+
+    expect(captured.headers).to.deep.equal(['These changes will be applied to me@example.com']);
+    expect(captured.rows).to.have.length(2);
+    expect(captured.rows[0]).to.deep.equal({
       Operation: 'Update',
       Object: 'ProductSurcharge',
       Id: 'a0p000000000001',
@@ -173,8 +184,23 @@ describe('planned-change renderPlannedChanges', () => {
       Field: 'RuleEngineType',
       Change: 'BusinessRuleEngine → ConstraintEngine',
     });
-    // The non-transactional notice is a warning so it also lands in the --json warnings array.
-    expect(warnings).to.deep.equal(['1 to update', 'NOT rolled back']);
+    // The summary is informational, and it is the whole output of a dry run. Emitting it through
+    // warn() sends it to stderr (so `... --dry-run > plan.txt` loses it) and puts boilerplate in
+    // every successful --json run's `warnings` array.
+    expect(captured.logs).to.deep.equal(['1 to update']);
+    // The non-transactional notice is a genuine caution, so it stays a warning.
+    expect(captured.warnings).to.deep.equal(['NOT rolled back']);
+  });
+
+  it('omits the non-transactional notice when the caller will not write', () => {
+    const captured = render({
+      header: 'These changes will be applied to me@example.com',
+      summary: '1 to update',
+    });
+
+    expect(captured.warnings, 'a read-only path has no partial-migration hazard to warn about').to.deep.equal([]);
+    expect(captured.logs).to.deep.equal(['1 to update']);
+    expect(captured.rows, 'the preview itself is still rendered').to.have.length(2);
   });
 });
 
