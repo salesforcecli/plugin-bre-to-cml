@@ -40,8 +40,16 @@ export type PlannedChange = {
   id: string;
   name: string;
   field: string;
-  /** `old → new`, both truncated for display. The `old` side is always a fresh re-read. */
+  /** `old → new`, truncated (and, for JSON blobs, reduced to the mutated fields) for display. */
   change: string;
+  /**
+   * Untruncated current org value, from the same fresh re-read `change` was built from. `change`
+   * is a display string, so `--json` consumers need the real values to diff or audit against.
+   * Absent for operations that have no current value, e.g. a create.
+   */
+  currentValue?: string | null;
+  /** Untruncated value that will be written. Absent when the operation writes no single value. */
+  newValue?: string;
 };
 
 /** Placeholder shown in the Id column for records that do not exist yet. */

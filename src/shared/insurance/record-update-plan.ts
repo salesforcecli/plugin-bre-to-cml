@@ -25,6 +25,7 @@
  * against writing to a valid-but-wrong record.
  */
 import { RecordUpdate, RecordUpdateField, RecordUpdatePlan } from './models.js';
+import { NO_VALUE, truncateCell } from './planned-change.js';
 
 export const RECORD_UPDATE_KINDS: ReadonlyArray<RecordUpdatePlan['kind']> = ['underwriting-update', 'surcharge-update'];
 
@@ -205,6 +206,44 @@ export function dynamicRuleDefinitionSignature(value: string): BlobSignature | u
   } catch {
     return undefined;
   }
+}
+
+/** The mutated fields, paired with the dotted path an operator would recognize them by. */
+const BLOB_SIGNATURE_FIELDS: ReadonlyArray<[keyof BlobSignature, string]> = [
+  ['ruleKey', 'ruleKey'],
+  ['ruleEngineType', 'underwritingRuleGroup.ruleEngineType'],
+];
+
+const renderSignatureValue = (value: unknown): string => {
+  if (value == null) return NO_VALUE;
+  return truncateCell(typeof value === 'string' ? value : JSON.stringify(value));
+};
+
+/**
+ * Renders a `DynamicRuleDefinition` change as a semantic diff of just the fields convert mutates.
+ *
+ * A real blob is several hundred characters whose first 60 are identical before and after, so a
+ * truncated raw `old → new` renders byte-identically on both sides and the operator confirms
+ * without having seen anything. Returns undefined when either side cannot be read structurally, so
+ * the caller falls back to the raw diff rather than inventing a value.
+ */
+export function formatBlobChange(currentValue: string | null | undefined, newValue: string): string | undefined {
+  const desired = dynamicRuleDefinitionSignature(newValue);
+  if (!desired) return undefined;
+  // A null current value is a genuinely empty field, not an unreadable one.
+  const current = currentValue == null ? undefined : dynamicRuleDefinitionSignature(currentValue);
+  if (currentValue != null && !current) return undefined;
+
+  return BLOB_SIGNATURE_FIELDS.map(
+    ([key, label]) => `${label}: ${renderSignatureValue(current?.[key])} → ${renderSignatureValue(desired[key])}`
+  ).join(', ');
+}
+
+/** The same semantic view of a single blob, for rendering an already-current row. */
+export function formatBlobSummary(value: string | null | undefined): string | undefined {
+  const signature = value == null ? undefined : dynamicRuleDefinitionSignature(value);
+  if (!signature) return undefined;
+  return BLOB_SIGNATURE_FIELDS.map(([key, label]) => `${label}: ${renderSignatureValue(signature[key])}`).join(', ');
 }
 
 /** Reads the `apiName` out of a `DynamicRuleDefinition` blob, for the apply-time identity check. */

@@ -207,6 +207,59 @@ describe('cml import record-updates', () => {
     expect(updateCalls[1].payloads[0].DynamicRuleDefinition).to.equal('{"apiName":"MinDriverAge","ruleKey":"UW_001"}');
   });
 
+  it('previews a DynamicRuleDefinition change as a readable diff, and carries the full values in the result', async () => {
+    // A realistic blob: identical for far more than the 60 rendered characters, so a raw
+    // truncated `old → new` would show the operator the same string twice.
+    const orgBlob = JSON.stringify({
+      apiName: 'MinDriverAgeRule',
+      description: 'Driver must be at least 21 years old to qualify for this policy tier',
+      name: 'Min Driver Age',
+      productPath: '01tROOT00000000001/01tAUTO00000000001',
+      ruleKey: null,
+      underwritingRuleGroup: { fromStage: 'Submitted', toStage: 'Quoted', ruleEngineType: 'BusinessRuleEngine' },
+    });
+    const newBlob = ((): string => {
+      const defn = JSON.parse(orgBlob) as Record<string, unknown>;
+      defn.ruleKey = 'UW__auto__minDriverAge';
+      (defn.underwritingRuleGroup as Record<string, unknown>).ruleEngineType = 'ConstraintEngine';
+      return JSON.stringify(defn);
+    })();
+
+    stubOrgConnection({
+      current: { UnderwritingRule: [{ Id: RULE_ID, Name: 'Min Driver Age', DynamicRuleDefinition: orgBlob }] },
+    });
+    await writePlan(
+      JSON.stringify({
+        schemaVersion: 1,
+        kind: 'underwriting-update',
+        cmlApi: 'UW_AUTO',
+        generatedAt: '2026-06-28T12:00:00.000Z',
+        updates: [
+          {
+            sobject: 'UnderwritingRule',
+            id: RULE_ID,
+            name: 'Min Driver Age',
+            apiName: 'MinDriverAgeRule',
+            fields: [{ field: 'DynamicRuleDefinition', value: newBlob }],
+          },
+        ],
+      })
+    );
+
+    const result = await runCommand(['--dry-run']);
+
+    const [preview] = result.plannedChanges;
+    const [before, after] = preview.change.split(' → ');
+    expect(before, 'the two sides of the preview must not be the same string').to.not.equal(after);
+    expect(preview.change).to.equal(
+      'ruleKey: (none) → UW__auto__minDriverAge, ' +
+        'underwritingRuleGroup.ruleEngineType: BusinessRuleEngine → ConstraintEngine'
+    );
+    // --json consumers get the real values, not the display string.
+    expect(preview.currentValue).to.equal(orgBlob);
+    expect(preview.newValue).to.equal(newBlob);
+  });
+
   it('--dry-run renders the plan and writes nothing', async () => {
     stubOrgConnection({
       current: {

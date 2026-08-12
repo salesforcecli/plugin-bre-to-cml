@@ -17,7 +17,12 @@ import * as fs from 'node:fs/promises';
 import { SfCommand, Flags } from '@salesforce/sf-plugins-core';
 import { Messages } from '@salesforce/core';
 import { RecordUpdatePlan } from '../../../shared/insurance/models.js';
-import { parseRecordUpdatePlan } from '../../../shared/insurance/record-update-plan.js';
+import {
+  JSON_BLOB_FIELD,
+  formatBlobChange,
+  formatBlobSummary,
+  parseRecordUpdatePlan,
+} from '../../../shared/insurance/record-update-plan.js';
 import {
   PlannedRecordChange,
   applyRecordUpdates,
@@ -222,10 +227,25 @@ function toPlannedChange(change: PlannedRecordChange): PlannedChange {
     id: change.update.id,
     name: change.update.name,
     field: change.field.field,
-    change: change.alreadyCurrent
-      ? `${truncateCell(change.currentValue ?? NO_VALUE)} (unchanged)`
-      : formatChange(change.currentValue, change.field.value),
+    change: describeChange(change),
+    currentValue: change.currentValue,
+    newValue: change.field.value,
   };
+}
+
+/**
+ * Builds the operator-facing `Change` cell. `DynamicRuleDefinition` is rendered as a semantic diff
+ * of the fields convert mutates, because the raw blob's first 60 characters are identical before
+ * and after — a truncated raw diff shows the operator the same string twice.
+ */
+function describeChange(change: PlannedRecordChange): string {
+  const isBlob = change.field.field === JSON_BLOB_FIELD;
+  if (change.alreadyCurrent) {
+    const summary = isBlob ? formatBlobSummary(change.currentValue) : undefined;
+    return `${summary ?? truncateCell(change.currentValue ?? NO_VALUE)} (unchanged)`;
+  }
+  const semantic = isBlob ? formatBlobChange(change.currentValue, change.field.value) : undefined;
+  return semantic ?? formatChange(change.currentValue, change.field.value);
 }
 
 function toSkipResult(change: PlannedRecordChange): RecordUpdateSkipResult {
