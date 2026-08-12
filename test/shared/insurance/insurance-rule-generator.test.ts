@@ -28,6 +28,7 @@ import {
   sanitizeName,
 } from '../../../src/shared/insurance/insurance-rule-generator.js';
 import { PcmGenerator } from '../../../src/shared/pcm-generator.js';
+import { CML_DATA_TYPES } from '../../../src/shared/constants/constants.js';
 import { ParsedRuleDefinition, RuleCriteria, RuleRecord } from '../../../src/shared/insurance/models.js';
 import {
   discoverCmlApiByProducts,
@@ -1157,6 +1158,116 @@ describe('condition data type resolution', () => {
     };
     const resolved = new Map([['0tjfiw000000CMBAA2', 'Checkbox']]);
     expect(buildConstraintDeclaration(rule, resolved)).to.equal('Has_Anti_Theft == true');
+  });
+});
+
+/**
+ * The complete platform surface of source data types, pinned type by type.
+ *
+ * These two lists are the ONLY things that reach the type map: `fetchAttributeDataTypes` records a
+ * non-picklist attribute's own `AttributeDefinition.DataType` verbatim, and resolves a Picklist one
+ * to its `AttributePicklist.DataType`. Both lists are the allowed values of those two fields, read
+ * from `sf sobject describe --sobject AttributeDefinition` and
+ * `sf sobject describe --sobject AttributePicklist` (the `DataType` field's picklistValues,
+ * captured 2026-08-12; re-run both describes to re-check them). An unmapped type does not
+ * fail loudly on its own — it silently takes the STRING fallback and emits a quoted value, which
+ * against a non-string attribute is a rule that imports cleanly and never fires. That is how
+ * Checkbox went unnoticed. So the surface is asserted exhaustively here instead.
+ */
+const ATTRIBUTE_DEFINITION_DATA_TYPES: Readonly<Record<string, string>> = {
+  Checkbox: CML_DATA_TYPES.BOOLEAN,
+  Date: CML_DATA_TYPES.DATE,
+  // `date` is the closest CML has; a value carrying a time is separately refused outright — see
+  // the findUnconvertibleConditions cases above and the cross-check at the end of this suite.
+  Datetime: CML_DATA_TYPES.DATE,
+  Number: CML_DATA_TYPES.DECIMAL,
+  Text: CML_DATA_TYPES.STRING,
+  Currency: CML_DATA_TYPES.DECIMAL,
+  Percent: CML_DATA_TYPES.DECIMAL,
+  // Deliberately the fallback: a picklist carries no comparable type of its own, and
+  // fetchAttributeDataTypes replaces it with the AttributePicklist type below whenever that is
+  // resolvable. Reaching here means it was not, and quoting is the safe direction.
+  Picklist: CML_DATA_TYPES.STRING,
+};
+
+const ATTRIBUTE_PICKLIST_DATA_TYPES: Readonly<Record<string, string>> = {
+  // AttributePicklist's spelling of what AttributeDefinition calls Checkbox.
+  Boolean: CML_DATA_TYPES.BOOLEAN,
+  Date: CML_DATA_TYPES.DATE,
+  Datetime: CML_DATA_TYPES.DATE,
+  Number: CML_DATA_TYPES.DECIMAL,
+  Text: CML_DATA_TYPES.STRING,
+  Currency: CML_DATA_TYPES.DECIMAL,
+  Percent: CML_DATA_TYPES.DECIMAL,
+};
+
+const guidance = (sobject: string, source: string, expected: string): string =>
+  `${sobject}.DataType '${source}' must resolve to CML '${expected}'.\n` +
+  `  If the platform added '${source}': add it to SOURCE_DATA_TYPE_TO_CML in ` +
+  'src/shared/insurance/insurance-rule-generator.ts AND to dataTypeToCmlType in ' +
+  'src/shared/pcm-generator.ts — both declare these attributes into the same model, so a type they ' +
+  'disagree about gets two contradictory declarations. Leaving it unmapped is not neutral: it takes ' +
+  'the string fallback, quotes the value, and yields a rule that never fires against a non-string ' +
+  'attribute. If CML has no faithful representation for it, refuse it in ' +
+  'findUnconvertibleConditions instead of approximating.\n' +
+  `  If this list is what changed: confirm '${source}' against ` +
+  `\`sf sobject describe --sobject ${sobject}\` before editing the expectation.`;
+
+describe('every platform data type resolves to an intended CML type', () => {
+  const resolve = (dataType: string): string | undefined => {
+    const ruleDef = {
+      ruleCriteria: [
+        { rootObjectId: '01t', conditions: [{ attributeName: 'Attr', operator: 'Equals', dataType, values: ['x'] }] },
+      ] as RuleCriteria[],
+    };
+    return collectAttributeTypes([{ ruleDef }]).get('Attr');
+  };
+
+  for (const [source, expected] of Object.entries(ATTRIBUTE_DEFINITION_DATA_TYPES)) {
+    it(`AttributeDefinition.DataType '${source}' -> ${expected}`, () => {
+      expect(resolve(source), guidance('AttributeDefinition', source, expected)).to.equal(expected);
+    });
+  }
+
+  for (const [source, expected] of Object.entries(ATTRIBUTE_PICKLIST_DATA_TYPES)) {
+    it(`AttributePicklist.DataType '${source}' -> ${expected}`, () => {
+      expect(resolve(source), guidance('AttributePicklist', source, expected)).to.equal(expected);
+    });
+  }
+
+  // Guards the table itself: an expectation naming a type CML does not have would otherwise pin a
+  // model that cannot compile.
+  it('expects only real CML primitives', () => {
+    const primitives = new Set(Object.values(CML_DATA_TYPES));
+    for (const expected of [
+      ...Object.values(ATTRIBUTE_DEFINITION_DATA_TYPES),
+      ...Object.values(ATTRIBUTE_PICKLIST_DATA_TYPES),
+    ]) {
+      expect(primitives.has(expected), `'${expected}' is not one of CML_DATA_TYPES`).to.equal(true);
+    }
+  });
+
+  // Datetime maps to `date` only because that is the nearest slot; it is NOT a licence to emit a
+  // timestamp into it. Pinned together so removing the refusal cannot leave the mapping looking
+  // like an endorsement.
+  it('does not let the Datetime -> date mapping stand in for datetime support', () => {
+    const withTime = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [
+            { attributeName: 'Attr', operator: 'Equals', dataType: 'Datetime', values: ['2026-01-01T10:00:00Z'] },
+          ],
+        },
+      ] as RuleCriteria[],
+    };
+    expect(findUnconvertibleConditions(withTime)).to.have.length(1);
+  });
+
+  // The fallback is the deliberate answer for a genuinely unknown type and must stay; the point of
+  // the table above is that no KNOWN type relies on it.
+  it('still falls back to string for a type outside both lists', () => {
+    expect(resolve('SomeFutureType')).to.equal(CML_DATA_TYPES.STRING);
   });
 });
 
