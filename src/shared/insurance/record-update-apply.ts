@@ -231,8 +231,18 @@ async function findProductCodeDrift(
   }
   if (productIds.size === 0) return [];
 
-  const idToCode = await fetchProductCodes(conn, productIds);
+  // A null ProductCode resolves to Name (then Id), which yields a key that cannot match the
+  // platform-generated RuleKey — so the comparison below can be spurious in either direction.
+  // The hook exists precisely to make that observable; ignoring it hid the signal.
+  const fellBack = new Set<string>();
+  const idToCode = await fetchProductCodes(conn, productIds, { onFallback: (id) => fellBack.add(id) });
   const advisories: string[] = [];
+  if (fellBack.size > 0) {
+    advisories.push(
+      `products ${[...fellBack].join(', ')} have no ProductCode; their code was derived from Name or Id, so the ` +
+        'ProductCode drift check below cannot be relied on for surcharges on those products'
+    );
+  }
   for (const update of withCodes) {
     const orgPath = splitProductPath(asString(current.get(update.id)?.ProductPath) ?? '');
     const orgCodes = orgPath.map((id) => idToCode.get(id) ?? id);

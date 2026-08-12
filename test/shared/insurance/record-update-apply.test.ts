@@ -294,6 +294,35 @@ describe('record-update-apply planRecordUpdates', () => {
     expect(advisories.join('\n')).to.include('autoGold/collision');
   });
 
+  it('says so when a ProductCode had to be derived from Name, since the drift check then means little', async () => {
+    const conn = mockConnection({
+      query: (soql) =>
+        soql.includes('FROM Product2')
+          ? [
+              { Id: PRODUCT_ROOT, ProductCode: null, Name: 'autoSilver' },
+              { Id: PRODUCT_LEAF, ProductCode: 'collision', Name: 'Collision' },
+            ]
+          : [
+              {
+                Id: SURCHARGE_ID,
+                Name: 'Collision Fee',
+                RuleEngineType: 'BusinessRuleEngine',
+                ProductPath: `${PRODUCT_ROOT}/${PRODUCT_LEAF}`,
+              },
+            ],
+    });
+
+    const { advisories } = await planRecordUpdates(
+      conn,
+      // The Name fallback happens to equal the file's code, so the drift check stays silent —
+      // and would say nothing at all about a key that cannot match the platform's.
+      planOf([surchargeUpdate({ productCodes: ['autoSilver', 'collision'] })])
+    );
+
+    expect(advisories.join('\n')).to.match(new RegExp(`products ${PRODUCT_ROOT} have no ProductCode`));
+    expect(advisories.join('\n')).to.match(/cannot be relied on/);
+  });
+
   it('raises no advisory when the org ProductCodes still match the file', async () => {
     const conn = mockConnection({
       query: (soql) =>
