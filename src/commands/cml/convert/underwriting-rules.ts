@@ -205,8 +205,9 @@ export default class CmlConvertUnderwritingRules extends InsuranceRuleConvertCom
    * Pure transform — the file-only successor to the old live updateOrgRecords. Produces the exact
    * org-record changes convert previously applied: (1) each UnderwritingRuleGroup flipped to
    * RuleEngineType=ConstraintEngine, then (2) each BRE UnderwritingRule's DynamicRuleDefinition blob
-   * rewritten with the converted ruleKey (and the nested underwritingRuleGroup.ruleEngineType, when
-   * present). Groups are emitted first so a faithful apply mirrors the original ordering. The blob
+   * rewritten with the converted ruleKey (and, only when this plan also flips that rule's group, the
+   * nested underwritingRuleGroup.ruleEngineType). Groups are emitted first so a faithful apply
+   * mirrors the original ordering, and so step (2) can read back which groups step (1) flipped. The blob
    * rewrite uses a RAW JSON.parse of the org's stored value (NOT decodeHtmlEntities) — byte-for-byte
    * the same mutation the live path performed.
    *
@@ -288,19 +289,54 @@ export default class CmlConvertUnderwritingRules extends InsuranceRuleConvertCom
     }
 
     // (2) UnderwritingRule DynamicRuleDefinition rewrites — same subset and same mutation as live.
+    // The flipped set is read back off the group updates actually pushed above rather than
+    // re-derived from the withhold conditions, so all three no-flip paths (zero placed, partial,
+    // no Name resolved) are covered by construction and the two decisions cannot drift apart.
+    const flippedGroupIds = new Set(updates.filter((u) => u.sobject === 'UnderwritingRuleGroup').map((u) => u.id));
+    updates.push(...this.buildBlobRewrites(records, ruleKeyMapping, flippedGroupIds));
+
+    return updates;
+  }
+
+  /**
+   * Step (2) of the plan: rewrite each placed BRE rule's DynamicRuleDefinition blob. Uses a RAW
+   * JSON.parse of the org's stored value (NOT decodeHtmlEntities) and re-stringifies — byte-for-byte
+   * the same mutation the old live code path performed; the document is never reformatted or re-keyed.
+   *
+   * The nested `underwritingRuleGroup.ruleEngineType` is stamped ONLY when this same plan also flips
+   * that rule's group record. Setting it unconditionally left the plan internally inconsistent
+   * whenever a flip was withheld: the applied blob asserted ConstraintEngine while the group record
+   * it belongs to still carried its old RuleEngineType, and nothing in the apply preview surfaces
+   * the disagreement. Whether the platform READS the nested copy is not established — the sibling
+   * `underwritingRuleGroupId` is null in every stored blob and appears not to be maintained by the
+   * platform — so this is a consistency fix, not a known runtime failure. When the group is not
+   * flipped the nested value is left exactly as the org stored it: not deleted, not substituted.
+   *
+   * The `ruleKey` rewrite happens either way — it is what the placed constraint needs, and the
+   * reason the record update is still emitted for a withheld group's placed rules at all.
+   */
+  private buildBlobRewrites(
+    records: UnderwritingRuleRecord[],
+    ruleKeyMapping: RuleKeyEntry[],
+    flippedGroupIds: ReadonlySet<string>
+  ): RecordUpdate[] {
+    const rewrites: RecordUpdate[] = [];
     const ruleKeyMap = new Map(ruleKeyMapping.map((m) => [m.recordId, m.ruleKey]));
     const breRecords = records.filter((r) => !r.RuleKey && r.DynamicRuleDefinition);
+
     for (const record of breRecords) {
       const ruleKey = ruleKeyMap.get(record.Id);
       if (!ruleKey || !record.DynamicRuleDefinition) continue;
 
+      const groupIsFlipping = !!record.UnderwritingRuleGroupId && flippedGroupIds.has(record.UnderwritingRuleGroupId);
+
       try {
         const defn = JSON.parse(record.DynamicRuleDefinition) as Record<string, unknown>;
         defn.ruleKey = ruleKey;
-        if (defn.underwritingRuleGroup && typeof defn.underwritingRuleGroup === 'object') {
+        if (groupIsFlipping && defn.underwritingRuleGroup && typeof defn.underwritingRuleGroup === 'object') {
           (defn.underwritingRuleGroup as Record<string, unknown>).ruleEngineType = 'ConstraintEngine';
         }
-        updates.push({
+        rewrites.push({
           sobject: 'UnderwritingRule',
           id: record.Id,
           name: record.Name,
@@ -312,6 +348,6 @@ export default class CmlConvertUnderwritingRules extends InsuranceRuleConvertCom
       }
     }
 
-    return updates;
+    return rewrites;
   }
 }

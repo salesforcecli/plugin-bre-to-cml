@@ -70,12 +70,22 @@ type UwFixture = {
   UnderwritingRuleGroup: { Name: string | null } | null;
 };
 
-/** A DynamicRuleDefinition blob: one DriverAge condition plus the stage transition, as the org stores it. */
-const dynamicRuleDefinition = (apiName: string, fromStage = 'Draft', toStage = 'Submitted'): string =>
+/**
+ * A DynamicRuleDefinition blob: one DriverAge condition plus the stage transition, as the org stores
+ * it. `groupExtras` seeds additional keys on the nested `underwritingRuleGroup` so a test can pin
+ * what the org already had there (e.g. an existing `ruleEngineType`, or the always-null
+ * `underwritingRuleGroupId` real orgs carry).
+ */
+const dynamicRuleDefinition = (
+  apiName: string,
+  fromStage = 'Draft',
+  toStage = 'Submitted',
+  groupExtras: Record<string, unknown> = {}
+): string =>
   JSON.stringify({
     name: apiName,
     apiName,
-    underwritingRuleGroup: { fromStage, toStage },
+    underwritingRuleGroup: { fromStage, toStage, ...groupExtras },
     ruleCriteria: [
       {
         rootObjectId: 'root',
@@ -92,17 +102,18 @@ const uwRecord = (opts: {
   id: string;
   name: string;
   apiName?: string;
-  groupId: string;
+  groupId: string | null;
   groupName?: string | null;
   leafId?: string;
   productPath?: string;
+  groupExtras?: Record<string, unknown>;
 }): UwFixture => ({
   Id: opts.id,
   Name: opts.name,
   ApiName: opts.apiName ?? opts.name,
   ProductPath: opts.productPath ?? `${ROOT_ID}/${opts.leafId ?? AUTO_ID}`,
   RuleKey: null,
-  DynamicRuleDefinition: dynamicRuleDefinition(opts.apiName ?? opts.name),
+  DynamicRuleDefinition: dynamicRuleDefinition(opts.apiName ?? opts.name, 'Draft', 'Submitted', opts.groupExtras),
   UnderwritingRuleGroupId: opts.groupId,
   UnderwritingRuleGroup: { Name: opts.groupName === undefined ? `Group ${opts.groupId}` : opts.groupName },
 });
@@ -194,6 +205,22 @@ describe('cml convert underwriting-rules', () => {
 
   const groupUpdates = (plan: RecordUpdatePlan): RecordUpdate[] =>
     plan.updates.filter((u) => u.sobject === 'UnderwritingRuleGroup');
+
+  const ruleUpdates = (plan: RecordUpdatePlan): RecordUpdate[] =>
+    plan.updates.filter((u) => u.sobject === 'UnderwritingRule');
+
+  /** The rewritten DynamicRuleDefinition string an update would write, verbatim. */
+  const rewrittenBlob = (update: RecordUpdate): string => {
+    const field = update.fields.find((f) => f.field === 'DynamicRuleDefinition');
+    expect(field, `${update.name} should carry a DynamicRuleDefinition rewrite`).to.not.equal(undefined);
+    return field?.value ?? '';
+  };
+
+  const parsedBlob = (update: RecordUpdate): Record<string, unknown> =>
+    JSON.parse(rewrittenBlob(update)) as Record<string, unknown>;
+
+  const nestedGroup = (update: RecordUpdate): Record<string, unknown> =>
+    parsedBlob(update).underwritingRuleGroup as Record<string, unknown>;
 
   const warnOutput = (): string =>
     sfCommandStubs.warn
@@ -370,5 +397,138 @@ describe('cml convert underwriting-rules', () => {
     expect(result.ruleKeyMapping, 'the rule itself should be placed').to.have.length(1);
     expect(groupUpdates(await readPlan(result))).to.have.length(0);
     expect(warnOutput()).to.match(/no Name resolved/);
+  });
+
+  // ---- The blob rewrite must agree with the flip decision. Withholding a group's flip while its
+  // placed rule's blob still asserts `underwritingRuleGroup.ruleEngineType: ConstraintEngine` leaves
+  // the applied org in a self-contradictory state: the blob says ConstraintEngine, the group record
+  // it names still carries its old RuleEngineType. (Whether the platform READS the nested copy is
+  // unverified — the sibling `underwritingRuleGroupId` is null in every stored blob and appears
+  // unmaintained — so these tests pin internal consistency, not a known runtime failure.)
+  describe('nested underwritingRuleGroup.ruleEngineType', () => {
+    /** The whole mutation, and nothing but: the org's stored document with `ruleKey` set. */
+    const withRuleKeyOnly = (record: UwFixture, ruleKey: string): string =>
+      JSON.stringify({ ...(JSON.parse(record.DynamicRuleDefinition as string) as Record<string, unknown>), ruleKey });
+
+    const placedRuleKey = (result: CmlConvertUnderwritingRulesResult, recordId: string): string =>
+      result.ruleKeyMapping.find((m) => m.recordId === recordId)?.ruleKey ?? '<not placed>';
+
+    // Positive control: guards the fix against over-correcting into "never set it".
+    it('is set to ConstraintEngine when the rule\u2019s group IS flipped by this same plan', async () => {
+      const record = uwRecord({
+        id: '1KX000000000061',
+        name: 'Flipped Rule',
+        groupId: '1KQ000000000061',
+        groupName: 'Flipped Group',
+        groupExtras: { ruleEngineType: 'BusinessRuleEngine' },
+      });
+      const result = await runCommand([record]);
+      const plan = await readPlan(result);
+
+      expect(
+        groupUpdates(plan).map((u) => u.id),
+        'the group really is flipped here'
+      ).to.deep.equal(['1KQ000000000061']);
+      const rules = ruleUpdates(plan);
+      expect(rules.map((u) => u.id)).to.deep.equal([record.Id]);
+      expect(nestedGroup(rules[0]).ruleEngineType).to.equal('ConstraintEngine');
+      expect(parsedBlob(rules[0]).ruleKey).to.equal(placedRuleKey(result, record.Id));
+    });
+
+    it('keeps the org\u2019s stored value when the group is withheld for being partially migrated', async () => {
+      const placed = uwRecord({
+        id: '1KX000000000062',
+        name: 'Partial Placed',
+        groupId: '1KQ000000000062',
+        groupName: 'Partial Group',
+        // What a real org stores: an explicit BRE engine type, and the null sibling id.
+        groupExtras: { ruleEngineType: 'BusinessRuleEngine', underwritingRuleGroupId: null },
+      });
+      const skipped = uwRecord({
+        id: '1KX000000000063',
+        name: 'Partial Skipped',
+        groupId: '1KQ000000000062',
+        groupName: 'Partial Group',
+        leafId: ORPHAN_ID,
+      });
+      const result = await runCommand([placed, skipped]);
+      const plan = await readPlan(result);
+
+      expect(groupUpdates(plan), 'the partial group must stay unflipped for this test to mean anything').to.have.length(
+        0
+      );
+      const rules = ruleUpdates(plan);
+      expect(
+        rules.map((u) => u.id),
+        'the placed rule still gets its blob rewritten'
+      ).to.deep.equal([placed.Id]);
+      expect(nestedGroup(rules[0]).ruleEngineType).to.equal('BusinessRuleEngine');
+      // The ruleKey rewrite is the whole reason the update is still emitted.
+      expect(parsedBlob(rules[0]).ruleKey).to.equal(placedRuleKey(result, placed.Id));
+      // ...and nothing else in the document moved, byte for byte.
+      expect(rewrittenBlob(rules[0])).to.equal(withRuleKeyOnly(placed, placedRuleKey(result, placed.Id)));
+    });
+
+    it('is not introduced when the group is withheld and the org never stored one', async () => {
+      const record = uwRecord({
+        id: '1KX000000000064',
+        name: 'Nameless Blob Rule',
+        groupId: '1KQ000000000064',
+        groupName: null,
+      });
+      const result = await runCommand([record]);
+      const plan = await readPlan(result);
+
+      expect(groupUpdates(plan), 'a Name-less group is never flipped').to.have.length(0);
+      const rules = ruleUpdates(plan);
+      expect(rules.map((u) => u.id)).to.deep.equal([record.Id]);
+      // Absent stays absent: withholding must not delete, add, or substitute the nested value.
+      expect(Object.keys(nestedGroup(rules[0]))).to.deep.equal(['fromStage', 'toStage']);
+      expect(rewrittenBlob(rules[0])).to.equal(withRuleKeyOnly(record, placedRuleKey(result, record.Id)));
+    });
+
+    it('emits no blob rewrite at all for a group none of whose rules were placed', async () => {
+      const result = await runCommand([
+        uwRecord({ id: '1KX000000000065', name: 'All Skipped', groupId: '1KQ000000000065', leafId: ORPHAN_ID }),
+      ]);
+      const plan = await readPlan(result);
+
+      expect(plan.updates).to.deep.equal([]);
+      expect(JSON.stringify(plan.updates)).to.not.include('ConstraintEngine');
+    });
+
+    it('claims ConstraintEngine in exactly the blobs whose group this plan flips', async () => {
+      const records = [
+        uwRecord({ id: '1KX000000000071', name: 'Whole Group Rule', groupId: '1KQ000000000071', groupName: 'Whole' }),
+        uwRecord({ id: '1KX000000000072', name: 'Mixed Placed Rule', groupId: '1KQ000000000072', groupName: 'Mixed' }),
+        uwRecord({
+          id: '1KX000000000073',
+          name: 'Mixed Skipped Rule',
+          groupId: '1KQ000000000072',
+          groupName: 'Mixed',
+          leafId: ORPHAN_ID,
+        }),
+        uwRecord({ id: '1KX000000000074', name: 'Nameless Rule', groupId: '1KQ000000000074', groupName: null }),
+        uwRecord({ id: '1KX000000000075', name: 'Dead Group Rule', groupId: '1KQ000000000075', leafId: GHOST_ID }),
+      ];
+      const result = await runCommand(records);
+      const plan = await readPlan(result);
+
+      const flipped = new Set(groupUpdates(plan).map((u) => u.id));
+      expect([...flipped], 'only the fully-migrated named group flips').to.deep.equal(['1KQ000000000071']);
+
+      const groupIdOf = new Map(records.map((r) => [r.Id, r.UnderwritingRuleGroupId]));
+      const claiming = ruleUpdates(plan)
+        .filter((u) => nestedGroup(u).ruleEngineType === 'ConstraintEngine')
+        .map((u) => u.id);
+      const expected = ruleUpdates(plan)
+        .filter((u) => flipped.has(groupIdOf.get(u.id) ?? ''))
+        .map((u) => u.id);
+
+      expect(ruleUpdates(plan).length, 'the run must emit more blob rewrites than flips').to.be.greaterThan(
+        flipped.size
+      );
+      expect(claiming).to.deep.equal(expected);
+    });
   });
 });
