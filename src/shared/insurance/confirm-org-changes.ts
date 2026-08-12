@@ -15,10 +15,13 @@
  */
 
 /**
- * The confirmation gate shared by the org-mutating import commands
+ * The confirmation gate for the org-mutating insurance import commands
  * (docs/insurance-export-review-import-redesign.md §4). Callers MUST have rendered the full
  * PlannedChange[] — built from read-only operations — before calling this, and MUST NOT issue any
  * write until it resolves.
+ *
+ * Used today by `cml import record-updates`; the matrix is command-agnostic, so
+ * `cml import as-expression-set` can gate on it when that work lands (§7 step 12).
  */
 
 /** Minimal surface the gate needs, so it is unit-testable without oclif. */

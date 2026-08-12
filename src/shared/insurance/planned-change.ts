@@ -15,10 +15,13 @@
  */
 
 /**
- * Shared "what is about to change in the org" preview, used by the gated import commands
- * (see docs/insurance-export-review-import-redesign.md §4). Every org-mutating import builds the
+ * The "what is about to change in the org" preview for the insurance import commands
+ * (see docs/insurance-export-review-import-redesign.md §4): an org-mutating import builds the
  * complete PlannedChange[] from read-only operations, renders it, and only then prompts — so an
  * operator always sees the exact field-level changes before anything is written.
+ *
+ * Used today by `cml import record-updates`. Nothing here is specific to record updates, so
+ * `cml import as-expression-set` can render its own plan through it when its gate lands (§7 step 12).
  */
 
 /** Column values are rendered verbatim, so keep the vocabulary closed and stable. */

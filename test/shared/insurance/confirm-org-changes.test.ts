@@ -14,14 +14,14 @@
  * limitations under the License.
  */
 import { expect } from 'chai';
-import { ConfirmText, confirmOrThrow } from '../../../src/shared/import/confirm-org-changes.js';
+import { ConfirmText, confirmOrThrow } from '../../../src/shared/insurance/confirm-org-changes.js';
 import {
   PlannedChange,
   countPlannedChanges,
   formatChange,
   renderPlannedChanges,
   truncateCell,
-} from '../../../src/shared/import/planned-change.js';
+} from '../../../src/shared/insurance/planned-change.js';
 
 type Harness = {
   warnings: string[];

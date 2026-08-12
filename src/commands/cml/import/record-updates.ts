@@ -31,8 +31,8 @@ import {
   formatChange,
   renderPlannedChanges,
   truncateCell,
-} from '../../../shared/import/planned-change.js';
-import { confirmOrThrow } from '../../../shared/import/confirm-org-changes.js';
+} from '../../../shared/insurance/planned-change.js';
+import { confirmOrThrow } from '../../../shared/insurance/confirm-org-changes.js';
 
 Messages.importMessagesDirectoryFromMetaUrl(import.meta.url);
 const messages = Messages.loadMessages('@salesforce/plugin-bre-to-cml', 'cml.import.record-updates');
