@@ -146,16 +146,16 @@ export default class CmlImportRecordUpdates extends SfCommand<CmlImportRecordUpd
     result.plannedChanges = changes.map(toPlannedChange);
     result.skipped = changes.filter((c) => c.alreadyCurrent).map(toSkipResult);
 
+    // `countPlannedChanges` is shared and buckets all five operations, but `toPlannedChange` emits
+    // only 'Update' and 'Skip (already current)'. Reporting the create/reuse buckets here would
+    // print two permanent zeros AND contradict the skip count: "0 already current (reused)"
+    // immediately followed by "N to skip" — where N is skipped precisely because it IS current.
+    // This is the last line the operator reads before authorizing writes, so it names only the
+    // two outcomes this command can actually produce.
     const counts = countPlannedChanges(result.plannedChanges);
     renderPlannedChanges(this, result.plannedChanges, {
       header: messages.getMessage('warn.header', [username]),
-      summary: messages.getMessage('warn.summary', [
-        counts.creates,
-        counts.updates,
-        counts.reuses,
-        counts.skips,
-        username,
-      ]),
+      summary: messages.getMessage('warn.summary', [counts.updates, counts.skips, username]),
       notTransactional: messages.getMessage('warn.notTransactional'),
     });
     for (const advisory of advisories) this.warn(advisory);

@@ -56,7 +56,7 @@ These changes will be applied to %s
 
 # warn.summary
 
-%s to create, %s to update, %s already current (reused), %s to skip in org %s.
+%s to update, %s already current (will be skipped) in org %s.
 
 # warn.notTransactional
 

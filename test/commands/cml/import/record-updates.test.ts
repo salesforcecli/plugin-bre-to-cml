@@ -285,12 +285,48 @@ describe('cml import record-updates', () => {
         Change: 'ConstraintEngine (unchanged)',
       },
     ]);
-    expect(warnOutput()).to.include('0 to create, 1 to update, 0 already current (reused), 1 to skip in org');
+    expect(warnOutput()).to.include(`1 to update, 1 already current (will be skipped) in org ${testOrg.username}.`);
     // The non-transactional notice must reach the operator before they can consent, not after.
     expect(warnOutput()).to.include('are NOT rolled back');
     expect(sfCommandStubs.table.calledBefore(sfCommandStubs.warn), 'table renders before the warnings').to.equal(true);
     expect(sfCommandStubs.styledHeader.calledBefore(sfCommandStubs.table)).to.equal(true);
     expect(renderedBeforeFirstWrite, 'the preview must be rendered before the first write').to.equal(true);
+  });
+
+  it('summarizes the plan without contradicting itself about what is already current', async () => {
+    // 3 still to write, 2 already applied — the shape a partially re-run migration produces. The
+    // old sentence read "0 to create, 3 to update, 0 already current (reused), 2 to skip in org
+    // ...": it told the operator nothing was already current and then, in the same breath, that 2
+    // records would be skipped *because* they were. This is the last line read before authorizing
+    // writes to a live org.
+    const ids = ['a0p000000000001', 'a0p000000000002', 'a0p000000000003', 'a0p000000000004', 'a0p000000000005'];
+    stubOrgConnection({
+      current: {
+        ProductSurcharge: ids.map((id, i) => ({
+          Id: id,
+          Name: `Fee ${i}`,
+          RuleEngineType: i < 3 ? 'BusinessRuleEngine' : 'ConstraintEngine',
+        })),
+      },
+    });
+    await writePlan(surchargePlanFile(ids.map((id, i) => surchargeUpdate({ id, name: `Fee ${i}` }))));
+
+    const result = await runCommand(['--dry-run']);
+
+    const summary = warnOutput()
+      .split('\n')
+      .find((line) => line.includes('to update'));
+    expect(summary).to.equal(`3 to update, 2 already current (will be skipped) in org ${testOrg.username}.`);
+    // The contradiction itself: never claim zero already-current while also announcing skips.
+    expect(summary, 'must not report 0 already current alongside a non-zero skip count').to.not.match(
+      /\b0 already current\b/
+    );
+    // Every planned row must be accounted for by the numbers the operator was shown. A bucket the
+    // sentence omits is a row that has silently vanished from the decision surface.
+    const buckets = /^(\d+) to update, (\d+) already current/.exec(summary ?? '');
+    expect(buckets, 'the summary must be the two-bucket sentence').to.not.equal(null);
+    expect(result.plannedChanges).to.have.length(5);
+    expect(Number(buckets?.[1]) + Number(buckets?.[2])).to.equal(result.plannedChanges.length);
   });
 
   it('previews a DynamicRuleDefinition change as a readable diff, and carries the full values in the result', async () => {
