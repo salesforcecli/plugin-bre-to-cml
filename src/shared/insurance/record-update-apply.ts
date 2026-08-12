@@ -119,11 +119,12 @@ export async function planRecordUpdates(conn: Connection, plan: RecordUpdatePlan
         continue;
       }
 
-      const blobMismatch = findBlobApiNameMismatch(update, record);
-      if (blobMismatch) {
-        identityErrors.push(blobMismatch);
+      const blobCheck = findBlobApiNameMismatch(update, record);
+      if (blobCheck?.error) {
+        identityErrors.push(blobCheck.error);
         continue;
       }
+      if (blobCheck?.advisory) advisories.push(blobCheck.advisory);
 
       for (const field of update.fields) {
         const currentValue = asString(record[field.field]);
@@ -169,14 +170,45 @@ async function queryCurrentRecords(
 
 /**
  * For a `DynamicRuleDefinition` rewrite, the org blob's own `apiName` is a second identity key
- * alongside Name. Only compared when both sides actually carry one.
+ * alongside Name.
+ *
+ * The guard fails closed. Previously anything it could not read — a blob the re-read did not
+ * select, or one it could not parse — returned "no name" and was indistinguishable from "the names
+ * agree", so the second identity key silently stopped protecting the operator. The one case that
+ * is genuinely benign is a readable blob that simply carries no `apiName` (convert takes that
+ * value from the record's ApiName field, which the blob need not repeat); that is surfaced as an
+ * advisory rather than blocking a legitimate migration.
  */
-function findBlobApiNameMismatch(update: RecordUpdate, record: OrgRecord): string | undefined {
+function findBlobApiNameMismatch(
+  update: RecordUpdate,
+  record: OrgRecord
+): { error?: string; advisory?: string } | undefined {
   if (update.sobject !== 'UnderwritingRule' || !update.apiName) return undefined;
-  const orgApiName = dynamicRuleDefinitionApiName(asString(record[JSON_BLOB_FIELD]));
-  if (!orgApiName || orgApiName === update.apiName) return undefined;
 
-  return `UnderwritingRule ${update.id} (${update.name}) has apiName '${orgApiName}' in the org but the file expected '${update.apiName}' — refusing to write to a possibly-wrong record`;
+  const refusing = 'refusing to write to a possibly-wrong record';
+  const prefix = `UnderwritingRule ${update.id} (${update.name})`;
+  if (!(JSON_BLOB_FIELD in record)) {
+    return {
+      error: `${prefix}: the org re-read did not return ${JSON_BLOB_FIELD}, so the apiName identity check could not run — ${refusing}`,
+    };
+  }
+
+  const orgApiName = dynamicRuleDefinitionApiName(asString(record[JSON_BLOB_FIELD]));
+  if ('failure' in orgApiName) {
+    if (orgApiName.failure === 'unparseable') {
+      return {
+        error: `${prefix}: the org's ${JSON_BLOB_FIELD} is not readable JSON, so the apiName identity check could not run — ${refusing}`,
+      };
+    }
+    return {
+      advisory: `${prefix}: the org's ${JSON_BLOB_FIELD} carries no apiName, so only the record Name could be verified`,
+    };
+  }
+  if (orgApiName.apiName === update.apiName) return undefined;
+
+  return {
+    error: `${prefix} has apiName '${orgApiName.apiName}' in the org but the file expected '${update.apiName}' — ${refusing}`,
+  };
 }
 
 /**

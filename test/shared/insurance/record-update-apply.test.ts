@@ -64,6 +64,15 @@ const surchargeUpdate = (overrides: Partial<RecordUpdate> = {}): RecordUpdate =>
   ...overrides,
 });
 
+const underwritingRuleUpdate = (overrides: Partial<RecordUpdate> = {}): RecordUpdate => ({
+  sobject: 'UnderwritingRule',
+  id: RULE_ID,
+  name: 'Min Driver Age',
+  apiName: 'MinDriverAge',
+  fields: [{ field: 'DynamicRuleDefinition', value: '{"apiName":"MinDriverAge","ruleKey":"UW_001"}' }],
+  ...overrides,
+});
+
 /** A distinct, well-formed 15-char ProductSurcharge id for volume tests. */
 const surchargeId = (i: number): string => `a0p${String(i).padStart(12, '0')}`;
 
@@ -165,6 +174,91 @@ describe('record-update-apply planRecordUpdates', () => {
     expect(identityErrors.join('\n')).to.match(
       /has apiName 'SomeOtherRule' in the org but the file expected 'MinDriverAge'/
     );
+  });
+
+  it('catches an apiName mismatch even when the org stored the blob HTML-entity-encoded', async () => {
+    const conn = mockConnection({
+      query: () => [
+        {
+          Id: RULE_ID,
+          Name: 'Min Driver Age',
+          DynamicRuleDefinition: '{&quot;apiName&quot;:&quot;SomeOtherRule&quot;}',
+        },
+      ],
+    });
+
+    const { identityErrors } = await planRecordUpdates(conn, planOf([underwritingRuleUpdate()], 'underwriting-update'));
+
+    expect(identityErrors.join('\n')).to.match(
+      /has apiName 'SomeOtherRule' in the org but the file expected 'MinDriverAge'/
+    );
+  });
+
+  it('refuses to write when the org blob cannot be parsed, rather than passing the guard', async () => {
+    const conn = mockConnection({
+      query: () => [{ Id: RULE_ID, Name: 'Min Driver Age', DynamicRuleDefinition: 'not json at all' }],
+    });
+
+    const { identityErrors, changes } = await planRecordUpdates(
+      conn,
+      planOf([underwritingRuleUpdate()], 'underwriting-update')
+    );
+
+    expect(identityErrors.join('\n')).to.match(/not readable JSON, so the apiName identity check could not run/);
+    expect(changes, 'a guard that cannot run must block, not wave the record through').to.deep.equal([]);
+  });
+
+  it('refuses to write when the re-read did not return the blob field at all', async () => {
+    // The shape a SELECT-list regression produces: Name resolves, the blob simply is not there.
+    const conn = mockConnection({ query: () => [{ Id: RULE_ID, Name: 'Min Driver Age' }] });
+
+    const { identityErrors, changes } = await planRecordUpdates(
+      conn,
+      planOf([underwritingRuleUpdate()], 'underwriting-update')
+    );
+
+    expect(identityErrors.join('\n')).to.match(/did not return DynamicRuleDefinition/);
+    expect(changes).to.deep.equal([]);
+  });
+
+  it('proceeds with an advisory when the org blob is readable but carries no apiName', async () => {
+    const conn = mockConnection({
+      query: () => [{ Id: RULE_ID, Name: 'Min Driver Age', DynamicRuleDefinition: '{"ruleKey":"OLD"}' }],
+    });
+
+    const { identityErrors, advisories, changes } = await planRecordUpdates(
+      conn,
+      planOf([underwritingRuleUpdate()], 'underwriting-update')
+    );
+
+    expect(identityErrors).to.deep.equal([]);
+    expect(advisories.join('\n')).to.match(/carries no apiName, so only the record Name could be verified/);
+    expect(changes).to.have.length(1);
+  });
+
+  it('recognizes an HTML-entity-encoded org blob as already current, instead of rewriting it every run', async () => {
+    const desired = '{"apiName":"MinDriverAge","ruleKey":"UW_001"}';
+    const conn = mockConnection({
+      query: () => [
+        {
+          Id: RULE_ID,
+          Name: 'Min Driver Age',
+          DynamicRuleDefinition:
+            '{&quot;apiName&quot;:&quot;MinDriverAge&quot;,&quot;ruleKey&quot;:&quot;UW_001&quot;}',
+        },
+      ],
+    });
+
+    const { changes, identityErrors } = await planRecordUpdates(
+      conn,
+      planOf(
+        [underwritingRuleUpdate({ fields: [{ field: 'DynamicRuleDefinition', value: desired }] })],
+        'underwriting-update'
+      )
+    );
+
+    expect(identityErrors).to.deep.equal([]);
+    expect(changes[0].alreadyCurrent, 'an encoded blob must not force a rewrite on every run').to.equal(true);
   });
 
   it('flags ProductCode drift as an advisory, never as a blocking error', async () => {

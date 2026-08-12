@@ -281,10 +281,28 @@ describe('record-update-plan blob helpers', () => {
     expect(dynamicRuleDefinitionSignature('{broken')).to.equal(undefined);
   });
 
-  it('reads apiName out of a blob for the identity check, tolerating missing/garbage input', () => {
-    expect(dynamicRuleDefinitionApiName('{"apiName":"MinDriverAge"}')).to.equal('MinDriverAge');
-    expect(dynamicRuleDefinitionApiName('{"ruleKey":"UW_001"}')).to.equal(undefined);
-    expect(dynamicRuleDefinitionApiName('{broken')).to.equal(undefined);
-    expect(dynamicRuleDefinitionApiName(null)).to.equal(undefined);
+  it('reads apiName out of a blob for the identity check, distinguishing why it could not', () => {
+    expect(dynamicRuleDefinitionApiName('{"apiName":"MinDriverAge"}')).to.deep.equal({ apiName: 'MinDriverAge' });
+    // 'absent' (the blob has no apiName) must stay distinguishable from 'unparseable' (the guard
+    // could not run at all) — collapsing both to undefined is what let the guard fail open.
+    expect(dynamicRuleDefinitionApiName('{"ruleKey":"UW_001"}')).to.deep.equal({ failure: 'absent' });
+    expect(dynamicRuleDefinitionApiName('{broken')).to.deep.equal({ failure: 'unparseable' });
+    expect(dynamicRuleDefinitionApiName(null)).to.deep.equal({ failure: 'absent' });
+  });
+
+  it('reads an HTML-entity-encoded blob, which is how the org stores these fields', () => {
+    expect(dynamicRuleDefinitionApiName('{&quot;apiName&quot;:&quot;MinDriverAge&quot;}')).to.deep.equal({
+      apiName: 'MinDriverAge',
+    });
+    expect(dynamicRuleDefinitionSignature('{&quot;ruleKey&quot;:&quot;UW_001&quot;}')).to.deep.equal({
+      ruleKey: 'UW_001',
+      ruleEngineType: undefined,
+    });
+  });
+
+  it('does not entity-decode a blob that is already valid JSON', () => {
+    // An `&amp;` inside a string value is data, not encoding: decoding a blob that parses cleanly
+    // would silently rewrite the operator's content.
+    expect(dynamicRuleDefinitionApiName('{"apiName":"A &amp; B"}')).to.deep.equal({ apiName: 'A &amp; B' });
   });
 });

@@ -26,6 +26,7 @@
  */
 import { RecordUpdate, RecordUpdateField, RecordUpdatePlan } from './models.js';
 import { NO_VALUE, truncateCell } from './planned-change.js';
+import { decodeHtmlEntities } from './insurance-rule-generator.js';
 
 export const RECORD_UPDATE_KINDS: ReadonlyArray<RecordUpdatePlan['kind']> = ['underwriting-update', 'surcharge-update'];
 
@@ -190,22 +191,41 @@ type BlobSignature = {
   ruleEngineType: unknown;
 };
 
+/** Sentinel distinguishing "did not parse" from a document that legitimately parsed to null. */
+const UNPARSEABLE = Symbol('unparseable');
+
+/**
+ * Parses a blob the org stored, tolerating the HTML-entity encoding these fields come back in.
+ *
+ * The raw parse is attempted first, so a blob that is already clean JSON is never altered — the
+ * entity decode only runs on input that is not valid JSON as-is, which is precisely the encoded
+ * case (`{&quot;apiName&quot;:…}` cannot parse raw). Convert decodes for the same reason.
+ */
+function parseBlob(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    // fall through to the decoded attempt
+  }
+  try {
+    return JSON.parse(decodeHtmlEntities(value));
+  } catch {
+    return UNPARSEABLE;
+  }
+}
+
 /**
  * Extracts the only parts of the blob convert rewrites. Returns undefined when the value is not
  * parseable JSON, so callers can fall back to a raw compare.
  */
 export function dynamicRuleDefinitionSignature(value: string): BlobSignature | undefined {
-  try {
-    const parsed = JSON.parse(value) as Record<string, unknown>;
-    if (!isRecord(parsed)) return undefined;
-    const group = parsed.underwritingRuleGroup;
-    return {
-      ruleKey: parsed.ruleKey,
-      ruleEngineType: isRecord(group) ? group.ruleEngineType : undefined,
-    };
-  } catch {
-    return undefined;
-  }
+  const parsed = parseBlob(value);
+  if (!isRecord(parsed)) return undefined;
+  const group = parsed.underwritingRuleGroup;
+  return {
+    ruleKey: parsed.ruleKey,
+    ruleEngineType: isRecord(group) ? group.ruleEngineType : undefined,
+  };
 }
 
 /** The mutated fields, paired with the dotted path an operator would recognize them by. */
@@ -246,15 +266,23 @@ export function formatBlobSummary(value: string | null | undefined): string | un
   return BLOB_SIGNATURE_FIELDS.map(([key, label]) => `${label}: ${renderSignatureValue(signature[key])}`).join(', ');
 }
 
-/** Reads the `apiName` out of a `DynamicRuleDefinition` blob, for the apply-time identity check. */
-export function dynamicRuleDefinitionApiName(value: string | null | undefined): string | undefined {
-  if (!value) return undefined;
-  try {
-    const parsed = JSON.parse(value) as Record<string, unknown>;
-    return isRecord(parsed) && typeof parsed.apiName === 'string' ? parsed.apiName : undefined;
-  } catch {
-    return undefined;
-  }
+/** Why {@link dynamicRuleDefinitionApiName} could not produce a name. Callers must not ignore it. */
+export type BlobApiNameFailure = 'unparseable' | 'absent';
+
+/**
+ * Reads the `apiName` out of a `DynamicRuleDefinition` blob, for the apply-time identity check.
+ *
+ * Returns a discriminated failure rather than `undefined` so the caller cannot silently read "no
+ * name" as "no mismatch": an unreadable blob means the guard did not run, which is a different
+ * thing from a blob that ran and agreed.
+ */
+export function dynamicRuleDefinitionApiName(
+  value: string | null | undefined
+): { apiName: string } | { failure: BlobApiNameFailure } {
+  if (value == null || value === '') return { failure: 'absent' };
+  const parsed = parseBlob(value);
+  if (!isRecord(parsed)) return { failure: 'unparseable' };
+  return typeof parsed.apiName === 'string' ? { apiName: parsed.apiName } : { failure: 'absent' };
 }
 
 /**
@@ -292,17 +320,7 @@ export function isAlreadyCurrent(field: string, currentValue: string | null | un
   const current = parseBlob(currentValue);
   const desired = parseBlob(newValue);
   // An unparseable side means we cannot reason structurally; fall back to the raw comparison.
-  if (current === undefined || desired === undefined) return currentValue === newValue;
+  if (current === UNPARSEABLE || desired === UNPARSEABLE) return currentValue === newValue;
 
   return jsonDeepEqual(current, desired);
-}
-
-function parseBlob(value: string): unknown {
-  try {
-    const parsed: unknown = JSON.parse(value);
-    // `undefined` is the "unparseable" sentinel, and JSON can never produce it.
-    return parsed;
-  } catch {
-    return undefined;
-  }
 }
