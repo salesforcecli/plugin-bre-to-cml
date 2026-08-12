@@ -1021,6 +1021,45 @@ describe('condition data type resolution', () => {
     const types = collectAttributeTypes([{ ruleDef: picklistRule() }], currencyPicklists());
     expect(types.get('Deductible')).to.equal('decimal');
   });
+
+  // 'Checkbox' is what AttributeDefinition.DataType calls a boolean attribute, and what
+  // fetchAttributeDataTypes hands back verbatim for one. Unmapped it fell to STRING and emitted
+  // `Has_Anti_Theft == "true"` against the `boolean Has_Anti_Theft;` PcmGenerator declares — the
+  // same never-fires mismatch the Picklist resolution above fixes. Note the trap this hid behind:
+  // 'Boolean' (the spelling AttributePicklist.DataType uses) WAS mapped, so a Boolean-backed
+  // picklist worked while a raw Checkbox silently did not.
+  it('emits a Checkbox condition value unquoted, matching the boolean attribute it compares against', () => {
+    expect(buildConstraintDeclaration(oneCondition('Checkbox', ['true']))).to.equal('Attr == true');
+    expect(buildConstraintDeclaration(oneCondition('Checkbox', ['false'], 'NotEquals'))).to.equal('Attr != false');
+  });
+
+  it('declares a Checkbox attribute as boolean, the same type PcmGenerator declares it', () => {
+    const types = collectAttributeTypes([{ ruleDef: oneCondition('Checkbox', ['true']) }]);
+    expect(types.get('Attr')).to.equal('boolean');
+  });
+
+  // fetchAttributeDataTypes records a non-picklist attribute's own DataType verbatim, so the
+  // org-resolved path hands the mapping the literal string 'Checkbox'.
+  it('emits a Checkbox value unquoted when the type came from the org rather than the condition', () => {
+    const rule = {
+      ruleCriteria: [
+        {
+          rootObjectId: '01t',
+          conditions: [
+            {
+              attributeName: 'Has_Anti_Theft',
+              attributeId: '0tjfiw000000CMBAA2',
+              operator: 'Equals',
+              dataType: 'Picklist',
+              values: ['true'],
+            },
+          ],
+        },
+      ] as RuleCriteria[],
+    };
+    const resolved = new Map([['0tjfiw000000CMBAA2', 'Checkbox']]);
+    expect(buildConstraintDeclaration(rule, resolved)).to.equal('Has_Anti_Theft == true');
+  });
 });
 
 describe('fetchAttributeDataTypes', () => {

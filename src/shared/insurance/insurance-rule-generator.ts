@@ -38,6 +38,9 @@ const SOURCE_DATA_TYPE_TO_CML: Record<string, string> = {
   DECIMAL: CML_DATA_TYPES.DECIMAL,
   DOUBLE: CML_DATA_TYPES.DECIMAL,
   BOOLEAN: CML_DATA_TYPES.BOOLEAN,
+  // 'Checkbox' is what AttributeDefinition.DataType calls a boolean attribute (AttributePicklist
+  // spells the same thing 'Boolean'), and fetchAttributeDataTypes passes it through verbatim.
+  CHECKBOX: CML_DATA_TYPES.BOOLEAN,
   DATE: CML_DATA_TYPES.DATE,
   DATETIME: CML_DATA_TYPES.DATE,
   TEXT: CML_DATA_TYPES.STRING,
