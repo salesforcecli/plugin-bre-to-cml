@@ -48,7 +48,7 @@ Dry run only — no changes were applied.
 
 # info.applySummary
 
-Updated %s, skipped %s (already current), failed %s.
+Records: %s updated, %s skipped (already current), %s failed.
 
 # warn.header
 

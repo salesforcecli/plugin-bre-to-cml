@@ -205,14 +205,22 @@ export default class CmlImportRecordUpdates extends SfCommand<CmlImportRecordUpd
       for (const warning of verification.warnings) this.warn(warning);
     }
 
-    this.log(messages.getMessage('info.applySummary', [applied, result.skipped.length, failures.length]));
+    // All three counts are records. `result.skipped` is deliberately field-level for the JSON
+    // result, so it cannot be presented as a peer of `applied` and `failures.length`, which are not.
+    const skippedRecords = new Set(changes.filter((c) => c.alreadyCurrent).map((c) => c.update.id));
+    for (const change of changes) if (!change.alreadyCurrent) skippedRecords.delete(change.update.id);
+    this.log(messages.getMessage('info.applySummary', [applied, skippedRecords.size, failures.length]));
 
     if (failures.length > 0) {
-      throw messages.createError(
+      const error = messages.createError(
         'error.applyFailures',
         [failures.length],
         [`sf cml import record-updates --file ${file} --target-org ${username}`]
       );
+      // The apply is not transactional, so a throw discards a result that describes a real,
+      // partially-migrated org. Under --json the count alone leaves automation nothing to act on.
+      error.data = result;
+      throw error;
     }
 
     return result;

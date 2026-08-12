@@ -17,7 +17,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { TestContext, MockTestOrgData } from '@salesforce/core/testSetup';
-import { Connection } from '@salesforce/core';
+import { Connection, SfError } from '@salesforce/core';
 import { expect } from 'chai';
 import { stubPrompter, stubSfCommandUx } from '@salesforce/sf-plugins-core';
 import CmlImportRecordUpdates, {
@@ -203,7 +203,7 @@ describe('cml import record-updates', () => {
     expect(updateCalls).to.deep.equal([
       { sobject: 'ProductSurcharge', payloads: [{ Id: SURCHARGE_ID, RuleEngineType: 'ConstraintEngine' }] },
     ]);
-    expect(logOutput()).to.include('Updated 1, skipped 0 (already current), failed 0.');
+    expect(logOutput()).to.include('Records: 1 updated, 0 skipped (already current), 0 failed.');
     // The platform-regenerated RuleKey is echoed so the operator can confirm the rule will fire.
     expect(logOutput()).to.include('RuleKey=SC__auto__collision__fee');
     expect(warnOutput()).to.not.match(/will not fire/);
@@ -402,7 +402,7 @@ describe('cml import record-updates', () => {
     ]);
     expect(updateCalls, 're-running an applied plan must be a no-op').to.deep.equal([]);
     expect(result.plannedChanges[0].operation).to.equal('Skip (already current)');
-    expect(logOutput()).to.include('Updated 0, skipped 1 (already current), failed 0.');
+    expect(logOutput()).to.include('Records: 0 updated, 1 skipped (already current), 0 failed.');
   });
 
   it('applies a hand-corrected blob whose ruleKey and ruleEngineType already match the org', async () => {
@@ -565,7 +565,14 @@ describe('cml import record-updates', () => {
     expect(error.message).to.match(/partially migrated/);
     expect(warnOutput()).to.include('INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY');
     // The successful write still happened — the summary must reflect the partial state.
-    expect(logOutput()).to.include('Updated 1, skipped 0 (already current), failed 1.');
+    expect(logOutput()).to.include('Records: 1 updated, 0 skipped (already current), 1 failed.');
+    // The org is now partially migrated, so automation must be able to see which record is where.
+    const data = (error as SfError).data as CmlImportRecordUpdatesResult;
+    expect(data.applied).to.equal(1);
+    expect(data.failed).to.deep.equal([
+      { id: SURCHARGE_ID_2, errors: ['INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY'], outcomeUnknown: false },
+    ]);
+    expect(data.plannedChanges.map((c) => c.id)).to.deep.equal([SURCHARGE_ID, SURCHARGE_ID_2]);
   });
 
   it('says the outcome is unknown when the request itself failed after being sent', async () => {
