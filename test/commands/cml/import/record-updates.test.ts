@@ -364,17 +364,24 @@ describe('cml import record-updates', () => {
   });
 
   it('refuses to write when the org record’s Name disagrees with the file', async () => {
+    // Two records on purpose: one is perfectly writable. If the identity throw ever moved to after
+    // the apply, the first record would already have been written when the error was raised — a
+    // single-record plan cannot detect that, because a mismatch leaves nothing to write at all.
     stubOrgConnection({
       current: {
-        ProductSurcharge: [{ Id: SURCHARGE_ID, Name: 'A Different Surcharge', RuleEngineType: 'BusinessRuleEngine' }],
+        ProductSurcharge: [
+          { Id: SURCHARGE_ID, Name: 'Collision Fee', RuleEngineType: 'BusinessRuleEngine' },
+          { Id: SURCHARGE_ID_2, Name: 'A Different Surcharge', RuleEngineType: 'BusinessRuleEngine' },
+        ],
       },
     });
-    await writePlan(surchargePlanFile([surchargeUpdate()]));
+    await writePlan(surchargePlanFile([surchargeUpdate(), surchargeUpdate({ id: SURCHARGE_ID_2, name: 'Theft Fee' })]));
 
     const error = await runExpectingError(['--no-prompt']);
 
     expect(error.message).to.match(/possibly-wrong record/);
-    expect(updateCalls, 'identity mismatch must be caught before any write').to.deep.equal([]);
+    expect(error.message).to.include(SURCHARGE_ID_2);
+    expect(updateCalls, 'one bad record must block the whole file, before any write').to.deep.equal([]);
   });
 
   it('errors after a partial failure, naming the idempotent re-run', async () => {
