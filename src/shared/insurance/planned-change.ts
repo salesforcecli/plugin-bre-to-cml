@@ -16,7 +16,7 @@
 
 /**
  * The "what is about to change in the org" preview for the insurance import commands
- * (see docs/insurance-export-review-import-redesign.md §4): an org-mutating import builds the
+ * (export/review/import design, work item W-23654540 §4): an org-mutating import builds the
  * complete PlannedChange[] from read-only operations, renders it, and only then prompts — so an
  * operator always sees the exact field-level changes before anything is written.
  *

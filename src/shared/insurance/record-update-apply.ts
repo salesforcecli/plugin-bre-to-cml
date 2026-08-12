@@ -16,7 +16,7 @@
 
 /**
  * Org-facing half of `sf cml import record-updates`
- * (docs/insurance-export-review-import-redesign.md §5).
+ * (export/review/import design, work item W-23654540 §5).
  *
  * Split into a read phase and an apply phase on purpose: the command must be able to compute and
  * render every planned change using read-only operations, then prompt, and only then write. Keeping

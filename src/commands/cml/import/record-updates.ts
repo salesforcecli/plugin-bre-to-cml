@@ -71,8 +71,8 @@ export type CmlImportRecordUpdatesResult = {
 /**
  * Applies a `<cmlApi>_{Surcharge,Underwriting}Update.json` plan to the org.
  *
- * One unified importer keyed off the file's `kind`, per
- * docs/insurance-export-review-import-redesign.md §3: both files share an envelope, and the
+ * One unified importer keyed off the file's `kind`, per the export/review/import design recorded on
+ * work item W-23654540 (§3): both files share an envelope, and the
  * per-kind differences (allowed fields, the underwriting blob compare, the surcharge RuleKey
  * verification) are data-driven rather than separate commands.
  */

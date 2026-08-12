@@ -16,7 +16,7 @@
 
 /**
  * The confirmation gate for the org-mutating insurance import commands
- * (docs/insurance-export-review-import-redesign.md §4). Callers MUST have rendered the full
+ * (export/review/import design, work item W-23654540 §4). Callers MUST have rendered the full
  * PlannedChange[] — built from read-only operations — before calling this, and MUST NOT issue any
  * write until it resolves.
  *

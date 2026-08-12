@@ -74,8 +74,8 @@ export type RuleKeyEntry = {
 // exact org-record changes it used to apply into a reviewable/correctable
 // `<safeApi>_{Underwriting,Surcharge}Update.json` manifest. The operator
 // reviews that file and applies it with `sf cml import record-updates`, which
-// is the consumer of every field below. See
-// docs/insurance-export-review-import-redesign.md §3.
+// is the consumer of every field below. See the export/review/import design
+// on work item W-23654540 (§3).
 // ---------------------------------------------------------------------------
 
 export type RecordUpdateField = {
