@@ -15,8 +15,12 @@
  */
 import { Connection } from '@salesforce/core';
 
-/** Matches a well-formed 15- or 18-character Salesforce record id. */
-const SALESFORCE_ID_PATTERN = /^[a-zA-Z0-9]{15,18}$/;
+/**
+ * Matches a well-formed 15- or 18-character Salesforce record id. Only those two lengths exist —
+ * this is the same pattern record-update-plan.ts validates the plan file's ids against, so the two
+ * gates cannot disagree about what an id is.
+ */
+const SALESFORCE_ID_PATTERN = /^[a-zA-Z0-9]{15}([a-zA-Z0-9]{3})?$/;
 
 /**
  * Builds a quoted, comma-separated SOQL id list, keeping only well-formed Salesforce ids.

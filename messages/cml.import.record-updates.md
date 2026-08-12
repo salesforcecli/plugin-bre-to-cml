@@ -74,6 +74,14 @@ Proceeding without confirmation because --no-prompt was passed.
 
 Apply these changes to the org
 
+# error.unreadableFile
+
+Couldn't read the record-update file %s. %s
+
+# error.unreadableFile.actions
+
+- Check that the path points at a readable file (not a directory) and that you have permission to read it.
+
 # error.invalidFile
 
 Invalid record-update file. %s

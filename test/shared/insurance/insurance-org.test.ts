@@ -134,5 +134,9 @@ describe('insurance-org fetchProductCodes', () => {
 describe('insurance-org quoteSoqlIdList', () => {
   it('keeps only well-formed ids and quotes them', () => {
     expect(quoteSoqlIdList([ID_A, 'bad', ID_B])).to.equal(`'${ID_A}','${ID_B}'`);
+    // Only 15- and 18-character ids exist. Accepting 16 or 17 made this gate disagree with the
+    // one record-update-plan.ts applies to the same ids.
+    expect(quoteSoqlIdList(['a'.repeat(16), 'a'.repeat(17)])).to.equal('');
+    expect(quoteSoqlIdList(['a'.repeat(15), 'b'.repeat(18)])).to.equal(`'${'a'.repeat(15)}','${'b'.repeat(18)}'`);
   });
 });

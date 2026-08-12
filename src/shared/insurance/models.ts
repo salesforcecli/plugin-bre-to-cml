@@ -73,8 +73,8 @@ export type RuleKeyEntry = {
 // Convert is file-only: instead of mutating the org live, it serializes the
 // exact org-record changes it used to apply into a reviewable/correctable
 // `<safeApi>_{Underwriting,Surcharge}Update.json` manifest. The operator
-// reviews that file and applies its changes to the org separately — this
-// plugin emits the manifest but does not apply it. See
+// reviews that file and applies it with `sf cml import record-updates`, which
+// is the consumer of every field below. See
 // docs/insurance-export-review-import-redesign.md §3.
 // ---------------------------------------------------------------------------
 
@@ -89,26 +89,24 @@ export type RecordUpdate = {
   sobject: 'UnderwritingRuleGroup' | 'UnderwritingRule' | 'ProductSurcharge';
   /** 15/18-char Salesforce Id (re-validated on apply). */
   id: string;
-  // Record Name -- REQUIRED. [Fix #14] This is ADVISORY context for the operator/apply tool, not
-  // an enforced check by this plugin. Convert is file-only and does NOT write to the org; whether
-  // Name is actually cross-checked against the org as an identity guard is the responsibility of
-  // whichever apply tool consumes this manifest.
+  // Record Name -- REQUIRED, and ENFORCED on apply: `sf cml import record-updates` re-reads the
+  // record and refuses the whole file when the org's Name disagrees, so an edited id cannot
+  // retarget a valid-but-wrong record of the same type. Convert itself still never writes.
   name: string;
-  // UnderwritingRule only: the rule ApiName. [Fix #14] Same status as `name` -- ADVISORY context
-  // for the apply tool; whether it functions as a second identity guard alongside Name is up to
-  // that tool, not this plugin.
+  // UnderwritingRule only: the rule ApiName. ENFORCED on apply as a second identity guard
+  // alongside Name, read out of the org's DynamicRuleDefinition blob. The guard fails closed: an
+  // unreadable or unselected blob blocks the write rather than passing silently.
   apiName?: string;
   fields: RecordUpdateField[];
   // Surcharge only: the convert-computed pathed rule key the CML `rule(...)` was emitted under.
-  // [Fix #14] ADVISORY -- meant as a verification key for an apply tool. NOT written to the org
-  // (the platform auto-generates ProductSurcharge.RuleKey when RuleEngineType flips); a mismatch
-  // is what an apply tool MAY use to detect that the surcharge will silently not fire. This
-  // plugin emits it but does not consume it.
+  // NOT written to the org -- the platform auto-generates ProductSurcharge.RuleKey when
+  // RuleEngineType flips. CONSUMED on apply: the importer reads the regenerated key back after
+  // the flip and warns when it does not match, which is the only way to detect that the surcharge
+  // imported cleanly but will never fire.
   expectedRuleKey?: string;
-  // Surcharge only: source ProductCodes (ordered ProductPath segments) at convert time. [Fix #14]
-  // ADVISORY drift-detection input -- an apply tool consuming this manifest MAY compare against
-  // the org's current ProductCodes to flag ProductCode/ProductPath drift that would desync the
-  // platform-generated RuleKey. This plugin does not perform that comparison itself.
+  // Surcharge only: source ProductCodes (ordered ProductPath segments) at convert time. CONSUMED
+  // on apply as an advisory drift check against the org's current ProductCodes, which would
+  // otherwise desync the platform-generated RuleKey. Advisory only -- it never blocks.
   productCodes?: string[];
 };
 

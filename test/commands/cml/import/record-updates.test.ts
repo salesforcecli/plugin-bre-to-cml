@@ -503,6 +503,20 @@ describe('cml import record-updates', () => {
     );
   });
 
+  it('reports an unreadable file as an actionable error, not a raw Node error', async () => {
+    stubOrgConnection({});
+    // --file only checks that the path is an existing file; permissions are not its business, so
+    // EACCES lands in the command and used to escape as a bare Node error with no actions.
+    await writePlan(surchargePlanFile([surchargeUpdate()]));
+    await fs.chmod(planFile, 0o000);
+
+    const error = await runExpectingError(['--no-prompt']);
+
+    expect(error.name, 'must be an SfError carrying remediation actions').to.equal('UnreadableFileError');
+    expect(error.message).to.match(/Couldn't read the record-update file/);
+    expect(updateCalls).to.deep.equal([]);
+  });
+
   it('rejects a file whose kind is not a record-update kind', async () => {
     stubOrgConnection({});
     await writePlan(JSON.stringify({ schemaVersion: 1, kind: 'product-update', cmlApi: 'SC_AUTO', updates: [] }));

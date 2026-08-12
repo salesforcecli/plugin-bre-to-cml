@@ -108,7 +108,7 @@ export default class CmlImportRecordUpdates extends SfCommand<CmlImportRecordUpd
     const username = targetOrg.getUsername() ?? 'unknown';
     const dryRun = flags['dry-run'];
 
-    const plan = this.loadPlan(await fs.readFile(file, 'utf8'), file);
+    const plan = await this.loadPlan(file);
 
     this.log(`Target org: ${username}`);
     this.log(`File: ${file}`);
@@ -226,7 +226,15 @@ export default class CmlImportRecordUpdates extends SfCommand<CmlImportRecordUpd
     return result;
   }
 
-  private loadPlan(raw: string, file: string): RecordUpdatePlan {
+  private async loadPlan(file: string): Promise<RecordUpdatePlan> {
+    let raw: string;
+    try {
+      // --file only proves the path exists; a directory, or a file the user cannot read, still
+      // reaches here and must surface as an SfError with actions, not a raw Node error.
+      raw = await fs.readFile(file, 'utf8');
+    } catch (e) {
+      throw messages.createError('error.unreadableFile', [file, (e as Error).message]);
+    }
     try {
       return parseRecordUpdatePlan(raw, file, { onWarn: (message) => this.warn(message) });
     } catch (e) {
