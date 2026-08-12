@@ -17,6 +17,7 @@ import { expect } from 'chai';
 import { Connection } from '@salesforce/core';
 import { RecordUpdate, RecordUpdatePlan } from '../../../src/shared/insurance/models.js';
 import {
+  IdentityProblem,
   PlannedRecordChange,
   applyRecordUpdates,
   planRecordUpdates,
@@ -84,6 +85,9 @@ const bigSurchargeChanges = (count: number): PlannedRecordChange[] =>
     alreadyCurrent: false,
   }));
 
+/** The problem messages, joined for matching. Each problem also carries the kind it belongs to. */
+const messagesOf = (problems: IdentityProblem[]): string => problems.map((p) => p.message).join('\n');
+
 const planOf = (updates: RecordUpdate[], kind: RecordUpdatePlan['kind'] = 'surcharge-update'): RecordUpdatePlan => ({
   schemaVersion: 1,
   kind,
@@ -131,9 +135,11 @@ describe('record-update-apply planRecordUpdates', () => {
     const { changes, identityErrors } = await planRecordUpdates(conn, planOf([surchargeUpdate()]));
 
     expect(changes).to.deep.equal([]);
-    expect(identityErrors.join('\n')).to.match(
+    expect(messagesOf(identityErrors)).to.match(
       /is named 'Some Other Surcharge' in the org but the file expected 'Collision Fee'/
     );
+    // A Name disagreement is a genuine identity mismatch, so it keeps the mismatch remediation.
+    expect(identityErrors.map((e) => e.kind)).to.deep.equal(['recordIdentityMismatch']);
   });
 
   it('reports an identity error when the record no longer exists', async () => {
@@ -141,7 +147,7 @@ describe('record-update-apply planRecordUpdates', () => {
 
     const { identityErrors } = await planRecordUpdates(conn, planOf([surchargeUpdate()]));
 
-    expect(identityErrors.join('\n')).to.match(/was not found in the org/);
+    expect(messagesOf(identityErrors)).to.match(/was not found in the org/);
   });
 
   it('reports an identity error when an underwriting rule’s blob apiName disagrees with the file', async () => {
@@ -171,7 +177,7 @@ describe('record-update-apply planRecordUpdates', () => {
       )
     );
 
-    expect(identityErrors.join('\n')).to.match(
+    expect(messagesOf(identityErrors)).to.match(
       /has apiName 'SomeOtherRule' in the org but the file expected 'MinDriverAge'/
     );
   });
@@ -189,7 +195,7 @@ describe('record-update-apply planRecordUpdates', () => {
 
     const { identityErrors } = await planRecordUpdates(conn, planOf([underwritingRuleUpdate()], 'underwriting-update'));
 
-    expect(identityErrors.join('\n')).to.match(
+    expect(messagesOf(identityErrors)).to.match(
       /has apiName 'SomeOtherRule' in the org but the file expected 'MinDriverAge'/
     );
   });
@@ -204,7 +210,11 @@ describe('record-update-apply planRecordUpdates', () => {
       planOf([underwritingRuleUpdate()], 'underwriting-update')
     );
 
-    expect(identityErrors.join('\n')).to.match(/not readable JSON, so the apiName identity check could not run/);
+    expect(messagesOf(identityErrors)).to.match(/not readable JSON, so the apiName identity check could not run/);
+    // The kind is what routes this to remediation an operator can follow. Reported as a mismatch it
+    // would be sent to "correct the mismatched record ids", and there is no mismatched id here —
+    // the blob is broken in the org, where regenerating the file cannot reach it.
+    expect(identityErrors.map((e) => e.kind)).to.deep.equal(['unreadableOrgBlob']);
     expect(changes, 'a guard that cannot run must block, not wave the record through').to.deep.equal([]);
   });
 
@@ -217,7 +227,9 @@ describe('record-update-apply planRecordUpdates', () => {
       planOf([underwritingRuleUpdate()], 'underwriting-update')
     );
 
-    expect(identityErrors.join('\n')).to.match(/did not return DynamicRuleDefinition/);
+    expect(messagesOf(identityErrors)).to.match(/did not return DynamicRuleDefinition/);
+    // A plugin defect, not a file defect: nothing the operator can edit changes the SELECT list.
+    expect(identityErrors.map((e) => e.kind)).to.deep.equal(['identityCheckUnavailable']);
     expect(changes).to.deep.equal([]);
   });
 

@@ -15,7 +15,7 @@
  */
 import * as fs from 'node:fs/promises';
 import { SfCommand, Flags } from '@salesforce/sf-plugins-core';
-import { Messages } from '@salesforce/core';
+import { Messages, SfError } from '@salesforce/core';
 import { RecordUpdatePlan } from '../../../shared/insurance/models.js';
 import {
   JSON_BLOB_FIELD,
@@ -25,6 +25,8 @@ import {
   parseRecordUpdatePlan,
 } from '../../../shared/insurance/record-update-plan.js';
 import {
+  IdentityProblem,
+  IdentityProblemKind,
   PlannedRecordChange,
   applyRecordUpdates,
   planRecordUpdates,
@@ -152,9 +154,7 @@ export default class CmlImportRecordUpdates extends SfCommand<CmlImportRecordUpd
     // Read phase: everything below happens before a single write, so the operator sees the real
     // current-vs-new values and identity problems are caught before they can corrupt a record.
     const { changes, identityErrors, advisories } = await planRecordUpdates(conn, plan);
-    if (identityErrors.length > 0) {
-      throw messages.createError('error.recordIdentityMismatch', [identityErrors.map((e) => `  ${e}`).join('\n')]);
-    }
+    if (identityErrors.length > 0) throw identityError(identityErrors);
 
     result.plannedChanges = changes.map(toPlannedChange);
     result.skipped = changes.filter((c) => c.alreadyCurrent).map(toSkipResult);
@@ -281,6 +281,31 @@ export default class CmlImportRecordUpdates extends SfCommand<CmlImportRecordUpd
       throw messages.createError('error.invalidFile', [(e as Error).message]);
     }
   }
+}
+
+/**
+ * Which kind titles the error when a run finds several. Ordered least-actionable first: a plugin
+ * defect needs reporting and an unreadable org value needs repairing in the org, and neither is
+ * discoverable from a title that talks about correcting the file.
+ */
+const IDENTITY_PROBLEM_PRECEDENCE: readonly IdentityProblemKind[] = [
+  'identityCheckUnavailable',
+  'unreadableOrgBlob',
+  'recordIdentityMismatch',
+];
+
+/**
+ * Builds the pre-write refusal. The three kinds need different things from the operator, so each has
+ * its own message key, and the actions are the union of every kind the run actually found — the body
+ * lists all of the problems, so remediation for only the titling kind would leave the rest with
+ * none.
+ */
+function identityError(problems: IdentityProblem[]): SfError {
+  const kinds = IDENTITY_PROBLEM_PRECEDENCE.filter((kind) => problems.some((p) => p.kind === kind));
+  const detail = problems.map((p) => `  ${p.message}`).join('\n');
+  const error = messages.createError(`error.${kinds[0]}`, [detail]);
+  error.actions = kinds.flatMap((kind) => messages.getMessages(`error.${kind}.actions`));
+  return error;
 }
 
 function toPlannedChange(change: PlannedRecordChange): PlannedChange {

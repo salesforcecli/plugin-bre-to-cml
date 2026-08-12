@@ -107,7 +107,29 @@ Refusing to apply: the org state doesn't match the record-update file.
 
 # error.recordIdentityMismatch.actions
 
-- Regenerate the record-update file against this org, or correct the mismatched record ids by hand.
+- Regenerate the record-update file against this org, or hand-correct each reported entry so its id and name both match the record you mean to update. A record that was simply renamed in the org needs its `name` corrected, not its `id`.
+
+# error.unreadableOrgBlob
+
+Refusing to apply: the DynamicRuleDefinition stored in the org can't be parsed, so the identity check that keeps this write off the wrong record couldn't run.
+
+%s
+
+# error.unreadableOrgBlob.actions
+
+- Read the record's DynamicRuleDefinition out of the org (`sf data query --query "SELECT Id, Name, DynamicRuleDefinition FROM UnderwritingRule WHERE Id = '<id>'" --target-org <org>`) and repair or restore it, then re-run. Regenerating the record-update file won't help: convert reads the same unparseable value.
+- Drop the reported records from the file if you want to migrate the rest first; the records left in it are applied normally.
+
+# error.identityCheckUnavailable
+
+Refusing to apply: an identity check this command relies on couldn't run, so it can't confirm it would write to the right record. This is a defect in the plugin, not in your file.
+
+%s
+
+# error.identityCheckUnavailable.actions
+
+- Report this to the plugin maintainers with the message above and the command you ran. Editing the record-update file can't affect it — the missing data is a field the plugin failed to read back from the org.
+- Nothing was written: the check runs before any write, so the org is exactly as it was. Re-running, with or without --dry-run, refuses in the same place until the defect is fixed.
 
 # error.confirmationRequired
 

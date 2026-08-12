@@ -34,6 +34,28 @@ import {
   isAlreadyCurrent,
 } from './record-update-plan.js';
 
+/**
+ * Why the read phase refused a record. These are not shades of one problem: they need different
+ * things from the operator, so the kind travels with the message and the command selects the
+ * remediation from it.
+ *
+ * `recordIdentityMismatch`: the file names a record the org disagrees with (a missing record, or a
+ * Name/blob-apiName that does not match). Correcting the file, or regenerating it, is the fix.
+ *
+ * `unreadableOrgBlob`: the value stored in the org is not parseable JSON. Nothing in the file is
+ * wrong and regenerating cannot help — convert would fail to parse the same bytes.
+ *
+ * `identityCheckUnavailable`: the re-read did not return a field the guard needs. That is a defect
+ * in this plugin; no edit to the file can affect it.
+ */
+export type IdentityProblemKind = 'recordIdentityMismatch' | 'unreadableOrgBlob' | 'identityCheckUnavailable';
+
+/** A blocking problem found before any write, tagged with the kind of remediation it needs. */
+export type IdentityProblem = {
+  kind: IdentityProblemKind;
+  message: string;
+};
+
 /** One field-level change, joined to the org's current value from a fresh re-read. */
 export type PlannedRecordChange = {
   update: RecordUpdate;
@@ -51,7 +73,7 @@ export type RecordUpdateReadPhase = {
    * blob apiName) disagrees with the file. Refusing here is what stops an edited id from silently
    * retargeting a valid-but-wrong record.
    */
-  identityErrors: string[];
+  identityErrors: IdentityProblem[];
   /** Non-blocking notices, e.g. ProductCode drift that would desync the platform-generated RuleKey. */
   advisories: string[];
 };
@@ -92,7 +114,7 @@ function groupBySobject(updates: RecordUpdate[]): Array<[RecordUpdate['sobject']
  */
 export async function planRecordUpdates(conn: Connection, plan: RecordUpdatePlan): Promise<RecordUpdateReadPhase> {
   const changes: PlannedRecordChange[] = [];
-  const identityErrors: string[] = [];
+  const identityErrors: IdentityProblem[] = [];
   const advisories: string[] = [];
 
   for (const [sobject, updates] of groupBySobject(plan.updates)) {
@@ -105,17 +127,21 @@ export async function planRecordUpdates(conn: Connection, plan: RecordUpdatePlan
     for (const update of updates) {
       const record = current.get(update.id);
       if (!record) {
-        identityErrors.push(`${update.sobject} ${update.id} (${update.name}) was not found in the org`);
+        identityErrors.push({
+          kind: 'recordIdentityMismatch',
+          message: `${update.sobject} ${update.id} (${update.name}) was not found in the org`,
+        });
         continue;
       }
 
       const orgName = asString(record.Name);
       if (orgName !== update.name) {
-        identityErrors.push(
-          `${update.sobject} ${update.id} is named '${orgName ?? '<none>'}' in the org but the file expected '${
-            update.name
-          }' — refusing to write to a possibly-wrong record`
-        );
+        identityErrors.push({
+          kind: 'recordIdentityMismatch',
+          message: `${update.sobject} ${update.id} is named '${
+            orgName ?? '<none>'
+          }' in the org but the file expected '${update.name}' — refusing to write to a possibly-wrong record`,
+        });
         continue;
       }
 
@@ -182,14 +208,17 @@ async function queryCurrentRecords(
 function findBlobApiNameMismatch(
   update: RecordUpdate,
   record: OrgRecord
-): { error?: string; advisory?: string } | undefined {
+): { error?: IdentityProblem; advisory?: string } | undefined {
   if (update.sobject !== 'UnderwritingRule' || !update.apiName) return undefined;
 
   const refusing = 'refusing to write to a possibly-wrong record';
   const prefix = `UnderwritingRule ${update.id} (${update.name})`;
   if (!(JSON_BLOB_FIELD in record)) {
     return {
-      error: `${prefix}: the org re-read did not return ${JSON_BLOB_FIELD}, so the apiName identity check could not run — ${refusing}`,
+      error: {
+        kind: 'identityCheckUnavailable',
+        message: `${prefix}: the org re-read did not return ${JSON_BLOB_FIELD}, so the apiName identity check could not run — ${refusing}`,
+      },
     };
   }
 
@@ -197,7 +226,10 @@ function findBlobApiNameMismatch(
   if ('failure' in orgApiName) {
     if (orgApiName.failure === 'unparseable') {
       return {
-        error: `${prefix}: the org's ${JSON_BLOB_FIELD} is not readable JSON, so the apiName identity check could not run — ${refusing}`,
+        error: {
+          kind: 'unreadableOrgBlob',
+          message: `${prefix}: the org's ${JSON_BLOB_FIELD} is not readable JSON, so the apiName identity check could not run — ${refusing}`,
+        },
       };
     }
     return {
@@ -207,7 +239,10 @@ function findBlobApiNameMismatch(
   if (orgApiName.apiName === update.apiName) return undefined;
 
   return {
-    error: `${prefix} has apiName '${orgApiName.apiName}' in the org but the file expected '${update.apiName}' — ${refusing}`,
+    error: {
+      kind: 'recordIdentityMismatch',
+      message: `${prefix} has apiName '${orgApiName.apiName}' in the org but the file expected '${update.apiName}' — ${refusing}`,
+    },
   };
 }
 

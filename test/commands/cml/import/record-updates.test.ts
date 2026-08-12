@@ -689,6 +689,123 @@ describe('cml import record-updates', () => {
     expect(updateCalls, 'one bad record must block the whole file, before any write').to.deep.equal([]);
   });
 
+  /** An underwriting plan for one rule, whose blob the org half of the test controls. */
+  const underwritingRulePlan = (): string =>
+    JSON.stringify({
+      schemaVersion: 1,
+      kind: 'underwriting-update',
+      cmlApi: 'UW_AUTO',
+      generatedAt: '',
+      updates: [
+        {
+          sobject: 'UnderwritingRule',
+          id: RULE_ID,
+          name: 'Min Driver Age',
+          apiName: 'MinDriverAge',
+          fields: [{ field: 'DynamicRuleDefinition', value: '{"apiName":"MinDriverAge","ruleKey":"UW_001"}' }],
+        },
+      ],
+    });
+
+  it('tells the operator to repair the org blob, not to regenerate the file, when the blob is unreadable', async () => {
+    // Nothing is mismatched here and nothing in the file is wrong: the value stored in the org does
+    // not parse. Regenerating cannot repair it — convert reads the same unparseable bytes.
+    stubOrgConnection({
+      current: { UnderwritingRule: [{ Id: RULE_ID, Name: 'Min Driver Age', DynamicRuleDefinition: 'not json' }] },
+    });
+    await writePlan(underwritingRulePlan());
+
+    const error = await runExpectingError(['--no-prompt']);
+
+    expect(error.name).to.equal('UnreadableOrgBlobError');
+    expect(error.message).to.match(/not readable JSON/);
+    const actions = ((error as SfError).actions ?? []).join('\n');
+    expect(actions, 'the value to repair lives in the org').to.match(/repair or restore it/);
+    expect(actions, 'regenerating reads the same unparseable value').to.match(/Regenerating.*won't help/);
+    expect(actions, 'nothing in the file is mismatched here').to.not.match(/hand-correct each reported entry/);
+    expect(updateCalls).to.deep.equal([]);
+  });
+
+  it('names a missing re-read field as a plugin defect the operator cannot correct', async () => {
+    // The shape a SELECT-list regression produces. Telling the operator to hand-correct their file
+    // is advice they cannot act on: no edit to the file changes which fields the plugin selects.
+    stubOrgConnection({ current: { UnderwritingRule: [{ Id: RULE_ID, Name: 'Min Driver Age' }] } });
+    await writePlan(underwritingRulePlan());
+
+    const error = await runExpectingError(['--no-prompt']);
+
+    expect(error.name).to.equal('IdentityCheckUnavailableError');
+    expect(error.message).to.match(/did not return DynamicRuleDefinition/);
+    const actions = ((error as SfError).actions ?? []).join('\n');
+    expect(actions, 'the only real action is to report it').to.match(/Report this to the plugin maintainers/);
+    expect(actions, 'this is not something the file can fix').to.not.match(/hand-correct each reported entry/);
+    expect(updateCalls).to.deep.equal([]);
+  });
+
+  it('covers a renamed record, not only a mismatched id, in the identity-mismatch remediation', async () => {
+    // The guard fires on Name as well as id. A record renamed in the org between convert and apply
+    // needs its *name* corrected in the file; "correct the mismatched record ids" sends the operator
+    // to change the one field that is right.
+    stubOrgConnection({
+      current: {
+        ProductSurcharge: [{ Id: SURCHARGE_ID, Name: 'Collision Fee (2026)', RuleEngineType: 'BusinessRuleEngine' }],
+      },
+    });
+    await writePlan(surchargePlanFile([surchargeUpdate()]));
+
+    const error = await runExpectingError(['--no-prompt']);
+
+    expect(error.name).to.equal('RecordIdentityMismatchError');
+    const actions = ((error as SfError).actions ?? []).join('\n');
+    expect(actions, 'a rename is corrected by fixing the name').to.match(/\bname/i);
+    expect(actions, 'an edited id is still corrected by fixing the id').to.match(/\bid/i);
+    expect(updateCalls).to.deep.equal([]);
+  });
+
+  it('offers remediation for every kind of identity problem a run found, not just the first', async () => {
+    // One group whose Name disagrees plus one rule whose org blob is unreadable. Both are listed, so
+    // advice for only one of them would leave the other problem with none — the same defect, halved.
+    stubOrgConnection({
+      current: {
+        UnderwritingRuleGroup: [{ Id: GROUP_ID, Name: 'A Different Group', RuleEngineType: 'BusinessRuleEngine' }],
+        UnderwritingRule: [{ Id: RULE_ID, Name: 'Min Driver Age', DynamicRuleDefinition: 'not json' }],
+      },
+    });
+    await writePlan(
+      JSON.stringify({
+        schemaVersion: 1,
+        kind: 'underwriting-update',
+        cmlApi: 'UW_AUTO',
+        generatedAt: '',
+        updates: [
+          {
+            sobject: 'UnderwritingRuleGroup',
+            id: GROUP_ID,
+            name: 'Auto Eligibility Group',
+            fields: [{ field: 'RuleEngineType', value: 'ConstraintEngine' }],
+          },
+          {
+            sobject: 'UnderwritingRule',
+            id: RULE_ID,
+            name: 'Min Driver Age',
+            apiName: 'MinDriverAge',
+            fields: [{ field: 'DynamicRuleDefinition', value: '{"apiName":"MinDriverAge","ruleKey":"UW_001"}' }],
+          },
+        ],
+      })
+    );
+
+    const error = await runExpectingError(['--no-prompt']);
+
+    // Both problems still appear in the body, whichever kind titles the error.
+    expect(error.message).to.match(/is named 'A Different Group' in the org/);
+    expect(error.message).to.match(/not readable JSON/);
+    const actions = ((error as SfError).actions ?? []).join('\n');
+    expect(actions, 'the unreadable blob needs repairing in the org').to.match(/repair or restore it/);
+    expect(actions, 'the renamed group needs correcting in the file').to.match(/hand-correct each reported entry/);
+    expect(updateCalls).to.deep.equal([]);
+  });
+
   it('errors after a partial failure, naming the idempotent re-run', async () => {
     stubOrgConnection({
       current: {
