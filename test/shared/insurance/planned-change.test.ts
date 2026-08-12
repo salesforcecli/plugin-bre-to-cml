@@ -19,6 +19,8 @@ import {
   PlannedChangeOperation,
   countPlannedChanges,
   formatChange,
+  renderPlannedChanges,
+  truncateCell,
 } from '../../../src/shared/insurance/planned-change.js';
 import { formatBlobChange, formatBlobSummary } from '../../../src/shared/insurance/record-update-plan.js';
 
@@ -83,6 +85,96 @@ describe('planned-change countPlannedChanges', () => {
 
     expect(counts).to.deep.equal({ creates: 2, updates: 1, reuses: 1, skips: 1 });
     expect(counts.creates + counts.updates + counts.reuses + counts.skips).to.equal(rows.length);
+  });
+});
+
+describe('planned-change truncateCell', () => {
+  it('leaves a value at the boundary alone and truncates one past it', () => {
+    expect(truncateCell('x'.repeat(59))).to.equal('x'.repeat(59));
+    expect(truncateCell('x'.repeat(60))).to.equal('x'.repeat(60));
+    expect(truncateCell('x'.repeat(61))).to.equal(`${'x'.repeat(59)}…`);
+    // Whatever the input, a rendered cell never exceeds the column budget.
+    expect(truncateCell('x'.repeat(200))).to.have.length(60);
+    expect(truncateCell('short')).to.equal('short');
+  });
+
+  it('never returns more characters than the max it was given', () => {
+    // slice(0, max - 1) went negative below max=1, slicing from the end and returning a string
+    // LONGER than the budget with a character missing from the middle.
+    expect(truncateCell('abcde', 0)).to.equal('…');
+    expect(truncateCell('abcde', 1)).to.equal('…');
+    expect(truncateCell('abcde', 3)).to.equal('ab…');
+  });
+
+  it('does not split a surrogate pair when it truncates', () => {
+    const truncated = truncateCell('🚗'.repeat(40));
+
+    expect(
+      /[\uD800-\uDBFF]/.test(truncated.slice(-2, -1)),
+      `lone high surrogate in ${JSON.stringify(truncated)}`
+    ).to.equal(false);
+    expect(truncated.endsWith('…')).to.equal(true);
+    expect(truncated).to.have.length.at.most(60);
+  });
+});
+
+describe('planned-change renderPlannedChanges', () => {
+  const changes: PlannedChange[] = [
+    {
+      operation: 'Update',
+      object: 'ProductSurcharge',
+      id: 'a0p000000000001',
+      name: 'Collision Fee',
+      field: 'RuleEngineType',
+      change: 'BusinessRuleEngine → ConstraintEngine',
+    },
+    {
+      operation: 'Skip (already current)',
+      object: 'ProductSurcharge',
+      id: 'a0p000000000002',
+      name: 'Theft Fee',
+      field: 'RuleEngineType',
+      change: 'ConstraintEngine (unchanged)',
+    },
+  ];
+
+  it('counts operations by bucket', () => {
+    expect(countPlannedChanges(changes)).to.deep.equal({ creates: 0, updates: 1, reuses: 0, skips: 1 });
+  });
+
+  it('renders a header, one row per change, and both warnings', () => {
+    const warnings: string[] = [];
+    const headers: string[] = [];
+    let rows: Array<Record<string, unknown>> = [];
+
+    renderPlannedChanges(
+      {
+        styledHeader: (t: string) => headers.push(t),
+        table: (options) => {
+          rows = options.data;
+        },
+        warn: (m: string) => warnings.push(m),
+      },
+      changes,
+      {
+        header: 'These changes will be applied to me@example.com',
+        summary: '1 to update',
+        notTransactional: 'NOT rolled back',
+      }
+    );
+
+    expect(headers).to.deep.equal(['These changes will be applied to me@example.com']);
+    expect(rows).to.have.length(2);
+    expect(rows[0]).to.deep.equal({
+      Operation: 'Update',
+      Object: 'ProductSurcharge',
+      Id: 'a0p000000000001',
+      Name: 'Collision Fee',
+      Field: 'RuleEngineType',
+      Change: 'BusinessRuleEngine → ConstraintEngine',
+    });
+    // The non-transactional notice is a warning so it also lands in the --json warnings array.
+    expect(warnings).to.deep.equal(['1 to update', 'NOT rolled back']);
   });
 });
 

@@ -15,13 +15,6 @@
  */
 import { expect } from 'chai';
 import { ConfirmText, confirmOrThrow } from '../../../src/shared/insurance/confirm-org-changes.js';
-import {
-  PlannedChange,
-  countPlannedChanges,
-  formatChange,
-  renderPlannedChanges,
-  truncateCell,
-} from '../../../src/shared/insurance/planned-change.js';
 
 type Harness = {
   warnings: string[];
@@ -100,77 +93,5 @@ describe('confirm-org-changes confirmOrThrow', () => {
     const h = harness(false);
     await confirmOrThrow(h.host, { noPrompt: true, interactive: false }, text);
     expect(h.prompts).to.deep.equal([]);
-  });
-});
-
-describe('planned-change rendering', () => {
-  const changes: PlannedChange[] = [
-    {
-      operation: 'Update',
-      object: 'ProductSurcharge',
-      id: 'a0p000000000001',
-      name: 'Collision Fee',
-      field: 'RuleEngineType',
-      change: 'BusinessRuleEngine → ConstraintEngine',
-    },
-    {
-      operation: 'Skip (already current)',
-      object: 'ProductSurcharge',
-      id: 'a0p000000000002',
-      name: 'Theft Fee',
-      field: 'RuleEngineType',
-      change: 'ConstraintEngine (unchanged)',
-    },
-  ];
-
-  it('counts operations by bucket', () => {
-    expect(countPlannedChanges(changes)).to.deep.equal({ creates: 0, updates: 1, reuses: 0, skips: 1 });
-  });
-
-  it('renders a header, one row per change, and both warnings', () => {
-    const warnings: string[] = [];
-    const headers: string[] = [];
-    let rows: Array<Record<string, unknown>> = [];
-
-    renderPlannedChanges(
-      {
-        styledHeader: (t: string) => headers.push(t),
-        table: (options) => {
-          rows = options.data;
-        },
-        warn: (m: string) => warnings.push(m),
-      },
-      changes,
-      {
-        header: 'These changes will be applied to me@example.com',
-        summary: '1 to update',
-        notTransactional: 'NOT rolled back',
-      }
-    );
-
-    expect(headers).to.deep.equal(['These changes will be applied to me@example.com']);
-    expect(rows).to.have.length(2);
-    expect(rows[0]).to.deep.equal({
-      Operation: 'Update',
-      Object: 'ProductSurcharge',
-      Id: 'a0p000000000001',
-      Name: 'Collision Fee',
-      Field: 'RuleEngineType',
-      Change: 'BusinessRuleEngine → ConstraintEngine',
-    });
-    // The non-transactional notice is a warning so it also lands in the --json warnings array.
-    expect(warnings).to.deep.equal(['1 to update', 'NOT rolled back']);
-  });
-
-  it('shows an empty current value as (none) rather than a blank cell', () => {
-    expect(formatChange(null, 'ConstraintEngine')).to.equal('(none) → ConstraintEngine');
-    expect(formatChange('', 'ConstraintEngine')).to.equal('(none) → ConstraintEngine');
-  });
-
-  it('truncates long values so an opaque blob stays readable', () => {
-    const long = 'x'.repeat(200);
-    expect(truncateCell(long)).to.have.length(60);
-    expect(truncateCell(long).endsWith('…')).to.equal(true);
-    expect(truncateCell('short')).to.equal('short');
   });
 });
