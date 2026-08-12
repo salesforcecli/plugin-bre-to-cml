@@ -79,6 +79,21 @@ $ ./scripts/apply-surcharge-update.sh data/SURCHARGE_CML_SurchargeUpdate.json my
 
 Requires `jq` and the Salesforce CLI (`sf`). Until `sf cml import record-updates` ships, this helper is the supported apply path for surcharge record updates.
 
+You can also apply the flip directly with the Salesforce CLI — run one `sf data update record` call per
+surcharge listed in `_SurchargeUpdate.json`, using the `id` from that file to set `RuleEngineType` →
+`ConstraintEngine`:
+
+```
+$ sf data update record \
+    --sobject ProductSurcharge \
+    --record-id <ID_FROM_SURCHARGEUPDATE_JSON> \
+    --values "RuleEngineType=ConstraintEngine" \
+    --target-org myOrg
+```
+
+The platform regenerates `ProductSurcharge.RuleKey` on save, which requires the parent `Surcharge.Code`
+to be non-null (per the prerequisite above).
+
 <!-- commands -->
 * [`sf cml convert prod-cfg-rules`](#sf-cml-convert-prod-cfg-rules)
 * [`sf cml convert surcharge-rules`](#sf-cml-convert-surcharge-rules)
