@@ -27,11 +27,19 @@ import {
 
 /**
  * Source data type -> CML data type. Keyed uppercase because payloads are inconsistent about case
- * ('Datetime' and 'DateTime' both occur in real RuleDefinitions), and because PcmGenerator — which
- * declares these same attributes in the same model — normalizes the same way.
+ * ('Datetime' and 'DateTime' both occur in real RuleDefinitions) — the same normalization
+ * PcmGenerator's `dataTypeToCmlType` applies to its own keys.
+ *
+ * PcmGenerator declares these same attributes into the same model, so wherever both maps hold a
+ * key they must resolve it identically or one attribute ends up with two contradictory
+ * declarations. They do not otherwise mirror each other: this map additionally carries the
+ * spellings only a condition payload or an AttributePicklist produces (INTEGER, DECIMAL, DOUBLE,
+ * BOOLEAN, DATETIME), for which PcmGenerator has no entry.
  */
 const SOURCE_DATA_TYPE_TO_CML: Record<string, string> = {
-  NUMBER: CML_DATA_TYPES.INTEGER,
+  // decimal, not int: a Salesforce Number attribute may carry decimal places, and PcmGenerator
+  // declares one `decimal` in this same model.
+  NUMBER: CML_DATA_TYPES.DECIMAL,
   INTEGER: CML_DATA_TYPES.INTEGER,
   PERCENT: CML_DATA_TYPES.DECIMAL,
   CURRENCY: CML_DATA_TYPES.DECIMAL,

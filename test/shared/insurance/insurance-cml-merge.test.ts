@@ -19,9 +19,11 @@ import {
   buildPathedRuleKey,
   buildPathedSurchargeRules,
   buildSurchargeRuleStatement,
+  buildUnderwritingConstraintRules,
   fetchExistingConstraintModel,
   fetchProductTypeTags,
   mergeSurchargeRules,
+  mergeUnderwritingConstraints,
   splitProductPath,
   SURCHARGE_RULE_ACTION,
 } from '../../../src/shared/insurance/insurance-cml-merge.js';
@@ -191,9 +193,15 @@ describe('buildPathedSurchargeRules', () => {
   it('uses the parent Surcharge.Code (not the apiName) as the key leaf when resolvable', () => {
     const record = makeRecord('r1', 'Basic_Tax', 'p1');
     const ruleDef = { name: 'Basic_Tax', apiName: 'Basic_Tax', productPath: 'p1', surchargeId: 'sc1' };
-    const [rule] = buildPathedSurchargeRules('SC', [{ record, ruleDef }], new Map([['p1', 'commProperty']]), new Map(), {
-      surchargeIdToCode: new Map([['sc1', 'basictaxcode']]),
-    });
+    const [rule] = buildPathedSurchargeRules(
+      'SC',
+      [{ record, ruleDef }],
+      new Map([['p1', 'commProperty']]),
+      new Map(),
+      {
+        surchargeIdToCode: new Map([['sc1', 'basictaxcode']]),
+      }
+    );
     // Matches the platform-generated ProductSurcharge.RuleKey (Surcharge.Code leaf), not SC__commProperty__Basic_Tax.
     expect(rule.ruleKey).to.equal('SC__commProperty__basictaxcode');
     expect(rule.statement).to.include('"SC__commProperty__basictaxcode"');
@@ -203,10 +211,16 @@ describe('buildPathedSurchargeRules', () => {
     const record = makeRecord('r1', 'Basic_Tax', 'p1');
     const ruleDef = { name: 'Basic_Tax', apiName: 'Basic_Tax', productPath: 'p1', surchargeId: 'scMissing' };
     const missed: string[] = [];
-    const [rule] = buildPathedSurchargeRules('SC', [{ record, ruleDef }], new Map([['p1', 'commProperty']]), new Map(), {
-      surchargeIdToCode: new Map(),
-      onSurchargeCodeFallback: (name) => missed.push(name),
-    });
+    const [rule] = buildPathedSurchargeRules(
+      'SC',
+      [{ record, ruleDef }],
+      new Map([['p1', 'commProperty']]),
+      new Map(),
+      {
+        surchargeIdToCode: new Map(),
+        onSurchargeCodeFallback: (name) => missed.push(name),
+      }
+    );
     expect(rule.ruleKey).to.equal('SC__commProperty__Basic_Tax');
     expect(missed).to.deep.equal(['Basic_Tax']);
   });
@@ -810,6 +824,46 @@ describe('buildPathedSurchargeRules (referencedAttributes scoping — M7)', () =
     );
     expect(rule.referencedAttributes).to.include('Limit');
     expect(rule.referencedAttributes).to.not.include('Hijacked');
+  });
+});
+
+describe('mergeUnderwritingConstraints (attribute-presence probe is type-sensitive)', () => {
+  const record: RuleRecord = { Id: 'r1', Name: 'AgeRule', ProductPath: 'p1' };
+  const ruleDef: ParsedRuleDefinition = {
+    name: 'AgeRule',
+    apiName: 'AgeRule',
+    productPath: 'p1',
+    ruleCriteria: [
+      {
+        rootObjectId: 'root',
+        conditions: [{ operator: 'LessThan', attributeName: 'Age', dataType: 'Number', values: ['60'] }],
+      },
+    ],
+  };
+  const rules = (): ReturnType<typeof buildUnderwritingConstraintRules> =>
+    buildUnderwritingConstraintRules(
+      'UW',
+      'Underwriting eligibility',
+      [{ record, ruleDef }],
+      new Map([['p1', 'autoSilver']]),
+      new Map([['p1', 'Driver']])
+    );
+
+  // The probe looks for `<cmlType> <attrName>` in the leaf type block, so it only recognizes a
+  // declaration whose type matches the one this converter derived. PcmGenerator declares a Number
+  // attribute `decimal`, so while insurance derived `int` the probe missed every curated Number
+  // attribute and reported it absent — a false alarm on exactly the models this tool targets.
+  it('finds a curated Number attribute PcmGenerator declared as decimal', () => {
+    const curated = 'type Driver {\n    decimal Age;\n}\n';
+    const { attributeWarnings } = mergeUnderwritingConstraints(curated, rules());
+    expect(attributeWarnings).to.deep.equal([]);
+  });
+
+  it('still reports a Number attribute the curated model really is missing', () => {
+    const curated = 'type Driver {\n    string Model;\n}\n';
+    const { attributeWarnings } = mergeUnderwritingConstraints(curated, rules());
+    expect(attributeWarnings).to.have.length(1);
+    expect(attributeWarnings[0]).to.match(/Age/);
   });
 });
 

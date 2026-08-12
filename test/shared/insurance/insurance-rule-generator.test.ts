@@ -26,6 +26,7 @@ import {
   isSafeAssociationReferenceValue,
   sanitizeName,
 } from '../../../src/shared/insurance/insurance-rule-generator.js';
+import { PcmGenerator } from '../../../src/shared/pcm-generator.js';
 import { ParsedRuleDefinition, RuleCriteria, RuleRecord } from '../../../src/shared/insurance/models.js';
 import {
   discoverCmlApiByProducts,
@@ -661,6 +662,11 @@ describe('buildCmlModel', () => {
   // H4 — attributes must be declared with their real CML type so that relational comparisons
   // (which emit a bare numeric RHS, e.g. `Age < 60`) type-check on import. Declaring everything
   // as `string` produces `string Age; ... Age < 60`, which the CML compiler rejects.
+  //
+  // `decimal`, not `int`: a Salesforce Number attribute may carry decimal places, and the
+  // safe-literal guard already admits `500.5` for it. PcmGenerator declares the same attribute
+  // `decimal` in the same model, so declaring `int` here would put two disagreeing declarations
+  // of one attribute into one model.
   it('declares a numeric attribute with its real CML type, not string (H4)', () => {
     const ruleDefs = [
       {
@@ -675,7 +681,7 @@ describe('buildCmlModel', () => {
     ];
     const { cmlModel } = buildCmlModel(ruleDefs, new Map([['p1', 'autoSilver']]), 'UW', 'Test');
     const ageAttr = cmlModel.getType('autoSilver')?.attributes.find((a) => a.name === 'Age');
-    expect(ageAttr?.type).to.equal('int');
+    expect(ageAttr?.type).to.equal('decimal');
   });
 
   it('declares a Boolean attribute as boolean and a string attribute as string (H4)', () => {
@@ -1036,6 +1042,26 @@ describe('condition data type resolution', () => {
   it('declares a Checkbox attribute as boolean, the same type PcmGenerator declares it', () => {
     const types = collectAttributeTypes([{ ruleDef: oneCondition('Checkbox', ['true']) }]);
     expect(types.get('Attr')).to.equal('boolean');
+  });
+
+  // Both maps declare attributes into the SAME model, so a source type they disagree about
+  // produces two contradictory declarations of one attribute. Number was the disagreement:
+  // insurance said `int`, PcmGenerator said `decimal`. A Salesforce Number attribute can carry
+  // decimal places and the safe-literal guard already admits `500.5` for one, so `decimal` is the
+  // correct side of the disagreement to keep.
+  it('declares Number the same way PcmGenerator does', () => {
+    const types = collectAttributeTypes([{ ruleDef: oneCondition('Number', ['500.5']) }]);
+    expect(types.get('Attr')).to.equal(PcmGenerator.dataTypeNameToCmlDataType('Number'));
+    expect(types.get('Attr')).to.equal('decimal');
+  });
+
+  // Aligning the declaration must not disturb how values are emitted: the safe-literal guard
+  // treats int and decimal identically, and the shared emitter quotes only for `string`.
+  it('emits Number values exactly as before, whole or fractional', () => {
+    expect(buildConstraintDeclaration(oneCondition('Number', ['2020']))).to.equal('Attr == 2020');
+    expect(buildConstraintDeclaration(oneCondition('Number', ['500.5']))).to.equal('Attr == 500.5');
+    expect(buildConstraintDeclaration(oneCondition('Number', ['60'], 'LessThan'))).to.equal('Attr < 60');
+    expect(buildConstraintDeclaration(oneCondition('Number', ['not-a-number']))).to.equal('true');
   });
 
   // fetchAttributeDataTypes records a non-picklist attribute's own DataType verbatim, so the
