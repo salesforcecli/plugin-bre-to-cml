@@ -17,6 +17,7 @@ import { expect } from 'chai';
 import { Connection } from '@salesforce/core';
 import { RecordUpdate, RecordUpdatePlan } from '../../../src/shared/insurance/models.js';
 import {
+  PlannedRecordChange,
   applyRecordUpdates,
   planRecordUpdates,
   verifySurchargeUpdates,
@@ -62,6 +63,17 @@ const surchargeUpdate = (overrides: Partial<RecordUpdate> = {}): RecordUpdate =>
   fields: [{ field: 'RuleEngineType', value: 'ConstraintEngine' }],
   ...overrides,
 });
+
+/** A distinct, well-formed 15-char ProductSurcharge id for volume tests. */
+const surchargeId = (i: number): string => `a0p${String(i).padStart(12, '0')}`;
+
+const bigSurchargeChanges = (count: number): PlannedRecordChange[] =>
+  Array.from({ length: count }, (_, i) => ({
+    update: surchargeUpdate({ id: surchargeId(i), name: `Surcharge ${i}` }),
+    field: { field: 'RuleEngineType', value: 'ConstraintEngine' },
+    currentValue: 'BusinessRuleEngine',
+    alreadyCurrent: false,
+  }));
 
 const planOf = (updates: RecordUpdate[], kind: RecordUpdatePlan['kind'] = 'surcharge-update'): RecordUpdatePlan => ({
   schemaVersion: 1,
@@ -214,6 +226,31 @@ describe('record-update-apply planRecordUpdates', () => {
     expect(advisories).to.deep.equal([]);
   });
 
+  it('chunks the re-read so a large plan stays inside the SOQL statement limit', async () => {
+    const soqls: string[] = [];
+    const conn = mockConnection({
+      query: (soql) => {
+        soqls.push(soql);
+        // Only answer for the ids this particular query actually asked about.
+        return [...soql.matchAll(/'([a-zA-Z0-9]{15,18})'/g)].map((m) => ({
+          Id: m[1],
+          Name: `Surcharge ${Number(m[1].slice(3))}`,
+          RuleEngineType: 'BusinessRuleEngine',
+        }));
+      },
+    });
+    const updates = Array.from({ length: 1200 }, (_, i) =>
+      surchargeUpdate({ id: surchargeId(i), name: `Surcharge ${i}` })
+    );
+
+    const { changes, identityErrors } = await planRecordUpdates(conn, planOf(updates));
+
+    expect(soqls).to.have.length(3);
+    // Every record must still be resolved — chunking must not drop the tail of the plan.
+    expect(identityErrors).to.deep.equal([]);
+    expect(changes).to.have.length(1200);
+  });
+
   it('only interpolates well-formed ids into the re-read SOQL', async () => {
     const soqls: string[] = [];
     const conn = mockConnection({
@@ -333,6 +370,41 @@ describe('record-update-apply applyRecordUpdates', () => {
     expect(result.failures).to.deep.equal([
       { id: 'a0p000000000002', name: 'Theft Fee', errors: ['INSUFFICIENT_ACCESS'] },
     ]);
+  });
+
+  it('chunks the write at 200 records, so a large plan is not rejected wholesale', async () => {
+    const calls: UpdateCall[] = [];
+    const conn = mockConnection({}, calls);
+    const changes = bigSurchargeChanges(250);
+
+    const result = await applyRecordUpdates(conn, changes);
+
+    // Salesforce rejects a single /composite/sobjects PATCH above 200, and jsforce does not split
+    // it for us: unchunked, all 250 go in one request and every record is reported as failed.
+    expect(calls.map((c) => c.payloads.length)).to.deep.equal([200, 50]);
+    expect(result.applied).to.equal(250);
+    expect(result.failures).to.deep.equal([]);
+    // Every record is written exactly once, in plan order.
+    expect(calls.flatMap((c) => c.payloads.map((p) => p.Id))).to.deep.equal(changes.map((c) => c.update.id));
+  });
+
+  it('keeps an earlier successful chunk when a later chunk is rejected outright', async () => {
+    const calls: UpdateCall[] = [];
+    const conn = mockConnection(
+      {
+        saveResults: (_sobject, payloads) => {
+          if (calls.length === 2) throw new Error('Request timed out');
+          return payloads.map(() => ({ success: true, errors: [] }));
+        },
+      },
+      calls
+    );
+
+    const result = await applyRecordUpdates(conn, bigSurchargeChanges(250));
+
+    expect(result.applied, 'the first chunk really was written').to.equal(200);
+    expect(result.failures).to.have.length(50);
+    expect(result.failures[0].id).to.equal(surchargeId(200));
   });
 
   it('attributes a thrown request error to every record in the batch', async () => {

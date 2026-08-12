@@ -58,6 +58,21 @@ export type RecordUpdateReadPhase = {
 
 type OrgRecord = Record<string, unknown>;
 
+/**
+ * Salesforce rejects a `/composite/sobjects` request carrying more than 200 records, and jsforce
+ * only splits the batch itself when `allowRecursive` is set (which `sobject().update()` does not
+ * pass). Without chunking here, a 201-record plan fails wholesale and is then misreported as a
+ * partial migration.
+ */
+const MAX_DML_CHUNK = 200;
+
+/** Keeps a generated `Id IN (...)` clause comfortably inside the SOQL statement length limit. */
+const MAX_SOQL_ID_CHUNK = 500;
+
+function chunk<T>(items: readonly T[], size: number): T[][] {
+  return Array.from({ length: Math.ceil(items.length / size) }, (_, i) => items.slice(i * size, i * size + size));
+}
+
 const asString = (value: unknown): string | null =>
   value == null ? null : typeof value === 'string' ? value : String(value);
 
@@ -137,14 +152,17 @@ async function queryCurrentRecords(
   fields: string[]
 ): Promise<Map<string, OrgRecord>> {
   const byId = new Map<string, OrgRecord>();
-  const idList = quoteSoqlIdList(updates.map((u) => u.id));
-  if (!idList) return byId;
-
   const selected = ['Id', 'Name', ...fields.filter((f) => f !== 'Id' && f !== 'Name')];
-  const result = await conn.query<OrgRecord>(`SELECT ${selected.join(', ')} FROM ${sobject} WHERE Id IN (${idList})`);
-  for (const record of result.records) {
-    const id = asString(record.Id);
-    if (id) byId.set(id, record);
+
+  for (const batch of chunk(updates, MAX_SOQL_ID_CHUNK)) {
+    const idList = quoteSoqlIdList(batch.map((u) => u.id));
+    if (!idList) continue;
+    // eslint-disable-next-line no-await-in-loop
+    const result = await conn.query<OrgRecord>(`SELECT ${selected.join(', ')} FROM ${sobject} WHERE Id IN (${idList})`);
+    for (const record of result.records) {
+      const id = asString(record.Id);
+      if (id) byId.set(id, record);
+    }
   }
   return byId;
 }
@@ -257,6 +275,20 @@ async function saveAll(
   sobject: RecordUpdate['sobject'],
   payloads: UpdatePayload[]
 ): Promise<NormalizedSaveResult[]> {
+  const results: NormalizedSaveResult[] = [];
+  for (const batch of chunk(payloads, MAX_DML_CHUNK)) {
+    // Sequential, not parallel: a failing chunk must not race writes the operator may want to stop.
+    // eslint-disable-next-line no-await-in-loop
+    results.push(...(await saveChunk(conn, sobject, batch)));
+  }
+  return results;
+}
+
+async function saveChunk(
+  conn: Connection,
+  sobject: RecordUpdate['sobject'],
+  payloads: UpdatePayload[]
+): Promise<NormalizedSaveResult[]> {
   try {
     const raw = await conn.sobject(sobject).update(payloads);
     const results = Array.isArray(raw) ? raw : [raw];
@@ -304,13 +336,18 @@ export async function verifySurchargeUpdates(
   updates: RecordUpdate[]
 ): Promise<SurchargeVerificationResult> {
   const surcharges = updates.filter((u) => u.sobject === 'ProductSurcharge');
-  const idList = quoteSoqlIdList(surcharges.map((u) => u.id));
-  if (!idList) return { records: [], warnings: [] };
-
-  const result = await conn.query<SurchargeVerification>(
-    `SELECT Id, Name, RuleEngineType, RuleKey, RuleApiName FROM ProductSurcharge WHERE Id IN (${idList})`
-  );
-  const byId = new Map(result.records.map((r) => [r.Id, r]));
+  const records: SurchargeVerification[] = [];
+  for (const batch of chunk(surcharges, MAX_SOQL_ID_CHUNK)) {
+    const idList = quoteSoqlIdList(batch.map((u) => u.id));
+    if (!idList) continue;
+    // eslint-disable-next-line no-await-in-loop
+    const result = await conn.query<SurchargeVerification>(
+      `SELECT Id, Name, RuleEngineType, RuleKey, RuleApiName FROM ProductSurcharge WHERE Id IN (${idList})`
+    );
+    records.push(...result.records);
+  }
+  if (records.length === 0 && surcharges.length === 0) return { records: [], warnings: [] };
+  const byId = new Map(records.map((r) => [r.Id, r]));
 
   const warnings: string[] = [];
   for (const update of surcharges) {
@@ -325,5 +362,5 @@ export async function verifySurchargeUpdates(
     }
   }
 
-  return { records: result.records, warnings };
+  return { records, warnings };
 }
