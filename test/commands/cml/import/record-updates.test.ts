@@ -19,7 +19,7 @@ import path from 'node:path';
 import { TestContext, MockTestOrgData } from '@salesforce/core/testSetup';
 import { Connection } from '@salesforce/core';
 import { expect } from 'chai';
-import { stubSfCommandUx } from '@salesforce/sf-plugins-core';
+import { stubPrompter, stubSfCommandUx } from '@salesforce/sf-plugins-core';
 import CmlImportRecordUpdates, {
   type CmlImportRecordUpdatesResult,
 } from '../../../../src/commands/cml/import/record-updates.js';
@@ -65,6 +65,7 @@ describe('cml import record-updates', () => {
   let workspaceDir: string;
   let planFile: string;
   let updateCalls: UpdateCall[];
+  let ttyRestores: Array<() => void>;
 
   beforeEach(async () => {
     sfCommandStubs = stubSfCommandUx($$.SANDBOX);
@@ -72,10 +73,12 @@ describe('cml import record-updates', () => {
     workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'record-updates-test-'));
     planFile = path.join(workspaceDir, 'SC_AUTO_SurchargeUpdate.json');
     updateCalls = [];
+    ttyRestores = [];
   });
 
   afterEach(async () => {
     $$.restore();
+    for (const restore of ttyRestores) restore();
     await fs.rm(workspaceDir, { recursive: true, force: true });
   });
 
@@ -134,6 +137,27 @@ describe('cml import record-updates', () => {
       .getCalls()
       .flatMap((c) => c.args)
       .join('\n');
+
+  /**
+   * Makes the run look interactive so the command actually reaches `SfCommand.confirm`. Without
+   * both TTY flags the gate short-circuits into the non-interactive fail-fast branch and the
+   * prompt — the only thing standing between an operator and an unwanted write — never runs.
+   */
+  const stubInteractiveTerminal = (answer: boolean): ReturnType<typeof stubPrompter> => {
+    // `isTTY` is absent (not false) on a non-TTY stream, so sinon cannot stub it.
+    for (const stream of [process.stdout, process.stdin] as Array<{ isTTY?: boolean }>) {
+      const had = 'isTTY' in stream;
+      const previous = stream.isTTY;
+      stream.isTTY = true;
+      ttyRestores.push(() => {
+        if (had) stream.isTTY = previous;
+        else delete stream.isTTY;
+      });
+    }
+    const prompter = stubPrompter($$.SANDBOX);
+    prompter.confirm.resolves(answer);
+    return prompter;
+  };
 
   it('applies a surcharge flip and reports the verified RuleKey', async () => {
     stubOrgConnection({
@@ -399,6 +423,65 @@ describe('cml import record-updates', () => {
     expect(result.applied).to.equal(1);
     expect(warnOutput()).to.match(/does not match the converted CML rule key/);
     expect(warnOutput()).to.match(/will not fire/);
+  });
+
+  it('aborts without writing anything when the operator declines the prompt', async () => {
+    stubOrgConnection({
+      current: {
+        ProductSurcharge: [{ Id: SURCHARGE_ID, Name: 'Collision Fee', RuleEngineType: 'BusinessRuleEngine' }],
+      },
+    });
+    await writePlan(surchargePlanFile([surchargeUpdate()]));
+    const prompter = stubInteractiveTerminal(false);
+
+    const error = await runExpectingError();
+
+    expect(prompter.confirm.callCount, 'the operator must actually be asked').to.equal(1);
+    expect(prompter.confirm.firstCall.args[0]).to.deep.include({
+      message: 'Apply these changes to the org',
+      // An unanswered prompt must never be read as consent.
+      defaultAnswer: false,
+    });
+    expect(error.message).to.match(/Aborted\. No changes were applied to the org\./);
+    expect(updateCalls, 'declining the prompt must write nothing').to.deep.equal([]);
+  });
+
+  it('applies the plan when the operator confirms the prompt', async () => {
+    stubOrgConnection({
+      current: {
+        ProductSurcharge: [{ Id: SURCHARGE_ID, Name: 'Collision Fee', RuleEngineType: 'BusinessRuleEngine' }],
+      },
+    });
+    await writePlan(surchargePlanFile([surchargeUpdate()]));
+    const prompter = stubInteractiveTerminal(true);
+
+    const result = await runCommand();
+
+    expect(prompter.confirm.callCount).to.equal(1);
+    expect(result.applied).to.equal(1);
+    expect(updateCalls).to.deep.equal([
+      { sobject: 'ProductSurcharge', payloads: [{ Id: SURCHARGE_ID, RuleEngineType: 'ConstraintEngine' }] },
+    ]);
+    // The preview is the whole point of the prompt, so it must precede it.
+    expect(sfCommandStubs.table.calledBefore(prompter.confirm), 'the plan must be rendered before the prompt').to.equal(
+      true
+    );
+  });
+
+  it('never prompts under --no-prompt, and says so out loud', async () => {
+    stubOrgConnection({
+      current: {
+        ProductSurcharge: [{ Id: SURCHARGE_ID, Name: 'Collision Fee', RuleEngineType: 'BusinessRuleEngine' }],
+      },
+    });
+    await writePlan(surchargePlanFile([surchargeUpdate()]));
+    const prompter = stubInteractiveTerminal(false);
+
+    const result = await runCommand(['--no-prompt']);
+
+    expect(prompter.confirm.callCount, '--no-prompt must bypass the prompt, not answer it').to.equal(0);
+    expect(result.applied).to.equal(1);
+    expect(warnOutput()).to.match(/without confirmation/);
   });
 
   it('fails fast instead of prompting when the terminal is not interactive', async () => {
