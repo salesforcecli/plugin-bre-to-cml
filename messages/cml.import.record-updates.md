@@ -62,6 +62,10 @@ These changes will be applied to %s
 
 Changes are applied in order and are NOT rolled back; a mid-apply failure can leave the org partially migrated.
 
+# warn.outcomeUnknown
+
+OUTCOME UNKNOWN %s (%s): %s. The request failed after it was sent, so the org may or may not hold this change; re-read the record before re-running.
+
 # warn.skippingPrompt
 
 Proceeding without confirmation because --no-prompt was passed.

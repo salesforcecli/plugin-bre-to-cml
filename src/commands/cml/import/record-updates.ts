@@ -51,6 +51,8 @@ export type RecordUpdateSkipResult = {
 export type RecordUpdateFailureResult = {
   id: string;
   errors: string[];
+  /** True when the request failed after it was sent, so the org may or may not hold the change. */
+  outcomeUnknown: boolean;
 };
 
 export type CmlImportRecordUpdatesResult = {
@@ -179,9 +181,14 @@ export default class CmlImportRecordUpdates extends SfCommand<CmlImportRecordUpd
 
     const { applied, failures } = await applyRecordUpdates(conn, changes);
     result.applied = applied;
-    result.failed = failures.map((f) => ({ id: f.id, errors: f.errors }));
+    result.failed = failures.map((f) => ({ id: f.id, errors: f.errors, outcomeUnknown: f.outcomeUnknown }));
     for (const failure of failures) {
-      this.warn(`FAILED ${failure.name} (${failure.id}): ${failure.errors.join('; ') || 'unknown error'}`);
+      const detail = failure.errors.join('; ') || 'unknown error';
+      this.warn(
+        failure.outcomeUnknown
+          ? messages.getMessage('warn.outcomeUnknown', [failure.name, failure.id, detail])
+          : `FAILED ${failure.name} (${failure.id}): ${detail}`
+      );
     }
 
     // The flip regenerates ProductSurcharge.RuleKey server-side; read it back so the operator can

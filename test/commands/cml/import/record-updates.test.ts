@@ -568,6 +568,25 @@ describe('cml import record-updates', () => {
     expect(logOutput()).to.include('Updated 1, skipped 0 (already current), failed 1.');
   });
 
+  it('says the outcome is unknown when the request itself failed after being sent', async () => {
+    stubOrgConnection({
+      current: {
+        ProductSurcharge: [{ Id: SURCHARGE_ID, Name: 'Collision Fee', RuleEngineType: 'BusinessRuleEngine' }],
+      },
+      saveResults: () => {
+        throw new Error('socket hang up');
+      },
+    });
+    await writePlan(surchargePlanFile([surchargeUpdate()]));
+
+    const error = await runExpectingError(['--no-prompt']);
+
+    expect(error.message).to.match(/1 of the record updates failed/);
+    // Claiming "not written" would be exactly wrong for a timeout after the server committed.
+    expect(warnOutput()).to.match(/OUTCOME UNKNOWN Collision Fee/);
+    expect(warnOutput()).to.match(/may or may not hold this change/);
+  });
+
   it('warns (without failing) when the regenerated RuleKey does not match the converted key', async () => {
     stubOrgConnection({
       current: {

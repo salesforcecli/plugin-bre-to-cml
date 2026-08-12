@@ -462,7 +462,7 @@ describe('record-update-apply applyRecordUpdates', () => {
 
     expect(result.applied).to.equal(1);
     expect(result.failures).to.deep.equal([
-      { id: 'a0p000000000002', name: 'Theft Fee', errors: ['INSUFFICIENT_ACCESS'] },
+      { id: 'a0p000000000002', name: 'Theft Fee', errors: ['INSUFFICIENT_ACCESS'], outcomeUnknown: false },
     ]);
   });
 
@@ -501,7 +501,7 @@ describe('record-update-apply applyRecordUpdates', () => {
     expect(result.failures[0].id).to.equal(surchargeId(200));
   });
 
-  it('attributes a thrown request error to every record in the batch', async () => {
+  it('attributes a thrown request error to every record in the batch, as an unknown outcome', async () => {
     const conn = mockConnection({ updateThrows: new Error('expired access token') });
 
     const result = await applyRecordUpdates(conn, [
@@ -515,6 +515,73 @@ describe('record-update-apply applyRecordUpdates', () => {
 
     expect(result.applied).to.equal(0);
     expect(result.failures[0].errors).to.deep.equal(['expired access token']);
+    // A timeout or a 500 can arrive after the server committed, so "it was not written" is a
+    // claim this code cannot make.
+    expect(result.failures[0].outcomeUnknown).to.equal(true);
+  });
+
+  it('marks a rejected record as a known failure, not an unknown outcome', async () => {
+    const conn = mockConnection({
+      saveResults: () => [{ success: false, errors: [{ message: 'FIELD_INTEGRITY_EXCEPTION' }] }],
+    });
+
+    const result = await applyRecordUpdates(conn, [
+      {
+        update: surchargeUpdate(),
+        field: { field: 'RuleEngineType', value: 'ConstraintEngine' },
+        currentValue: 'BusinessRuleEngine',
+        alreadyCurrent: false,
+      },
+    ]);
+
+    expect(result.failures).to.deep.equal([
+      { id: SURCHARGE_ID, name: 'Collision Fee', errors: ['FIELD_INTEGRITY_EXCEPTION'], outcomeUnknown: false },
+    ]);
+  });
+
+  it('normalizes the bare result a single-record update returns', async () => {
+    // jsforce returns the object itself, not a one-element array, for a single record.
+    const conn = mockConnection({ saveResults: () => ({ success: true, errors: [] } as unknown as unknown[]) });
+
+    const result = await applyRecordUpdates(conn, [
+      {
+        update: surchargeUpdate(),
+        field: { field: 'RuleEngineType', value: 'ConstraintEngine' },
+        currentValue: 'BusinessRuleEngine',
+        alreadyCurrent: false,
+      },
+    ]);
+
+    expect(result.applied).to.equal(1);
+    expect(result.failures).to.deep.equal([]);
+  });
+
+  it('does not throw when the org returns more results than records were sent', async () => {
+    const conn = mockConnection({
+      saveResults: () => [
+        { success: true, errors: [] },
+        { success: true, errors: [] },
+        { success: false, errors: [{ message: 'PHANTOM' }] },
+      ],
+    });
+
+    // Indexing the results array reads updates[2] and throws a TypeError — after the writes had
+    // already landed, which is the one moment the operator most needs the report.
+    const result = await applyRecordUpdates(conn, bigSurchargeChanges(2));
+
+    expect(result.applied, 'a phantom third result must not inflate the applied count').to.equal(2);
+    expect(result.failures).to.deep.equal([]);
+  });
+
+  it('reports an unknown outcome for a record the org returned no result for', async () => {
+    const conn = mockConnection({ saveResults: () => [{ success: true, errors: [] }] });
+
+    const result = await applyRecordUpdates(conn, bigSurchargeChanges(3));
+
+    expect(result.applied, 'a missing result must not be silently counted as applied').to.equal(1);
+    expect(result.failures.map((f) => f.id)).to.deep.equal([surchargeId(1), surchargeId(2)]);
+    expect(result.failures.every((f) => f.outcomeUnknown)).to.equal(true);
+    expect(result.failures[0].errors.join()).to.match(/no result for this record/);
   });
 });
 

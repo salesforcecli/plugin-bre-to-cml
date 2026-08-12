@@ -254,6 +254,12 @@ export type RecordUpdateFailure = {
   id: string;
   name: string;
   errors: string[];
+  /**
+   * True when the request failed *after* it was sent, so whether the org applied this record is
+   * genuinely unknown — a timeout or a 500 can arrive after the server committed. Distinct from a
+   * rejection, where the org is known not to have written it.
+   */
+  outcomeUnknown: boolean;
 };
 
 export type ApplyRecordUpdatesResult = {
@@ -283,24 +289,40 @@ export async function applyRecordUpdates(
 
     // eslint-disable-next-line no-await-in-loop
     const results = await saveAll(conn, sobject, payloads);
-    results.forEach((result, i) => {
-      if (result.success) applied += 1;
-      else failures.push({ id: updates[i].id, name: updates[i].name, errors: result.errors });
+    // Indexed by payload, never by result: a result list that does not line up with what was sent
+    // must not throw here, because by this point the writes have already landed and the operator
+    // would lose the failure report for an org that is now partially migrated.
+    updates.forEach((update, i) => {
+      const result = results[i];
+      if (result?.success) applied += 1;
+      else {
+        failures.push({
+          id: update.id,
+          name: update.name,
+          errors: result?.errors ?? [UNACCOUNTED_RESULT],
+          outcomeUnknown: result?.outcomeUnknown ?? true,
+        });
+      }
     });
   }
 
   return { applied, failures };
 }
 
-type NormalizedSaveResult = { success: boolean; errors: string[] };
+type NormalizedSaveResult = { success: boolean; errors: string[]; outcomeUnknown: boolean };
+
+/** Used when the org returned fewer results than the records that were sent. */
+const UNACCOUNTED_RESULT = 'the org returned no result for this record, so whether it was written is unknown';
 
 /** An update payload: the target record's Id plus the fields to set on it. */
 type UpdatePayload = { Id: string } & Record<string, string>;
 
 /**
  * Issues the update and normalizes jsforce's per-record results. A thrown error (network, invalid
- * session, whole-request rejection) is attributed to every record in the batch — none of them were
- * written, and reporting them individually keeps the failure list consistent with the re-run advice.
+ * session, whole-request rejection) is attributed to every record in the chunk, and marked
+ * `outcomeUnknown`: the call site cannot tell a rejected request from a timeout or a 500 that
+ * arrived after the server had already committed, and claiming the records were not written is
+ * precisely wrong in the second case.
  */
 async function saveAll(
   conn: Connection,
@@ -323,13 +345,15 @@ async function saveChunk(
 ): Promise<NormalizedSaveResult[]> {
   try {
     const raw = await conn.sobject(sobject).update(payloads);
+    // A single-record update returns the bare result rather than a one-element array.
     const results = Array.isArray(raw) ? raw : [raw];
     return results.map((r) => ({
       success: Boolean((r as { success?: boolean }).success),
       errors: normalizeErrors((r as { errors?: unknown }).errors),
+      outcomeUnknown: false,
     }));
   } catch (e) {
-    return payloads.map(() => ({ success: false, errors: [(e as Error).message] }));
+    return payloads.map(() => ({ success: false, errors: [(e as Error).message], outcomeUnknown: true }));
   }
 }
 
