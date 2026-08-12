@@ -412,7 +412,6 @@ export async function verifySurchargeUpdates(
     );
     records.push(...result.records);
   }
-  if (records.length === 0 && surcharges.length === 0) return { records: [], warnings: [] };
   const byId = new Map(records.map((r) => [r.Id, r]));
 
   const warnings: string[] = [];
