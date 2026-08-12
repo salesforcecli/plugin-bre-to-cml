@@ -17,41 +17,32 @@ import * as fs from 'node:fs/promises';
 import { SfCommand, Flags } from '@salesforce/sf-plugins-core';
 import { Messages, SfError } from '@salesforce/core';
 import { RecordUpdatePlan } from '../../../shared/insurance/models.js';
+import { RecordUpdatePlanError, parseRecordUpdatePlan } from '../../../shared/insurance/record-update-plan.js';
 import {
-  JSON_BLOB_FIELD,
-  RecordUpdatePlanError,
-  formatBlobChange,
-  formatBlobSummary,
-  parseRecordUpdatePlan,
-} from '../../../shared/insurance/record-update-plan.js';
+  RecordUpdateSkipResult,
+  toPlannedChange,
+  toSkipResult,
+} from '../../../shared/insurance/planned-change-mapper.js';
 import {
   IdentityProblem,
   IdentityProblemKind,
-  PlannedRecordChange,
   RecordUpdateFailure,
   applyRecordUpdates,
   planRecordUpdates,
   verifySurchargeUpdates,
 } from '../../../shared/insurance/record-update-apply.js';
 import {
-  NO_VALUE,
   PlannedChange,
   PlannedChangeCounts,
   countPlannedChanges,
-  formatChange,
   renderPlannedChanges,
-  truncateCell,
 } from '../../../shared/insurance/planned-change.js';
 import { confirmOrThrow } from '../../../shared/insurance/confirm-org-changes.js';
 
 Messages.importMessagesDirectoryFromMetaUrl(import.meta.url);
 const messages = Messages.loadMessages('@salesforce/plugin-bre-to-cml', 'cml.import.record-updates');
 
-export type RecordUpdateSkipResult = {
-  id: string;
-  field: string;
-  reason: string;
-};
+export { RecordUpdateSkipResult };
 
 export type RecordUpdateFailureResult = {
   id: string;
@@ -325,40 +316,4 @@ function applyFailuresError(failures: RecordUpdateFailure[], applied: number, re
   }
   if (applied === 0) return messages.createError('error.applyFailuresNoneApplied', [failures.length], [rerun]);
   return messages.createError('error.applyFailures', [failures.length, applied], [rerun]);
-}
-
-function toPlannedChange(change: PlannedRecordChange): PlannedChange {
-  return {
-    operation: change.alreadyCurrent ? 'Skip (already current)' : 'Update',
-    object: change.update.sobject,
-    id: change.update.id,
-    name: change.update.name,
-    field: change.field.field,
-    change: describeChange(change),
-    currentValue: change.currentValue,
-    newValue: change.field.value,
-  };
-}
-
-/**
- * Builds the operator-facing `Change` cell. `DynamicRuleDefinition` is rendered as a semantic diff
- * of the fields convert mutates, because the raw blob's first 60 characters are identical before
- * and after — a truncated raw diff shows the operator the same string twice.
- */
-function describeChange(change: PlannedRecordChange): string {
-  const isBlob = change.field.field === JSON_BLOB_FIELD;
-  if (change.alreadyCurrent) {
-    const summary = isBlob ? formatBlobSummary(change.currentValue) : undefined;
-    return `${summary ?? truncateCell(change.currentValue ?? NO_VALUE)} (unchanged)`;
-  }
-  const semantic = isBlob ? formatBlobChange(change.currentValue, change.field.value) : undefined;
-  return semantic ?? formatChange(change.currentValue, change.field.value);
-}
-
-function toSkipResult(change: PlannedRecordChange): RecordUpdateSkipResult {
-  return {
-    id: change.update.id,
-    field: change.field.field,
-    reason: 'org already matches the requested value',
-  };
 }
