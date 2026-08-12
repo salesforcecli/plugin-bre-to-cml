@@ -67,11 +67,24 @@ const SALESFORCE_ID_PATTERN = /^[a-zA-Z0-9]{15}([a-zA-Z0-9]{3})?$/;
 /** The one field whose value is itself a JSON document, so it needs structural (not raw) compare. */
 export const JSON_BLOB_FIELD = 'DynamicRuleDefinition';
 
-/** Thrown for any structural violation; the command turns it into `error.invalidFile`. */
-export class RecordUpdatePlanError extends Error {}
+/**
+ * Violations that have their own operator-facing message key, because the remediation for them is
+ * not the generic "regenerate the file or correct the reported problem".
+ */
+export type RecordUpdatePlanErrorCode = 'duplicateRecordId';
 
-const fail = (source: string, detail: string): never => {
-  throw new RecordUpdatePlanError(`${source}: ${detail}`);
+/** Thrown for any structural violation; the command turns it into `error.invalidFile`. */
+export class RecordUpdatePlanError extends Error {
+  public readonly code?: RecordUpdatePlanErrorCode;
+
+  public constructor(message: string, code?: RecordUpdatePlanErrorCode) {
+    super(message);
+    this.code = code;
+  }
+}
+
+const fail = (source: string, detail: string, code?: RecordUpdatePlanErrorCode): never => {
+  throw new RecordUpdatePlanError(`${source}: ${detail}`, code);
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -116,6 +129,7 @@ export function parseRecordUpdatePlan(raw: string, source: string, options: Pars
 
   const typedKind = kind as RecordUpdatePlan['kind'];
   const updates = (plan.updates as unknown[]).map((u, i) => parseUpdate(u, source, i, typedKind, options));
+  rejectRepeatedIds(updates, source);
 
   return {
     schemaVersion: 1,
@@ -124,6 +138,42 @@ export function parseRecordUpdatePlan(raw: string, source: string, options: Pars
     generatedAt: typeof plan.generatedAt === 'string' ? plan.generatedAt : '',
     updates,
   };
+}
+
+/**
+ * The 15-character form of an id, which is what identifies the record: the optional 3-character
+ * suffix is only a case-safety checksum, so `a0p…001` and `a0p…001AAA` are the same record spelled
+ * two ways and must count as a repeat.
+ */
+const recordKey = (id: string): string => id.slice(0, 15);
+
+/**
+ * Refuses a file that carries two entries for one record — the record-level twin of the
+ * duplicate-field check in {@link parseUpdate}.
+ *
+ * Two entries for one id are not merged anywhere: the preview renders the record twice, with
+ * contradictory operations when the values disagree; the field-level counts report the one record as
+ * both an update and an already-current skip while the record-level summary reports neither; and
+ * when both values need writing, `applyRecordUpdates` groups by plan entry, so two payloads
+ * carrying the same `Id` go into a single `/composite/sobjects` PATCH, which the org rejects. Not
+ * scoped per sObject: a Salesforce id names exactly one record of exactly one type, so the same id
+ * under two sObjects is a hand-edit gone wrong, and `applied` counts plan entries either way.
+ */
+function rejectRepeatedIds(updates: RecordUpdate[], source: string): void {
+  const firstSeenAt = new Map<string, number>();
+  updates.forEach((update, index) => {
+    const key = recordKey(update.id);
+    const first = firstSeenAt.get(key);
+    if (first === undefined) {
+      firstSeenAt.set(key, index);
+      return;
+    }
+    fail(
+      source,
+      `updates[${index}] (${update.name}) repeats record id ${update.id}, which updates[${first}] (${updates[first].name}) already updates; each record must appear exactly once`,
+      'duplicateRecordId'
+    );
+  });
 }
 
 function parseUpdate(

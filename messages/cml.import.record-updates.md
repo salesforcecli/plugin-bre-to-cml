@@ -90,6 +90,15 @@ Invalid record-update file. %s
 
 - Regenerate the file with the matching `sf cml convert` command, or correct the reported problem by hand.
 
+# error.duplicateRecordId
+
+Invalid record-update file: the same record appears in it more than once. %s
+
+# error.duplicateRecordId.actions
+
+- Keep exactly one entry per record. If the repeated entries set different values, decide which value you intend and delete the others: a preview that shows one record twice, with two different outcomes, isn't something you can consent to.
+- Regenerate the file with the matching `sf cml convert` command if you can't tell which of the entries is the correct one.
+
 # error.recordIdentityMismatch
 
 Refusing to apply: the org state doesn't match the record-update file.

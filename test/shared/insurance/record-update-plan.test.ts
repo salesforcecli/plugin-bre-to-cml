@@ -198,6 +198,69 @@ describe('record-update-plan parseRecordUpdatePlan', () => {
     );
   });
 
+  it('rejects two entries for the same record id, the record-level twin of the duplicate-field check', () => {
+    // One record, two entries, conflicting values. Without this check the preview shows the same
+    // record and field twice with contradictory operations, the counts report the one record as
+    // both an update and an already-current skip, and — when both values need writing — two
+    // payloads carrying the same Id go into a single /composite/sobjects PATCH.
+    parseFails(
+      surchargePlan([
+        surchargeUpdate(),
+        surchargeUpdate({ fields: [{ field: 'RuleEngineType', value: 'BusinessRuleEngine' }] }),
+      ]),
+      /repeats record id a0p000000000001/
+    );
+    // Both offending entries are named, so the operator knows which two rows to reconcile.
+    parseFails(surchargePlan([surchargeUpdate(), surchargeUpdate()]), /updates\[1\].*updates\[0\]/);
+  });
+
+  it('rejects a repeated id across sObject types, not just within one', () => {
+    // A Salesforce id identifies exactly one record of exactly one type, so the same id under two
+    // sObjects is a hand-edit gone wrong. Checking per-sObject would let it through, and `applied`
+    // counts distinct plan entries — so one record would still be counted twice.
+    parseFails(
+      JSON.stringify({
+        schemaVersion: 1,
+        kind: 'underwriting-update',
+        cmlApi: 'UW_AUTO',
+        updates: [
+          {
+            sobject: 'UnderwritingRuleGroup',
+            id: RULE_ID,
+            name: 'Auto Eligibility Group',
+            fields: [{ field: 'RuleEngineType', value: 'ConstraintEngine' }],
+          },
+          {
+            sobject: 'UnderwritingRule',
+            id: RULE_ID,
+            name: 'Min Driver Age',
+            fields: [{ field: 'DynamicRuleDefinition', value: '{"ruleKey":"UW_001"}' }],
+          },
+        ],
+      }),
+      /repeats record id 0UR000000000001AAA/
+    );
+  });
+
+  it('rejects a repeat spelled as the 18-character form of the same 15-character id', () => {
+    // The 18-character id is the 15-character id plus a case-safety checksum, so these two entries
+    // target one record and produce every symptom a byte-identical repeat does. Comparing the raw
+    // strings would miss it.
+    parseFails(
+      surchargePlan([surchargeUpdate(), surchargeUpdate({ id: `${SURCHARGE_ID}AAA` })]),
+      /repeats record id a0p000000000001AAA/
+    );
+  });
+
+  it('accepts distinct record ids in one file', () => {
+    // The guard against an over-broad duplicate check: two different records must still parse.
+    const plan = parseRecordUpdatePlan(
+      surchargePlan([surchargeUpdate(), surchargeUpdate({ id: 'a0p000000000002', name: 'Theft Fee' })]),
+      'plan.json'
+    );
+    expect(plan.updates).to.have.length(2);
+  });
+
   it('rejects an empty field value, which would blank the field in the org', () => {
     parseFails(
       surchargePlan([surchargeUpdate({ fields: [{ field: 'RuleEngineType', value: '' }] })]),

@@ -19,6 +19,7 @@ import { Messages } from '@salesforce/core';
 import { RecordUpdatePlan } from '../../../shared/insurance/models.js';
 import {
   JSON_BLOB_FIELD,
+  RecordUpdatePlanError,
   formatBlobChange,
   formatBlobSummary,
   parseRecordUpdatePlan,
@@ -272,6 +273,11 @@ export default class CmlImportRecordUpdates extends SfCommand<CmlImportRecordUpd
     try {
       return parseRecordUpdatePlan(raw, file, { onWarn: (message) => this.warn(message) });
     } catch (e) {
+      // A repeated record id gets its own key: "correct the reported problem by hand" does not say
+      // which of the two entries to keep, and that choice is the whole remediation.
+      if (e instanceof RecordUpdatePlanError && e.code === 'duplicateRecordId') {
+        throw messages.createError('error.duplicateRecordId', [e.message]);
+      }
       throw messages.createError('error.invalidFile', [(e as Error).message]);
     }
   }

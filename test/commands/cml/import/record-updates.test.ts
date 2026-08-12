@@ -614,6 +614,60 @@ describe('cml import record-updates', () => {
     expect(updateCalls).to.deep.equal([]);
   });
 
+  it('refuses a file with two entries for one record, before previewing contradictory operations', async () => {
+    // The org already holds ConstraintEngine, so entry 1 resolves to "Skip (already current)" and
+    // entry 2 to "Update BusinessRuleEngine → ConstraintEngine"... for the same record and the same
+    // field. The counts report the single record as both an update and a skip.
+    stubOrgConnection({
+      current: {
+        ProductSurcharge: [{ Id: SURCHARGE_ID, Name: 'Collision Fee', RuleEngineType: 'ConstraintEngine' }],
+      },
+    });
+    await writePlan(
+      surchargePlanFile([
+        surchargeUpdate(),
+        surchargeUpdate({ fields: [{ field: 'RuleEngineType', value: 'BusinessRuleEngine' }] }),
+      ])
+    );
+
+    const error = await runExpectingError(['--no-prompt']);
+
+    expect(error.name, 'must carry remediation specific to a duplicated record').to.equal('DuplicateRecordIdError');
+    expect(error.message).to.match(/repeats record id/);
+    expect(((error as SfError).actions ?? []).join('\n')).to.match(/exactly one entry per record/);
+    // The operator must never be asked to consent to a plan that says two contradictory things
+    // about one record, so the refusal lands before the preview is rendered at all.
+    expect(sfCommandStubs.table.called, 'no preview may show one record twice with conflicting rows').to.equal(false);
+    expect(updateCalls).to.deep.equal([]);
+    expect(logOutput(), 'a refused file produces no end-of-run counts').to.not.match(/Records: /);
+  });
+
+  it('refuses two entries for one record rather than sending two payloads carrying one Id', async () => {
+    // Both entries need writing (the org value is empty), which is the shape that puts two payloads
+    // with the same Id into a single /composite/sobjects PATCH — rejected by a real org — and then
+    // reports `applied: 2` and "Records: 2 updated" for one record.
+    stubOrgConnection({
+      current: { ProductSurcharge: [{ Id: SURCHARGE_ID, Name: 'Collision Fee', RuleEngineType: null }] },
+    });
+    await writePlan(
+      surchargePlanFile([
+        surchargeUpdate(),
+        surchargeUpdate({ fields: [{ field: 'RuleEngineType', value: 'BusinessRuleEngine' }] }),
+      ])
+    );
+
+    const error = await runExpectingError(['--no-prompt']);
+
+    expect(error.name).to.equal('DuplicateRecordIdError');
+    const repeatedIds = updateCalls.flatMap((call) => {
+      const ids = call.payloads.map((p) => p.Id);
+      return ids.filter((id, i) => ids.indexOf(id) !== i);
+    });
+    expect(repeatedIds, 'no single request may carry the same Id twice').to.deep.equal([]);
+    expect(updateCalls).to.deep.equal([]);
+    expect(logOutput(), 'one record can never be reported as two updates').to.not.include('Records: 2 updated');
+  });
+
   it('refuses to write when the org record’s Name disagrees with the file', async () => {
     // Two records on purpose: one is perfectly writable. If the identity throw ever moved to after
     // the apply, the first record would already have been written when the error was raised — a
