@@ -375,6 +375,130 @@ describe('record-update-plan isAlreadyCurrent', () => {
   });
 });
 
+/**
+ * The shape a real org stores, taken from a live PC-RND org: the 11 top-level keys every stored
+ * `DynamicRuleDefinition` carried there, plus the `ruleKey` and nested
+ * `underwritingRuleGroup.ruleEngineType` that convert appends (neither exists until it does).
+ * `isAlreadyCurrent` compares the whole document, so the document these tests compare has to be the
+ * size and shape of a real one — a one-key toy cannot show what that compare does.
+ */
+const realisticBlob = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+  name: 'Min Driver Age',
+  apiName: 'MinDriverAge',
+  status: 'Active',
+  description: 'Driver must be at least 21 years old to qualify for this policy tier',
+  underwritingRuleGroup: {
+    fromStage: 'Submitted',
+    toStage: 'Quoted',
+    underwritingRuleGroupId: null,
+    ruleEngineType: 'ConstraintEngine',
+  },
+  productPath: '01tROOT00000000001/01tAUTO00000000001',
+  evaluationSuccessTaskGroup: null,
+  evaluationFailureTaskGroup: null,
+  effectiveFromDate: '2026-01-01',
+  effectiveToDate: null,
+  ruleCriteria: [
+    {
+      rootObjectId: '01tAUTO00000000001',
+      conditions: [{ attributeName: 'DriverAge', operator: 'GreaterThanOrEqual', values: ['21'] }],
+    },
+  ],
+  ruleKey: 'UW__auto__minDriverAge',
+  ...overrides,
+});
+
+/**
+ * B2 made `isAlreadyCurrent` compare the whole `DynamicRuleDefinition` document, so a reviewer's
+ * hand-correction anywhere in the blob is no longer discarded as "already current". The accepted
+ * consequence is that *any* org-side difference triggers a rewrite, and these four org behaviours
+ * would each make a re-run rewrite every record.
+ *
+ * Each is pinned as an intentional rewrite rather than a bug. The reason is the same every time and
+ * it is worth stating once: the apply writes the file's blob verbatim, and nothing here can tell an
+ * org-side key from a reviewer's edit. Skipping would therefore not mean "ignore a difference the
+ * org introduced", it would mean "discard a real difference on the guess that nobody meant it" —
+ * silently, with exit 0, which is the failure the reviewable file exists to prevent. Rewriting is
+ * the safe direction: the operator sees the row in the preview and can decline.
+ */
+describe('record-update-plan isAlreadyCurrent — org-side differences that intentionally rewrite', () => {
+  const compare = (org: Record<string, unknown>, file: Record<string, unknown>): boolean =>
+    isAlreadyCurrent('DynamicRuleDefinition', JSON.stringify(org), JSON.stringify(file));
+
+  it('rewrites when the org adds a server-computed field the file does not carry', () => {
+    // Rewriting is correct: the two documents genuinely differ, and the plugin cannot distinguish a
+    // platform-added key from one a reviewer added on purpose.
+    expect(compare(realisticBlob({ lastEvaluatedDate: '2026-08-01' }), realisticBlob())).to.equal(false);
+  });
+
+  it('rewrites when the org drops a key whose value equals its default', () => {
+    // `status: "Active"` absent from the org side. Treating an absent key as equal to the file's
+    // value would require knowing every field's default, which is the platform's business, not this
+    // plugin's — and getting it wrong would silently drop a reviewer's deliberate `status` change.
+    const orgSide = realisticBlob();
+    delete orgSide.status;
+
+    expect(compare(orgSide, realisticBlob())).to.equal(false);
+  });
+
+  it('rewrites when the org normalizes a quoted number to a bare one', () => {
+    // The org returns `21` where the file sent `"21"`. These are different JSON values and the
+    // downstream rule engine may well treat them differently — the live org has already produced one
+    // regression from exactly this string/number confusion — so equating them is not this
+    // comparison's call to make.
+    const orgSide = realisticBlob({
+      ruleCriteria: [
+        {
+          rootObjectId: '01tAUTO00000000001',
+          conditions: [{ attributeName: 'DriverAge', operator: 'GreaterThanOrEqual', values: [21] }],
+        },
+      ],
+    });
+
+    expect(compare(orgSide, realisticBlob())).to.equal(false);
+  });
+
+  it('rewrites when the org null-pads an optional key the file omits', () => {
+    // `effectiveToDate: null` in the org, absent from the file. `null` and absent are distinguishable
+    // in JSON, and the file is written verbatim, so a reviewer who deleted the key gets it deleted.
+    const fileSide = realisticBlob();
+    delete fileSide.effectiveToDate;
+
+    expect(compare(realisticBlob({ effectiveToDate: null }), fileSide)).to.equal(false);
+  });
+});
+
+/** The other half of B2: differences that are purely representational must still skip. */
+describe('record-update-plan isAlreadyCurrent — representational differences that still skip', () => {
+  const skips = (orgText: string, file: Record<string, unknown>): boolean =>
+    isAlreadyCurrent('DynamicRuleDefinition', orgText, JSON.stringify(file));
+
+  it('skips a pretty-printed re-serialization of the same document', () => {
+    expect(skips(JSON.stringify(realisticBlob(), null, 2), realisticBlob())).to.equal(true);
+  });
+
+  it('skips a document whose keys the org returned in a different order', () => {
+    const reordered = Object.fromEntries(Object.entries(realisticBlob()).reverse());
+
+    expect(skips(JSON.stringify(reordered), realisticBlob())).to.equal(true);
+  });
+
+  it('skips a reformat that only changes whitespace and separators', () => {
+    const spaced = JSON.stringify(realisticBlob()).replace(/","/g, '" , "');
+
+    expect(skips(spaced, realisticBlob())).to.equal(true);
+  });
+
+  it('skips an entity-encoded org blob that decodes to the same document', () => {
+    // Not how the org observed in the live-org run stores the field — it returns literal quote bytes
+    // — but the decode path exists as tolerance, and if it ever engages it must not force a rewrite
+    // on every run.
+    const encoded = JSON.stringify(realisticBlob()).replace(/"/g, '&quot;');
+
+    expect(skips(encoded, realisticBlob())).to.equal(true);
+  });
+});
+
 describe('record-update-plan blob helpers', () => {
   it('extracts the mutated subset of a blob', () => {
     expect(
@@ -404,7 +528,10 @@ describe('record-update-plan blob helpers', () => {
     expect(dynamicRuleDefinitionApiName(null)).to.deep.equal({ failure: 'absent' });
   });
 
-  it('reads an HTML-entity-encoded blob, which is how the org stores these fields', () => {
+  it('reads an HTML-entity-encoded blob, in case an org returns one', () => {
+    // Not a claim about how orgs store the field. A live org was checked at the raw-HTTP-body level
+    // and returns plain JSON with literal `"` bytes — zero entity references — so this is defensive
+    // tolerance for an encoding some other org might apply, not the representative case.
     expect(dynamicRuleDefinitionApiName('{&quot;apiName&quot;:&quot;MinDriverAge&quot;}')).to.deep.equal({
       apiName: 'MinDriverAge',
     });
