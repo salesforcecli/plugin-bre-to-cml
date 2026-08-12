@@ -633,12 +633,22 @@ describe('cml import record-updates', () => {
     );
   });
 
-  it('reports an unreadable file as an actionable error, not a raw Node error', async () => {
+  it('reports an unreadable file as an actionable error, not a raw Node error', async function () {
     stubOrgConnection({});
     // --file only checks that the path is an existing file; permissions are not its business, so
     // EACCES lands in the command and used to escape as a bare Node error with no actions.
     await writePlan(surchargePlanFile([surchargeUpdate()]));
     await fs.chmod(planFile, 0o000);
+
+    // Windows ignores POSIX permission bits and root bypasses them, so on those platforms the read
+    // succeeds and the run fails later for an unrelated reason (the identity guard), which is what
+    // made this test fail on windows-unit-tests while passing on linux. Confirm the precondition
+    // holds rather than asserting an error the command cannot raise here.
+    const unreadable = await fs.readFile(planFile, 'utf8').then(
+      () => false,
+      () => true
+    );
+    if (!unreadable) this.skip();
 
     const error = await runExpectingError(['--no-prompt']);
 

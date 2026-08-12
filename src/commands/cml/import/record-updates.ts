@@ -265,8 +265,8 @@ export default class CmlImportRecordUpdates extends SfCommand<CmlImportRecordUpd
   private async loadPlan(file: string): Promise<RecordUpdatePlan> {
     let raw: string;
     try {
-      // --file only proves the path exists; a directory, or a file the user cannot read, still
-      // reaches here and must surface as an SfError with actions, not a raw Node error.
+      // --file rejects a directory itself, but it does not check readability: a file the user
+      // cannot read reaches here and must surface as an SfError with actions, not a raw Node error.
       raw = await fs.readFile(file, 'utf8');
     } catch (e) {
       throw messages.createError('error.unreadableFile', [file, (e as Error).message]);
