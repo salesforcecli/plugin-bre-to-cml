@@ -500,6 +500,46 @@ describe('cml convert surcharge-rules', () => {
     expect(merged).to.not.include('rule(');
   });
 
+  // A substring test against a decimal attribute is the same kind of refusal: strcontain() is a
+  // string function, so the rule cannot be expressed at all. The property that matters beyond the
+  // warning is the record-update plan — a withheld rule whose record still got flipped to the
+  // constraint engine would go dark, disabled on the rule engine with nothing behind it.
+  it('keeps a withheld rule out of the record-update plan, so it stays on the rule engine', async () => {
+    stubOrgConnection(
+      mockConnection({
+        existingCml: GOLD_CML,
+        productCodes: [
+          { Id: '01tROOT00000000001', ProductCode: 'autoSilver', Name: 'Auto Silver' },
+          { Id: '01tCOLL00000000001', ProductCode: 'collision', Name: 'Collision' },
+        ],
+        productTypeTags: [{ ReferenceObjectId: '01tCOLL00000000001', ConstraintModelTag: 'Collision' }],
+      })
+    );
+    await writeSurchargeFile([
+      {
+        Id: 'a0p000000000001',
+        Name: 'Deductible Fee',
+        ProductPath: '01tROOT00000000001/01tCOLL00000000001',
+        RuleDefinition: ruleDefinition('DeductibleFee', [
+          { operator: 'Contains', attributeName: 'Deductible', dataType: 'Currency', values: ['500'] },
+        ]),
+      },
+    ]);
+
+    const result = await runCommand();
+
+    expect(warnOutput()).to.match(/SKIPPED Deductible Fee: cannot be expressed in CML/);
+    expect(logOutput()).to.match(/unconvertible/);
+    expect(result.ruleKeyMapping).to.have.length(0);
+    const merged = await fs.readFile(path.join(workspaceDir, `${CML_API}.cml`), 'utf8');
+    expect(merged).to.not.include('strcontain');
+
+    const plan = JSON.parse(await fs.readFile(path.join(workspaceDir, `${CML_API}_SurchargeUpdate.json`), 'utf8')) as {
+      updates: Array<{ id: string }>;
+    };
+    expect(plan.updates).to.have.length(0);
+  });
+
   // ---- Fix #8: a product id that the Product2 query did NOT return (deleted / not visible /
   // filtered) used to silently fall back to the raw Id for that path segment, yielding a rule
   // key that won't match the platform-generated RuleKey. Surface it as a warning, distinct from

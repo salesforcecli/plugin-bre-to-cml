@@ -1152,6 +1152,47 @@ describe('condition data type resolution', () => {
     expect(findUnconvertibleConditions(oneCondition('Text', ['2026-01-01T10:00:00Z']))).to.deep.equal([]);
   });
 
+  // strcontain() is a string function, and a substring test against an attribute the model declares
+  // decimal/boolean/date has no faithful CML form: quoting the value type-mismatches the attribute
+  // (the never-fires shape), and unquoting it is not even a substring test. Same treatment as the
+  // timestamp — withhold the rule and name it, rather than emit something that silently does
+  // nothing.
+  it('reports a rule as unconvertible when Contains is applied to a non-string attribute', () => {
+    const reasons = findUnconvertibleConditions(oneCondition('Currency', ['500'], 'Contains'));
+    expect(reasons).to.have.length(1);
+    expect(reasons[0]).to.match(/Attr/);
+    expect(reasons[0]).to.match(/Contains/);
+    expect(reasons[0]).to.match(/decimal/);
+  });
+
+  it('reports DoesNotContain on a non-string attribute as unconvertible too', () => {
+    expect(findUnconvertibleConditions(oneCondition('Checkbox', ['true'], 'DoesNotContain'))).to.have.length(1);
+    expect(findUnconvertibleConditions(oneCondition('Date', ['2026-03-01'], 'DoesNotContain'))).to.have.length(1);
+  });
+
+  // The reference org's only use of these four operators is a Contains on a String attribute. It is
+  // faithfully representable and must keep converting exactly as it does today.
+  it('reports nothing unconvertible for a substring test on a string attribute', () => {
+    expect(findUnconvertibleConditions(oneCondition('Text', ['Severe'], 'Contains'))).to.deep.equal([]);
+    expect(findUnconvertibleConditions(oneCondition('String', ['Severe'], 'DoesNotContain'))).to.deep.equal([]);
+  });
+
+  it('still emits strcontain for a substring test on a string attribute', () => {
+    expect(buildConstraintDeclaration(oneCondition('Text', ['Severe'], 'Contains'))).to.equal(
+      'strcontain(Attr, "Severe")'
+    );
+    expect(buildConstraintDeclaration(oneCondition('String', ['Severe'], 'DoesNotContain'))).to.equal(
+      '!strcontain(Attr, "Severe")'
+    );
+  });
+
+  // An unresolvable type already falls back to string, which is a representable substring test —
+  // the guard must not turn that fallback into a refusal.
+  it('reports nothing unconvertible for a substring test on an unresolved type', () => {
+    expect(findUnconvertibleConditions(oneCondition('Lookup', ['500'], 'Contains'))).to.deep.equal([]);
+    expect(findUnconvertibleConditions(oneCondition('', ['500'], 'Contains'))).to.deep.equal([]);
+  });
+
   // In/NotIn expand into `==` chains, so a quoted value on a non-string attribute is the same
   // never-fires mismatch the Picklist resolution above fixes — `Deductible == "500"` against the
   // `decimal Deductible` the model declares.

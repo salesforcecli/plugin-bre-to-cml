@@ -933,6 +933,64 @@ describe('a rule carrying a datetime value CML cannot represent', () => {
   });
 });
 
+/**
+ * `strcontain()` is a string function. Applied to an attribute the model declares decimal, boolean
+ * or date, a substring test has no faithful CML form at all — the emitted `strcontain(Deductible,
+ * "500")` compares a number as text and never fires. Reuses the same withhold-and-name machinery as
+ * the datetime case above, for the same reason: a rule that quietly does nothing is worse than a
+ * rule the operator is told to migrate by hand.
+ */
+describe('a rule applying a substring test to a non-string attribute', () => {
+  const record: RuleRecord = { Id: 'r1', Name: 'DeductibleRule', ProductPath: 'p1' };
+
+  const ruleWith = (dataType: string, operator: string, values = ['500']): ParsedRuleDefinition => ({
+    name: 'DeductibleRule',
+    apiName: 'DeductibleRule',
+    productPath: 'p1',
+    ruleCriteria: [{ rootObjectId: 'root', conditions: [{ operator, attributeName: 'Deductible', dataType, values }] }],
+  });
+
+  const CURATED = 'type Driver {\n    decimal Deductible;\n}\n';
+  const codes = (): Map<string, string> => new Map([['p1', 'autoSilver']]);
+  const tags = (): Map<string, string> => new Map([['p1', 'Driver']]);
+
+  const surcharge = (ruleDef: ParsedRuleDefinition): ReturnType<typeof mergeSurchargeRules> =>
+    mergeSurchargeRules(CURATED, buildPathedSurchargeRules('SC', [{ record, ruleDef }], codes(), tags(), {}));
+
+  const underwriting = (ruleDef: ParsedRuleDefinition): ReturnType<typeof mergeUnderwritingConstraints> =>
+    mergeUnderwritingConstraints(
+      CURATED,
+      buildUnderwritingConstraintRules('UW', 'Underwriting eligibility', [{ record, ruleDef }], codes(), tags())
+    );
+
+  it('is withheld from the surcharge merge instead of placed', () => {
+    const { mergedCml, placements, skips } = surcharge(ruleWith('Currency', 'Contains'));
+    expect(placements).to.have.length(0);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.match(/Deductible/);
+    expect(skips[0].reason).to.match(/Contains/);
+    expect(mergedCml).to.not.include('strcontain');
+    expect(mergedCml).to.not.include('rule(');
+  });
+
+  it('is withheld from the underwriting merge instead of placed', () => {
+    const { mergedCml, placements, skips } = underwriting(ruleWith('Checkbox', 'DoesNotContain', ['true']));
+    expect(placements).to.have.length(0);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.match(/Deductible/);
+    expect(mergedCml).to.not.include('constraint DeductibleRule');
+  });
+
+  // Unchanged, and the case the reference org actually has: a substring test on a String attribute
+  // is representable and still converts.
+  it('leaves a substring test on a string attribute alone', () => {
+    const { mergedCml, placements, skips } = surcharge(ruleWith('Text', 'Contains', ['Severe']));
+    expect(skips).to.have.length(0);
+    expect(placements).to.have.length(1);
+    expect(mergedCml).to.include('rule(strcontain(Deductible, "Severe"),');
+  });
+});
+
 describe('mergeUnderwritingConstraints (attribute-presence probe is type-sensitive)', () => {
   const record: RuleRecord = { Id: 'r1', Name: 'AgeRule', ProductPath: 'p1' };
   const ruleDef: ParsedRuleDefinition = {

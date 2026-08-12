@@ -224,6 +224,10 @@ function emitsUnquoted(op: string, cmlDataType: string): boolean {
   );
 }
 
+// Operators the shared emitter turns into a CML `strcontain(...)` call — a string function, with no
+// numeric, boolean or date counterpart.
+const SUBSTRING_OPERATORS: ReadonlySet<string> = new Set(['Contains', 'DoesNotContain']);
+
 /**
  * The reasons, if any, why a rule cannot be converted faithfully — one per offending condition.
  * A rule with any reason must be SKIPPED with those reasons reported, never partially converted.
@@ -234,10 +238,18 @@ function emitsUnquoted(op: string, cmlDataType: string): boolean {
  * the empty-`dataType` defect, and the guard exists so a new cause cannot re-create it. Dropping
  * one condition of several is no better — it widens what the rule matches.
  *
- * The only cause today is a date-typed condition whose value carries a time. CML has no datetime
- * primitive, so the alternatives were to emit a timestamp into a `date` slot (platform behavior
- * unverified) or to silently truncate it to its date part (changes what the rule matches, with no
- * signal). Both are worse than declining the rule and saying so.
+ * There are two causes today, both of them a condition CML has no primitive for.
+ *
+ * A date-typed condition whose value carries a time: CML has no datetime primitive, so the
+ * alternatives were to emit a timestamp into a `date` slot (platform behavior unverified) or to
+ * silently truncate it to its date part (changes what the rule matches, with no signal).
+ *
+ * A substring test (Contains / DoesNotContain) on an attribute that is not a string: `strcontain`
+ * is a string function, and against a `decimal`, `boolean` or `date` attribute there is nothing
+ * faithful to emit — quoting the value produces the never-fires type mismatch, and unquoting it is
+ * not a substring test at all.
+ *
+ * In both cases declining the rule and saying so beats emitting something that quietly does nothing.
  */
 export function findUnconvertibleConditions(
   ruleDef: { ruleCriteria?: RuleCriteria[] },
@@ -249,11 +261,25 @@ export function findUnconvertibleConditions(
       // An unknown operator or a missing value already drops the condition for reasons this guard
       // does not own; only classify conditions that would otherwise have emitted.
       if (!isKnownOperator(condition.operator)) continue;
+      const values = condition.values ?? [];
+      if (values.length === 0) continue;
       const cmlDataType = dataTypeToCml(conditionDataType(condition, attributeDataTypes));
-      if (cmlDataType !== CML_DATA_TYPES.DATE || !emitsUnquoted(condition.operator, cmlDataType)) continue;
-      const offending = (condition.values ?? []).find((v) => isDateTimeLiteral(v));
-      if (!offending) continue;
       const attrName = condition.attributeName ?? condition.contextTagName ?? 'unknown';
+
+      if (SUBSTRING_OPERATORS.has(condition.operator) && cmlDataType !== CML_DATA_TYPES.STRING) {
+        reasons.push(
+          `condition on '${attrName}' applies the substring test '${condition.operator}' to an attribute the model ` +
+            `declares ${cmlDataType}, which CML cannot represent — strcontain() is a string function, and there is ` +
+            'no numeric, boolean or date counterpart. Converting the rule would have to compare the value as text ' +
+            'against a non-text attribute, which imports cleanly and never fires, so the rule is left on the rule ' +
+            'engine. Re-model the condition as an equality or range comparison, or migrate this rule by hand.'
+        );
+        continue;
+      }
+
+      if (cmlDataType !== CML_DATA_TYPES.DATE || !emitsUnquoted(condition.operator, cmlDataType)) continue;
+      const offending = values.find((v) => isDateTimeLiteral(v));
+      if (!offending) continue;
       reasons.push(
         `condition on '${attrName}' compares the timestamp '${offending.trim()}', which CML cannot represent — it ` +
           'has no datetime primitive, and a `date` cannot carry a time. Converting the rule would have to drop the ' +
