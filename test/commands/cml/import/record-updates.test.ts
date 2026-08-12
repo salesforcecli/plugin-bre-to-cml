@@ -66,6 +66,12 @@ describe('cml import record-updates', () => {
   let planFile: string;
   let updateCalls: UpdateCall[];
   let ttyRestores: Array<() => void>;
+  /** Whether the preview had been rendered by the time the first write was issued. */
+  let renderedBeforeFirstWrite: boolean | undefined;
+  /** Every SOQL statement the command issued, so tests can assert what it actually asked for. */
+  let soqls: string[];
+  /** The statements the command itself issued, minus the auth layer's Organization lookup. */
+  const planSoqls = (): string[] => soqls.filter((s) => !s.includes('FROM Organization'));
 
   beforeEach(async () => {
     sfCommandStubs = stubSfCommandUx($$.SANDBOX);
@@ -74,6 +80,8 @@ describe('cml import record-updates', () => {
     planFile = path.join(workspaceDir, 'SC_AUTO_SurchargeUpdate.json');
     updateCalls = [];
     ttyRestores = [];
+    renderedBeforeFirstWrite = undefined;
+    soqls = [];
   });
 
   afterEach(async () => {
@@ -90,15 +98,25 @@ describe('cml import record-updates', () => {
   const stubOrgConnection = (opts: MockOpts): void => {
     $$.SANDBOX.stub(Connection.prototype, 'getApiVersion').returns('68.0');
     $$.SANDBOX.stub(Connection.prototype, 'query').callsFake(((soql: string) => {
+      soqls.push(soql);
+      // Honour the WHERE clause. A fixture that answers regardless of which ids were asked for
+      // cannot tell a correct re-read from one that queried the wrong records, or none.
+      const requestedIds = new Set([...soql.matchAll(/'([a-zA-Z0-9]{15,18})'/g)].map((m) => m[1]));
+      const matching = (records: OrgRecord[]): OrgRecord[] =>
+        records.filter((r) => requestedIds.has(String(r.Id ?? '')));
+
       // The post-apply verification is the only query that selects RuleKey.
-      if (soql.includes('RuleKey')) return Promise.resolve({ records: opts.verification ?? [] });
+      if (soql.includes('RuleKey')) return Promise.resolve({ records: matching(opts.verification ?? []) });
       const sobject = /FROM (\w+)/.exec(soql)?.[1] ?? '';
-      return Promise.resolve({ records: opts.current?.[sobject] ?? [] });
+      return Promise.resolve({ records: matching(opts.current?.[sobject] ?? []) });
     }) as never);
     $$.SANDBOX.stub(Connection.prototype, 'sobject').callsFake(
       (sobject: string) =>
         ({
           update: (payloads: Array<Record<string, string>>) => {
+            // Snapshot the preview state at the moment of the write, so a test can prove the
+            // operator saw the plan before anything was sent — not merely that both happened.
+            renderedBeforeFirstWrite ??= sfCommandStubs.table.called && sfCommandStubs.styledHeader.called;
             updateCalls.push({ sobject, payloads });
             return Promise.resolve(
               opts.saveResults?.(sobject, payloads) ?? payloads.map(() => ({ success: true, errors: [] }))
@@ -229,6 +247,50 @@ describe('cml import record-updates', () => {
     expect(result.applied).to.equal(2);
     expect(updateCalls.map((c) => c.sobject)).to.deep.equal(['UnderwritingRuleGroup', 'UnderwritingRule']);
     expect(updateCalls[1].payloads[0].DynamicRuleDefinition).to.equal('{"apiName":"MinDriverAge","ruleKey":"UW_001"}');
+  });
+
+  it('renders the preview table, both warnings, and all of it before the write', async () => {
+    stubOrgConnection({
+      current: {
+        ProductSurcharge: [
+          { Id: SURCHARGE_ID, Name: 'Collision Fee', RuleEngineType: 'BusinessRuleEngine' },
+          { Id: SURCHARGE_ID_2, Name: 'Theft Fee', RuleEngineType: 'ConstraintEngine' },
+        ],
+      },
+    });
+    await writePlan(surchargePlanFile([surchargeUpdate(), surchargeUpdate({ id: SURCHARGE_ID_2, name: 'Theft Fee' })]));
+
+    await runCommand(['--no-prompt']);
+
+    expect(sfCommandStubs.styledHeader.getCall(0).args[0]).to.equal(
+      `These changes will be applied to ${testOrg.username}`
+    );
+    // The operator's only view of what is about to happen: pin the rows, not just the call.
+    const rows = (sfCommandStubs.table.getCall(0).args[0] as { data: Array<Record<string, unknown>> }).data;
+    expect(rows).to.deep.equal([
+      {
+        Operation: 'Update',
+        Object: 'ProductSurcharge',
+        Id: SURCHARGE_ID,
+        Name: 'Collision Fee',
+        Field: 'RuleEngineType',
+        Change: 'BusinessRuleEngine → ConstraintEngine',
+      },
+      {
+        Operation: 'Skip (already current)',
+        Object: 'ProductSurcharge',
+        Id: SURCHARGE_ID_2,
+        Name: 'Theft Fee',
+        Field: 'RuleEngineType',
+        Change: 'ConstraintEngine (unchanged)',
+      },
+    ]);
+    expect(warnOutput()).to.include('0 to create, 1 to update, 0 already current (reused), 1 to skip in org');
+    // The non-transactional notice must reach the operator before they can consent, not after.
+    expect(warnOutput()).to.include('are NOT rolled back');
+    expect(sfCommandStubs.table.calledBefore(sfCommandStubs.warn), 'table renders before the warnings').to.equal(true);
+    expect(sfCommandStubs.styledHeader.calledBefore(sfCommandStubs.table)).to.equal(true);
+    expect(renderedBeforeFirstWrite, 'the preview must be rendered before the first write').to.equal(true);
   });
 
   it('previews a DynamicRuleDefinition change as a readable diff, and carries the full values in the result', async () => {
@@ -378,6 +440,67 @@ describe('cml import record-updates', () => {
     expect(updateCalls).to.deep.equal([
       { sobject: 'UnderwritingRule', payloads: [{ Id: RULE_ID, DynamicRuleDefinition: handCorrected }] },
     ]);
+  });
+
+  it('re-reads exactly the records and fields each identity check depends on', async () => {
+    stubOrgConnection({
+      current: {
+        ProductSurcharge: [
+          { Id: SURCHARGE_ID, Name: 'Collision Fee', RuleEngineType: 'BusinessRuleEngine', ProductPath: '' },
+        ],
+      },
+      verification: [
+        {
+          Id: SURCHARGE_ID,
+          Name: 'Collision Fee',
+          RuleEngineType: 'ConstraintEngine',
+          RuleKey: 'SC__auto__collision__fee',
+          RuleApiName: 'CollisionFee',
+        },
+      ],
+    });
+    await writePlan(surchargePlanFile([surchargeUpdate({ expectedRuleKey: 'SC__auto__collision__fee' })]));
+
+    await runCommand(['--no-prompt']);
+
+    const [reRead] = planSoqls();
+    // ProductPath backs the drift advisory; dropping it from the SELECT would silence it.
+    expect(reRead).to.equal(
+      `SELECT Id, Name, RuleEngineType, ProductPath FROM ProductSurcharge WHERE Id IN ('${SURCHARGE_ID}')`
+    );
+  });
+
+  it('selects DynamicRuleDefinition on the underwriting re-read, since the identity guard needs it', async () => {
+    stubOrgConnection({
+      current: {
+        UnderwritingRule: [
+          { Id: RULE_ID, Name: 'Min Driver Age', DynamicRuleDefinition: '{"apiName":"MinDriverAge"}' },
+        ],
+      },
+    });
+    await writePlan(
+      JSON.stringify({
+        schemaVersion: 1,
+        kind: 'underwriting-update',
+        cmlApi: 'UW_AUTO',
+        generatedAt: '',
+        updates: [
+          {
+            sobject: 'UnderwritingRule',
+            id: RULE_ID,
+            name: 'Min Driver Age',
+            apiName: 'MinDriverAge',
+            fields: [{ field: 'DynamicRuleDefinition', value: '{"apiName":"MinDriverAge","ruleKey":"UW_001"}' }],
+          },
+        ],
+      })
+    );
+
+    await runCommand(['--no-prompt']);
+
+    expect(planSoqls()[0]).to.equal(
+      `SELECT Id, Name, DynamicRuleDefinition FROM UnderwritingRule WHERE Id IN ('${RULE_ID}')`
+    );
   });
 
   it('rejects a file whose kind is not a record-update kind', async () => {
