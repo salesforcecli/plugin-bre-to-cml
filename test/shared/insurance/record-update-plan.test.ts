@@ -183,6 +183,32 @@ describe('record-update-plan parseRecordUpdatePlan', () => {
     );
   });
 
+  it('rejects duplicate entries for the same field rather than silently keeping the last', () => {
+    // Two rows would be previewed with two different target values; only one write would happen.
+    parseFails(
+      surchargePlan([
+        surchargeUpdate({
+          fields: [
+            { field: 'RuleEngineType', value: 'ConstraintEngine' },
+            { field: 'RuleEngineType', value: 'BusinessRuleEngine' },
+          ],
+        }),
+      ]),
+      /sets RuleEngineType more than once/
+    );
+  });
+
+  it('rejects an empty field value, which would blank the field in the org', () => {
+    parseFails(
+      surchargePlan([surchargeUpdate({ fields: [{ field: 'RuleEngineType', value: '' }] })]),
+      /has an empty value/
+    );
+    parseFails(
+      surchargePlan([surchargeUpdate({ fields: [{ field: 'RuleEngineType', value: '   ' }] })]),
+      /has an empty value/
+    );
+  });
+
   it('warns (but does not reject) when a DynamicRuleDefinition value is not parseable JSON', () => {
     const warnings: string[] = [];
     const plan = parseRecordUpdatePlan(

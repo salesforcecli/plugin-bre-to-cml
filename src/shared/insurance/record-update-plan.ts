@@ -164,6 +164,13 @@ function parseUpdate(
   const fields = (value.fields as unknown[]).map((f, fi) =>
     parseField(f, source, `${at}.fields[${fi}]`, typedSobject, value.name as string, options)
   );
+  // Two entries for the same field render two preview rows with two different target values while
+  // exactly one write happens (the payload is built with Object.fromEntries, so the last wins).
+  // The operator cannot consent to that, so refuse the file rather than pick a winner.
+  const duplicate = fields.find((f, i) => fields.findIndex((other) => other.field === f.field) !== i);
+  if (duplicate) {
+    fail(source, `${at} (${value.name as string}) sets ${duplicate.field} more than once`);
+  }
 
   return {
     sobject: typedSobject,
@@ -197,6 +204,12 @@ function parseField(
   }
   if (typeof fieldValue !== 'string') {
     fail(source, `${at} (${field as string}) must have a string value`);
+  }
+  // An empty value is not "leave it alone": isAlreadyCurrent reports a change, the preview renders
+  // an empty right-hand side, and the payload blanks the field in the org. Nothing convert emits
+  // is ever empty, so this can only be a hand-edit gone wrong.
+  if (!isNonEmptyString(fieldValue)) {
+    fail(source, `${at} (${field as string}) has an empty value; a field to clear must be stated explicitly`);
   }
 
   // The blob is written verbatim so a reviewer's hand-correction is honored byte-for-byte; an
