@@ -1147,6 +1147,23 @@ describe('condition data type resolution', () => {
     );
   });
 
+  // In/NotIn reach a different branch of the shared emitter than the comparison operators do, so
+  // they are pinned separately: the quoting here comes from this path's own pre-quoting, and a
+  // refactor that moved it could fix the comparisons while leaving list membership bare.
+  it('quotes a date literal in an In / NotIn list too', () => {
+    expect(buildConstraintDeclaration(oneCondition('Date', ['2026-03-01', '2026-09-01'], 'In'))).to.equal(
+      '(Attr == "2026-03-01" || Attr == "2026-09-01")'
+    );
+    expect(buildConstraintDeclaration(oneCondition('Date', ['2026-03-01'], 'NotIn'))).to.equal(
+      '!(Attr == "2026-03-01")'
+    );
+  });
+
+  // A valueless operator must not acquire an empty quoted literal from the date path.
+  it('leaves a valueless date operator alone', () => {
+    expect(buildConstraintDeclaration(oneCondition('Date', [], 'IsNull'))).to.equal('Attr == null');
+  });
+
   // The quotes make the compiler accept any text, so the bare-date shape check has to survive the
   // move to the quoted path — otherwise this deploys cleanly and silently never fires.
   it('still refuses a date value that is not a bare date, rather than quoting it through', () => {
