@@ -1128,7 +1128,37 @@ describe('condition data type resolution', () => {
 
   // Real payloads spell it 'Datetime'; the map only had 'DateTime'.
   it('resolves the Datetime spelling used by real payloads', () => {
-    expect(buildConstraintDeclaration(oneCondition('Datetime', ['2026-03-01']))).to.equal('Attr == 2026-03-01');
+    expect(buildConstraintDeclaration(oneCondition('Datetime', ['2026-03-01']))).to.equal('Attr == "2026-03-01"');
+  });
+
+  // Quoting a date is load-bearing, not cosmetic: verified against a live model, the unquoted form
+  // is read as arithmetic and fails the DEPLOY, taking every rule in the model down with it. The
+  // relational case is the one the shared emitter would otherwise leave bare.
+  it('quotes a date literal on every operator, including relational', () => {
+    expect(buildConstraintDeclaration(oneCondition('Date', ['2026-03-01']))).to.equal('Attr == "2026-03-01"');
+    expect(buildConstraintDeclaration(oneCondition('Date', ['2026-03-01'], 'GreaterThan'))).to.equal(
+      'Attr > "2026-03-01"'
+    );
+    expect(buildConstraintDeclaration(oneCondition('Date', ['2026-03-01'], 'LessThanOrEquals'))).to.equal(
+      'Attr <= "2026-03-01"'
+    );
+    expect(buildConstraintDeclaration(oneCondition('Date', ['2026-03-01'], 'NotEquals'))).to.equal(
+      'Attr != "2026-03-01"'
+    );
+  });
+
+  // The quotes make the compiler accept any text, so the bare-date shape check has to survive the
+  // move to the quoted path — otherwise this deploys cleanly and silently never fires.
+  it('still refuses a date value that is not a bare date, rather than quoting it through', () => {
+    expect(buildConstraintDeclaration(oneCondition('Date', ['next tuesday']))).to.equal('true');
+    expect(buildConstraintDeclaration(oneCondition('Date', ['2020-01-01) || x(']))).to.equal('true');
+  });
+
+  // Numeric and boolean stay bare — the date exception must not leak into the types the live
+  // staircase exercised unquoted.
+  it('leaves numeric and boolean literals unquoted', () => {
+    expect(buildConstraintDeclaration(oneCondition('Number', ['2020'], 'GreaterThan'))).to.equal('Attr > 2020');
+    expect(buildConstraintDeclaration(oneCondition('Boolean', ['true']))).to.equal('Attr == true');
   });
 
   // CML's `date` cannot hold a time, so a value carrying one is not convertible at all — see

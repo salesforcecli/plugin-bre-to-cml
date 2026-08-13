@@ -1014,12 +1014,12 @@ describe('a rule carrying a datetime value CML cannot represent', () => {
     const { mergedCml, placements, skips } = surcharge(ruleWith('Datetime', ['2026-03-01']));
     expect(skips).to.have.length(0);
     expect(placements).to.have.length(1);
-    expect(mergedCml).to.include('rule(Policy_Start == 2026-03-01,');
+    expect(mergedCml).to.include('rule(Policy_Start == "2026-03-01",');
   });
 
   it('leaves a bare date alone on a relational comparison too', () => {
     const { mergedCml } = surcharge(ruleWith('Date', ['2026-03-01'], 'GreaterThan'));
-    expect(mergedCml).to.include('rule(Policy_Start > 2026-03-01,');
+    expect(mergedCml).to.include('rule(Policy_Start > "2026-03-01",');
   });
 });
 
@@ -1434,8 +1434,11 @@ describe('mergeSurchargeRules context-tag declarations', () => {
     expect(mergedCml).to.include('extern date EndDate;');
     // The declaration is top level, not inside the type block that uses it.
     expect(mergedCml.indexOf('extern date EndDate;')).to.be.lessThan(mergedCml.indexOf('type AutoSilver'));
-    // ...and the rule itself compares the tag unquoted, as a date rather than as a string literal.
-    expect(mergedCml).to.include('rule(EndDate == 2026-12-31, "InsuranceSurchargeRule"');
+    // ...and the rule compares the tag against a QUOTED ISO date. Live evidence: this exact form
+    // deploys and evaluates as a date, while the unquoted `== 2026-12-31` is read as arithmetic and
+    // fails the deploy outright. Both differ from the curated model's hand-written workaround
+    // `"EndDate" == "2026-12-31"`, which compares two string constants and can never be true.
+    expect(mergedCml).to.include('rule(EndDate == "2026-12-31", "InsuranceSurchargeRule"');
   });
 
   it('declares an item-level tag inside the leaf type block, not as an extern', () => {

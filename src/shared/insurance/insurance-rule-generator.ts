@@ -275,6 +275,15 @@ export function isSafeAssociationReferenceValue(value: string): boolean {
  * filter nulls), exactly as an unknown operator or missing value does.
  */
 function emitsUnquoted(op: string, cmlDataType: string): boolean {
+  // DATE is the exception to "non-string emits bare", and it is not a style choice: an unquoted ISO
+  // literal does not compile against a `date` variable. Verified against a live model — `EndDate ==
+  // 2026-12-31` is folded to a constant and rejected with `false cannot be converted to the
+  // constraint`, and `EndDate > 2020-01-01` reports `Operator greatThan is not supported between
+  // DateExternalVar(EndDate) and DecimalConst(-2020.0000)`: the compiler reads the bare literal as
+  // arithmetic, not a date. Either one fails the DEPLOY, which takes down the whole model and every
+  // rule in it. The quoted form is a true date comparison — `> "2020-01-01"` / `> "2030-01-01"`
+  // ordered correctly against a live `2027-07-25` and tracked the field when it changed.
+  if (cmlDataType === CML_DATA_TYPES.DATE) return false;
   return (
     ALWAYS_UNQUOTED_OPERATORS.has(op) || (VALUE_EQUALITY_OPERATORS.has(op) && cmlDataType !== CML_DATA_TYPES.STRING)
   );
@@ -343,7 +352,10 @@ export function findUnconvertibleConditions(
         continue;
       }
 
-      if (cmlDataType !== CML_DATA_TYPES.DATE || !emitsUnquoted(condition.operator, cmlDataType)) continue;
+      // Applies to every date-typed condition, quoted or not. It once keyed off the unquoted path
+      // because that was the only path a date took; now that dates are quoted, keying off it would
+      // silence the check entirely and let a timestamp through as a quoted string.
+      if (cmlDataType !== CML_DATA_TYPES.DATE) continue;
       const offending = values.find((v) => isDateTimeLiteral(v));
       if (!offending) continue;
       reasons.push(
@@ -422,13 +434,28 @@ function buildConditionExpression(
     if (!values.every((v) => isSafeUnquotedLiteral(v, cmlDataType))) {
       return null;
     }
+  } else if (cmlDataType === CML_DATA_TYPES.DATE) {
+    // A date is quoted (see {@link emitsUnquoted}) but is NOT a free-form string: the quotes make
+    // the compiler accept anything, so `EndDate == "next tuesday"` would deploy and never fire.
+    // Hold it to the same bare-date shape the unquoted path demanded.
+    if (!values.every(isSafeDateLiteral)) {
+      return null;
+    }
   } else if (!values.every(isSafeQuotableString)) {
     // String-quoted path: reject values the shared escaper cannot safely contain (backslash, etc.).
     return null;
   }
 
   const attrName = sanitizeName(condition.attributeName ?? condition.contextTagName ?? 'unknown');
-  return convertToCmlExpression(attrName, op, condition.values, cmlDataType);
+
+  // The shared emitter quotes only `string`, and never quotes a relational RHS at all — it is shared
+  // with the Revenue Cloud generator, whose date attributes are declared in-type rather than as the
+  // externs this evidence covers, so teaching it about dates would change a path this proof does not
+  // reach. Quote here instead. Safe to do by hand: isSafeDateLiteral above admits only YYYY-MM-DD,
+  // so there is nothing for escapeQuotes to escape.
+  const emitValues =
+    cmlDataType === CML_DATA_TYPES.DATE && values.length > 0 ? values.map((v) => `"${v.trim()}"`) : condition.values;
+  return convertToCmlExpression(attrName, op, emitValues, cmlDataType);
 }
 
 function buildCriteriaExpression(
