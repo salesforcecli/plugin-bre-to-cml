@@ -736,6 +736,51 @@ type Collision {
     expect(mergedCml).to.include('rule(Limit > 1000, "InsuranceSurchargeRule"');
   });
 
+  // ---- A statement carrying the rule's key but sitting in a DIFFERENT type block than the one the
+  // rule resolves to. Observed live in the autosilver org, where a medPay-keyed surcharge sits in
+  // `type Collision`. Rewriting it where it stands cements the misplacement, and — more seriously —
+  // the attribute gate proved visibility against the RESOLVED block, so the reference may not
+  // resolve where the statement actually lives, which is what takes the whole model down at deploy.
+  it('withholds a rule whose existing statement sits outside its resolved type block', () => {
+    const model = `
+type Collision {
+    int Deductible = [500];
+    int Limit = [1000];
+    rule(true, "InsuranceSurchargeRule", "SC__autoSilver__medPay__Amount1", "True");
+}
+
+type MedicalPayments {
+    int Deductible = [500];
+    int Limit = [1000];
+}
+`;
+    const r = rule('SC__autoSilver__medPay__Amount1', 'MedicalPayments', 'Deductible == 500');
+    const { mergedCml, placements, skips } = mergeSurchargeRules(model, [r]);
+
+    expect(placements).to.have.length(0);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.match(/misplaced statement/);
+    expect(skips[0].reason).to.match(/MedicalPayments/);
+    // The curated statement is left exactly where the modeller put it.
+    expect(mergedCml).to.equal(model);
+  });
+
+  it('still replaces in place when the existing statement is inside the resolved type block', () => {
+    const model = `
+type MedicalPayments {
+    int Deductible = [500];
+    rule(true, "InsuranceSurchargeRule", "SC__autoSilver__medPay__Amount1", "True");
+}
+`;
+    const r = rule('SC__autoSilver__medPay__Amount1', 'MedicalPayments', 'Deductible == 500');
+    const { mergedCml, placements, skips } = mergeSurchargeRules(model, [r]);
+
+    expect(skips).to.have.length(0);
+    expect(placements).to.have.length(1);
+    expect(placements[0].status).to.equal('replaced');
+    expect(mergedCml).to.include('rule(Deductible == 500, "InsuranceSurchargeRule"');
+  });
+
   // ---- Fix #2: replace must splice ONLY the precise matched statement span (`rule(...);`), not the
   // entire physical line, so a curated line carrying TWO `rule(...);` statements keeps the unrelated
   // statement intact.

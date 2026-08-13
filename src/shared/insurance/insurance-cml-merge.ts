@@ -698,6 +698,23 @@ export function mergeSurchargeRules(existingCml: string, rules: PathedSurchargeR
       continue;
     }
 
+    // The replace path below finds the statement by key ANYWHERE in the model, so a statement that
+    // was previously written into the wrong type block gets rewritten there again, cementing the
+    // misplacement. Worse, the attribute gate above proved visibility against the RESOLVED block,
+    // not wherever the statement actually lives — so a mismatch can smuggle a reference that does
+    // not resolve at the real location past the gate, which is the failure that takes the whole
+    // model down. Refuse to rewrite a statement that sits outside the block it resolves to, and
+    // report it; relocating it would mean deleting a curated line, which is the operator's call.
+    // Checked before any declaration is spliced so a rule we withhold leaves no orphan behind.
+    const misplaced = findSurchargeStatement(cml, rule.ruleKey, scan);
+    if (misplaced && (misplaced.start < block.openIdx || misplaced.end > block.closeIdx)) {
+      skips.push({
+        rule,
+        reason: `misplaced statement for ${rule.recordName}: '${rule.ruleKey}' already exists outside its resolved type block '${rule.typeName}'; refusing to rewrite it where it stands`,
+      });
+      continue;
+    }
+
     // The rule is going to be placed, so its resolved context tags must be declared first — the gate
     // above passed them precisely because this runs. Declaring here (rather than after placement)
     // also means a later rule sees the declaration and does not add a second one.
