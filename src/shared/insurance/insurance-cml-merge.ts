@@ -789,6 +789,12 @@ export function mergeUnderwritingConstraints(existingCml: string, rules: Underwr
   const attributeWarnings: string[] = [];
   const eol = detectDominantLineEnding(existingCml);
 
+  // Baseline snapshot for the attribute gate below. `cml` is mutated as rules are placed, and a
+  // placed constraint mentions the attributes it references — scanning the mutated text would let
+  // a rule vouch for its own references, which is the bug the gate exists to prevent.
+  const baseCml = existingCml;
+  const baseScan = blankComments(existingCml);
+
   // Mirrors mergeSurchargeRules' placedKeys guard: a second rule resolving to the same
   // (typeName, constraintName) pair must be reported as a collision skip, not treated as an
   // idempotent replace of the first rule's just-placed statement.
@@ -838,16 +844,30 @@ export function mergeUnderwritingConstraints(existingCml: string, rules: Underwr
       continue;
     }
 
-    // Warn (but do not auto-insert) when a referenced attribute is not declared in the type
-    // block — matching the surcharge merge's behavior. The curated model is not mutated for
-    // attributes; the operator must add them manually before import.
-    for (const attr of rule.referencedAttributes) {
-      const bodyScan = scan.slice(block.openIdx, block.closeIdx + 1);
-      const declRe = new RegExp(`\\b${escapeRegExp(attr.cmlType)}\\s+${escapeRegExp(attr.name)}\\b`);
-      if (declRe.test(bodyScan)) continue;
+    // Withhold — not warn — when a referenced attribute cannot be resolved from this type. An
+    // unresolvable reference makes the solver reject the ENTIRE model at deploy, disabling every
+    // other rule in the same ExpressionSet, and neither import nor activation catches it first.
+    // Uses the same hierarchy-aware scoping as the surcharge gate (leaf block plus its `: Parent`
+    // ancestry, plus top-level externs) rather than the leaf block body alone: an attribute
+    // declared on a parent type is genuinely visible here, and withholding it would be a false
+    // positive. Checked against the BASELINE text, since a rule's own spliced-in constraint
+    // contains the very names being looked for.
+    const absent = findUnresolvableReferences(
+      baseCml,
+      rule.typeName,
+      rule.referencedAttributes.map((a) => a.name),
+      baseScan
+    );
+    if (absent.length > 0) {
+      const names = absent.map((a) => `'${a}'`).join(', ');
       attributeWarnings.push(
-        `${rule.recordName}: declaration references '${attr.name}' which is absent from type '${rule.typeName}'`
+        `${rule.recordName}: declaration references ${names}, absent from type '${rule.typeName}'`
       );
+      skips.push({
+        rule,
+        reason: `undeclared attribute ${names} referenced by ${rule.recordName}; withheld because the solver rejects the whole model at deploy, disabling every rule in it`,
+      });
+      continue;
     }
 
     const stmt = findConstraintStatement(cml, block, rule.constraintName, scan);
@@ -1184,6 +1204,26 @@ function applyContextTagDeclarations(cml: string, rule: PathedSurchargeRule, eol
 }
 
 function findAbsentAttributes(baseCml: string, rule: PathedSurchargeRule, baseScan?: string): string[] {
+  // A context tag that resolved against the org is about to be DECLARED by
+  // {@link applyContextTagDeclarations}, so it counts as visible even though the baseline text does
+  // not mention it yet. Only RESOLVED tags appear here — an unresolved one is deliberately absent
+  // from the set, so it still fails the check and its rule is still withheld.
+  const willDeclare = new Set(rule.contextTagDeclarations.map((d) => d.identifier));
+  return findUnresolvableReferences(baseCml, rule.typeName, rule.referencedAttributes, baseScan, willDeclare);
+}
+
+/**
+ * Shared by both merges: returns the names, out of `names`, that cannot be resolved from inside
+ * type `typeName`. See {@link findAbsentAttributes} for why an unresolvable name is withheld rather
+ * than warned about.
+ */
+function findUnresolvableReferences(
+  baseCml: string,
+  typeName: string | undefined,
+  names: readonly string[],
+  baseScan?: string,
+  willDeclare: ReadonlySet<string> = new Set()
+): string[] {
   const absent: string[] = [];
   // H5/M3: scope the presence check to the leaf type block plus its `: Parent` ancestry, with
   // comments and string literals stripped. CML attribute visibility is hierarchy-scoped, so an
@@ -1197,13 +1237,7 @@ function findAbsentAttributes(baseCml: string, rule: PathedSurchargeRule, baseSc
   // (that re-introduces the sibling-type false negative on exactly the records that hit the replace
   // path before type resolution). Fail VISIBLE instead: treat the scope as empty so an attribute we
   // cannot prove visible is reported, never silently suppressed.
-  const scope = rule.typeName ? collectTypeScopeText(baseCml, rule.typeName, undefined, baseScan) ?? '' : '';
-
-  // A context tag that resolved against the org is about to be DECLARED by
-  // {@link applyContextTagDeclarations}, so it is visible by the time the model is deployed even
-  // though the baseline text does not mention it. Only resolved tags appear here — an unresolved one
-  // is absent from this set on purpose, so it still fails the check and its rule is still withheld.
-  const willDeclare = new Set(rule.contextTagDeclarations.map((d) => d.identifier));
+  const scope = typeName ? collectTypeScopeText(baseCml, typeName, undefined, baseScan) ?? '' : '';
 
   // Type-scoped visibility misses a TOP-LEVEL `extern`, which lives outside every type block yet is
   // referable from inside one (the curated model's own `extern string UserProfile` is used inside
@@ -1211,7 +1245,7 @@ function findAbsentAttributes(baseCml: string, rule: PathedSurchargeRule, baseSc
   // withheld for an attribute that is in fact declared. Matched on the anchored `extern` form only.
   const topLevel = blankTypeBlockBodies(baseCml, baseScan ?? blankComments(baseCml));
 
-  for (const attr of rule.referencedAttributes) {
+  for (const attr of names) {
     if (willDeclare.has(attr)) continue;
     if (new RegExp(`\\b${escapeRegExp(attr)}\\b`).test(scope)) continue;
     if (externDeclarationPattern(attr).test(topLevel)) continue;

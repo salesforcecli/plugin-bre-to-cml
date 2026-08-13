@@ -160,6 +160,7 @@ export default class CmlConvertUnderwritingRules extends InsuranceRuleConvertCom
         typeBlockMissing: 0,
         typeBlockAmbiguous: 0,
         unconvertible: 0,
+        undeclaredAttribute: 0,
         other: 0,
       };
       for (const s of skips) {
@@ -169,13 +170,14 @@ export default class CmlConvertUnderwritingRules extends InsuranceRuleConvertCom
         else if (s.reason.startsWith('no CML type tag')) counts.noTypeTag += 1;
         else if (s.reason.includes('not found in existing model')) counts.typeBlockMissing += 1;
         else if (s.reason.includes('is ambiguous')) counts.typeBlockAmbiguous += 1;
+        else if (s.reason.startsWith('undeclared attribute')) counts.undeclaredAttribute += 1;
         else counts.other += 1;
       }
       this.log(
         `Skip breakdown: ${counts.duplicateConstraint} duplicate-constraint-name, ${counts.emptyPath} empty-ProductPath, ` +
           `${counts.noTypeTag} no-type-tag, ${counts.typeBlockMissing} type-block-missing, ` +
           `${counts.typeBlockAmbiguous} type-block-ambiguous, ${counts.unconvertible} unconvertible, ` +
-          `${counts.other} other`
+          `${counts.undeclaredAttribute} undeclared-attribute, ${counts.other} other`
       );
     }
 

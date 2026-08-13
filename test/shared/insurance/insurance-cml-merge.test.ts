@@ -1227,11 +1227,60 @@ describe('mergeUnderwritingConstraints (attribute-presence probe is type-sensiti
     expect(attributeWarnings).to.deep.equal([]);
   });
 
-  it('still reports a Number attribute the curated model really is missing', () => {
+  // Withholding, not warning: an unresolvable reference makes the solver reject the whole model at
+  // deploy, so placing the constraint would disable every OTHER rule in the same ExpressionSet.
+  it('withholds a constraint whose attribute the curated model really is missing', () => {
     const curated = 'type Driver {\n    string Model;\n}\n';
-    const { attributeWarnings } = mergeUnderwritingConstraints(curated, rules());
+    const { mergedCml, placements, skips, attributeWarnings } = mergeUnderwritingConstraints(curated, rules());
+    expect(placements).to.have.length(0);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.match(/^undeclared attribute 'Age'/);
     expect(attributeWarnings).to.have.length(1);
-    expect(attributeWarnings[0]).to.match(/Age/);
+    expect(mergedCml).to.equal(curated);
+  });
+
+  // The gate is hierarchy-aware for the same reason CML attribute visibility is: an attribute on a
+  // parent type IS referable from the child. Scoping the check to the leaf block body alone — as
+  // this path did while it only warned — would withhold a perfectly valid constraint.
+  it('places a constraint whose attribute is inherited from a parent type', () => {
+    const curated = 'type Person {\n    decimal Age;\n}\n\ntype Driver : Person {\n}\n';
+    const { placements, skips } = mergeUnderwritingConstraints(curated, rules());
+    expect(skips).to.have.length(0);
+    expect(placements).to.have.length(1);
+  });
+
+  it('places a constraint whose attribute is bound by a top-level extern', () => {
+    const curated = 'extern decimal Age;\n\ntype Driver {\n}\n';
+    const { placements, skips } = mergeUnderwritingConstraints(curated, rules());
+    expect(skips).to.have.length(0);
+    expect(placements).to.have.length(1);
+  });
+
+  // The baseline guard: a placed constraint names the attributes it references, so scanning the
+  // MUTATED model would let the first rule vouch for the second's missing reference.
+  it('does not let a placed constraint vouch for a later rule referencing the same absent attribute', () => {
+    const curated = 'type Driver {\n    decimal Age;\n}\n\ntype Vehicle {\n}\n';
+    const second: RuleRecord = { Id: 'r2', Name: 'AgeRule2', ProductPath: 'p2' };
+    const built = buildUnderwritingConstraintRules(
+      'UW',
+      'Underwriting eligibility',
+      [
+        { record, ruleDef },
+        { record: second, ruleDef: { ...ruleDef, name: 'AgeRule2', apiName: 'AgeRule2', productPath: 'p2' } },
+      ],
+      new Map([
+        ['p1', 'autoSilver'],
+        ['p2', 'autoSilver'],
+      ]),
+      new Map([
+        ['p1', 'Driver'],
+        ['p2', 'Vehicle'],
+      ])
+    );
+    const { placements, skips } = mergeUnderwritingConstraints(curated, built);
+    expect(placements.map((p) => p.rule.recordName)).to.deep.equal(['AgeRule']);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.match(/^undeclared attribute 'Age'/);
   });
 });
 
