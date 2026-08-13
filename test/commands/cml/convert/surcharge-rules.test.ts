@@ -49,16 +49,18 @@ type SurchargeFixture = {
   RuleDefinition: string | null;
 };
 
-const ruleDefinition = (apiName: string, conditions: unknown[]): string =>
+const ruleDefinition = (apiName: string, conditions: unknown[], surchargeId?: string): string =>
   JSON.stringify({
     ruleApiName: apiName,
     ruleCriteria: conditions.length ? [{ rootObjectId: 'root', conditions }] : [],
+    ...(surchargeId ? { surchargeId } : {}),
   });
 
 type MockOpts = {
   existingCml?: string | undefined;
   productCodes?: Array<{ Id: string; ProductCode: string | null; Name: string | null }>;
   productTypeTags?: Array<{ ReferenceObjectId: string; ConstraintModelTag: string }>;
+  surchargeCodes?: Array<{ Id: string; Code: string | null }>;
 };
 
 /** Identity helper so the org-fixture options read declaratively at each call site. */
@@ -109,6 +111,7 @@ describe('cml convert surcharge-rules', () => {
       if (soql.includes('FROM ExpressionSetConstraintObj')) {
         return Promise.resolve({ records: opts.productTypeTags ?? [] });
       }
+      if (soql.includes('FROM Surcharge')) return Promise.resolve({ records: opts.surchargeCodes ?? [] });
       return Promise.resolve({ records: [] });
     };
     $$.SANDBOX.stub(Connection.prototype, 'query').callsFake(queryFake as never);
@@ -234,7 +237,66 @@ describe('cml convert surcharge-rules', () => {
     expect(mapping[0].ruleKey).to.equal('SC__autoSilver__collision__CollisionFee');
   });
 
-  it('surfaces both a skip and an attribute warning (neither is silent)', async () => {
+  it('derives the rule key leaf from the parent Surcharge.Code (matching the platform RuleKey)', async () => {
+    stubOrgConnection(
+      mockConnection({
+        existingCml: GOLD_CML,
+        productCodes: [
+          { Id: '01tROOT00000000001', ProductCode: 'autoSilver', Name: 'Auto Silver' },
+          { Id: '01tCOLL00000000001', ProductCode: 'collision', Name: 'Collision' },
+        ],
+        productTypeTags: [{ ReferenceObjectId: '01tCOLL00000000001', ConstraintModelTag: 'Collision' }],
+        surchargeCodes: [{ Id: '1Xq000000000001', Code: 'collisioncode' }],
+      })
+    );
+    await writeSurchargeFile([
+      {
+        Id: 'a0p000000000001',
+        Name: 'Collision Fee',
+        ProductPath: '01tROOT00000000001/01tCOLL00000000001',
+        // apiName is CollisionFee, but the parent Surcharge.Code is collisioncode: the platform
+        // builds RuleKey from the Code, so the emitted key must use the Code leaf, not the apiName.
+        RuleDefinition: ruleDefinition('CollisionFee', [], '1Xq000000000001'),
+      },
+    ]);
+
+    const result = await runCommand();
+
+    expect(result.ruleKeyMapping[0].ruleKey).to.equal('SC__autoSilver__collision__collisioncode');
+    const mergedCml = await fs.readFile(result.cmlFile, 'utf8');
+    expect(mergedCml).to.include('"SC__autoSilver__collision__collisioncode"');
+    // No fallback warning fired, since the Code resolved.
+    expect(warnOutput()).to.not.include('Could not resolve Surcharge.Code');
+  });
+
+  it('warns and falls back to apiName when the parent Surcharge.Code cannot be resolved', async () => {
+    stubOrgConnection(
+      mockConnection({
+        existingCml: GOLD_CML,
+        productCodes: [
+          { Id: '01tROOT00000000001', ProductCode: 'autoSilver', Name: 'Auto Silver' },
+          { Id: '01tCOLL00000000001', ProductCode: 'collision', Name: 'Collision' },
+        ],
+        productTypeTags: [{ ReferenceObjectId: '01tCOLL00000000001', ConstraintModelTag: 'Collision' }],
+        surchargeCodes: [], // Surcharge query returns nothing => fall back to apiName leaf.
+      })
+    );
+    await writeSurchargeFile([
+      {
+        Id: 'a0p000000000001',
+        Name: 'Collision Fee',
+        ProductPath: '01tROOT00000000001/01tCOLL00000000001',
+        RuleDefinition: ruleDefinition('CollisionFee', [], '1Xq000000000001'),
+      },
+    ]);
+
+    const result = await runCommand();
+
+    expect(result.ruleKeyMapping[0].ruleKey).to.equal('SC__autoSilver__collision__CollisionFee');
+    expect(warnOutput()).to.include('Could not resolve Surcharge.Code for Collision Fee');
+  });
+
+  it('withholds the undeclared-attribute rule and surfaces both skips (neither is silent)', async () => {
     stubOrgConnection(
       mockConnection({
         existingCml: GOLD_CML,
@@ -249,7 +311,8 @@ describe('cml convert surcharge-rules', () => {
     );
     await writeSurchargeFile([
       {
-        // Resolves to Collision, but references GhostAttr which is absent from the model => WARN.
+        // Resolves to Collision, but references GhostAttr which is absent from the model. Emitting
+        // it would make the solver reject the entire model at deploy => WITHHELD.
         Id: 'a0p000000000001',
         Name: 'Ghost Attr Fee',
         ProductPath: '01tROOT00000000001/01tCOLL00000000001',
@@ -271,18 +334,20 @@ describe('cml convert surcharge-rules', () => {
     const result = await runCommand();
 
     const warns = warnOutput();
-    // The skip is surfaced as a warning with a clear reason.
+    // Each skip is surfaced as a warning with a clear reason.
     expect(warns).to.match(/SKIPPED Orphan Fee/);
-    // The absent-attribute warning is surfaced.
+    expect(warns).to.match(/SKIPPED Ghost Attr Fee/);
+    expect(warns).to.match(/undeclared attribute/);
+    // The absent attribute is named, so the operator knows what to declare.
     expect(warns).to.match(/ATTRIBUTE/);
     expect(warns).to.match(/GhostAttr/);
+    expect(logOutput()).to.match(/1 undeclared-attribute/);
 
-    // Only the resolvable rule made it into the mapping (the orphan was skipped, not placed).
-    expect(result.ruleKeyMapping).to.have.length(1);
-    expect(result.ruleKeyMapping[0].name).to.equal('Ghost Attr Fee');
+    // Neither rule was placed, so the mapping is empty.
+    expect(result.ruleKeyMapping).to.have.length(0);
 
     const mergedCml = await fs.readFile(result.cmlFile, 'utf8');
-    expect(mergedCml).to.include('SC__autoSilver__collision__GhostAttrFee');
+    expect(mergedCml).to.not.include('GhostAttrFee');
     expect(mergedCml).to.not.include('OrphanFee');
   });
 
@@ -396,6 +461,129 @@ describe('cml convert surcharge-rules', () => {
     const logs = logOutput();
     expect(logs).to.match(/Skip breakdown:/);
     expect(logs).to.match(/no-type-tag/);
+  });
+
+  // A rule CML cannot express is withheld and named, so the operator learns which rule stayed on
+  // the rule engine and why. Left to the generic path it would have arrived as `rule(true, ...)`.
+  it('names the rule it withheld for carrying a value CML cannot express, and buckets it', async () => {
+    stubOrgConnection(
+      mockConnection({
+        existingCml: GOLD_CML,
+        productCodes: [
+          { Id: '01tROOT00000000001', ProductCode: 'autoSilver', Name: 'Auto Silver' },
+          { Id: '01tCOLL00000000001', ProductCode: 'collision', Name: 'Collision' },
+        ],
+        productTypeTags: [{ ReferenceObjectId: '01tCOLL00000000001', ConstraintModelTag: 'Collision' }],
+      })
+    );
+    await writeSurchargeFile([
+      {
+        Id: 'a0p000000000001',
+        Name: 'Renewal Fee',
+        ProductPath: '01tROOT00000000001/01tCOLL00000000001',
+        RuleDefinition: ruleDefinition('RenewalFee', [
+          {
+            operator: 'GreaterThan',
+            attributeName: 'Policy_Start',
+            dataType: 'Datetime',
+            values: ['2026-01-01T10:00:00Z'],
+          },
+        ]),
+      },
+    ]);
+
+    const result = await runCommand();
+
+    expect(warnOutput()).to.match(/SKIPPED Renewal Fee: cannot be expressed in CML/);
+    expect(logOutput()).to.match(/unconvertible/);
+    // Withheld from the CML, and therefore from the record updates that would flip it to the
+    // constraint engine — the rule keeps firing on the rule engine instead of going dark.
+    expect(result.ruleKeyMapping).to.have.length(0);
+    const merged = await fs.readFile(path.join(workspaceDir, `${CML_API}.cml`), 'utf8');
+    expect(merged).to.not.include('rule(');
+  });
+
+  // A substring test against a decimal attribute is the same kind of refusal: strcontain() is a
+  // string function, so the rule cannot be expressed at all. The property that matters beyond the
+  // warning is the record-update plan — a withheld rule whose record still got flipped to the
+  // constraint engine would go dark, disabled on the rule engine with nothing behind it.
+  it('keeps a withheld rule out of the record-update plan, so it stays on the rule engine', async () => {
+    stubOrgConnection(
+      mockConnection({
+        existingCml: GOLD_CML,
+        productCodes: [
+          { Id: '01tROOT00000000001', ProductCode: 'autoSilver', Name: 'Auto Silver' },
+          { Id: '01tCOLL00000000001', ProductCode: 'collision', Name: 'Collision' },
+        ],
+        productTypeTags: [{ ReferenceObjectId: '01tCOLL00000000001', ConstraintModelTag: 'Collision' }],
+      })
+    );
+    await writeSurchargeFile([
+      {
+        Id: 'a0p000000000001',
+        Name: 'Deductible Fee',
+        ProductPath: '01tROOT00000000001/01tCOLL00000000001',
+        RuleDefinition: ruleDefinition('DeductibleFee', [
+          { operator: 'Contains', attributeName: 'Deductible', dataType: 'Currency', values: ['500'] },
+        ]),
+      },
+    ]);
+
+    const result = await runCommand();
+
+    expect(warnOutput()).to.match(/SKIPPED Deductible Fee: cannot be expressed in CML/);
+    expect(logOutput()).to.match(/unconvertible/);
+    expect(result.ruleKeyMapping).to.have.length(0);
+    const merged = await fs.readFile(path.join(workspaceDir, `${CML_API}.cml`), 'utf8');
+    expect(merged).to.not.include('strcontain');
+
+    const plan = JSON.parse(await fs.readFile(path.join(workspaceDir, `${CML_API}_SurchargeUpdate.json`), 'utf8')) as {
+      updates: Array<{ id: string }>;
+    };
+    expect(plan.updates).to.have.length(0);
+  });
+
+  // A rule that lost every condition is the same hazard arriving by a different route: nothing was
+  // unrepresentable, but every expression was dropped by a safety guard, so the rule would have
+  // been placed as `rule(true, ...)` and charged every quote. The record-update plan is the
+  // property that matters most — a withheld rule whose record still got flipped would go dark.
+  it('keeps a rule whose conditions all dropped out of the CML and the record-update plan', async () => {
+    stubOrgConnection(
+      mockConnection({
+        existingCml: GOLD_CML,
+        productCodes: [
+          { Id: '01tROOT00000000001', ProductCode: 'autoSilver', Name: 'Auto Silver' },
+          { Id: '01tCOLL00000000001', ProductCode: 'collision', Name: 'Collision' },
+        ],
+        productTypeTags: [{ ReferenceObjectId: '01tCOLL00000000001', ConstraintModelTag: 'Collision' }],
+      })
+    );
+    await writeSurchargeFile([
+      {
+        Id: 'a0p000000000001',
+        Name: 'Deductible Fee',
+        ProductPath: '01tROOT00000000001/01tCOLL00000000001',
+        // The measured case: In (500, "Premium") on a currency-typed attribute. 'Premium' fails the
+        // numeric literal guard, which drops the condition and leaves nothing to compare.
+        RuleDefinition: ruleDefinition('DeductibleFee', [
+          { operator: 'In', attributeName: 'Deductible', dataType: 'Currency', values: ['500', 'Premium'] },
+        ]),
+      },
+    ]);
+
+    const result = await runCommand();
+
+    expect(warnOutput()).to.match(/SKIPPED Deductible Fee: cannot be expressed in CML/);
+    expect(warnOutput()).to.match(/could not be converted/);
+    expect(logOutput()).to.match(/unconvertible/);
+    expect(result.ruleKeyMapping).to.have.length(0);
+    const merged = await fs.readFile(path.join(workspaceDir, `${CML_API}.cml`), 'utf8');
+    expect(merged).to.not.include('rule(');
+
+    const plan = JSON.parse(await fs.readFile(path.join(workspaceDir, `${CML_API}_SurchargeUpdate.json`), 'utf8')) as {
+      updates: Array<{ id: string }>;
+    };
+    expect(plan.updates).to.have.length(0);
   });
 
   // ---- Fix #8: a product id that the Product2 query did NOT return (deleted / not visible /

@@ -24,7 +24,7 @@ import { CmlModel } from '../types/types.js';
 import { generateCsvForAssociations } from '../utils/association.utils.js';
 import { ParsedRuleDefinition, RecordUpdate, RecordUpdatePlan, RuleKeyEntry, RuleRecord } from './models.js';
 import { buildCmlModel, isSafeAssociationReferenceValue, sanitizeName } from './insurance-rule-generator.js';
-import { discoverCmlApiByProducts, fetchProductCodes } from './insurance-org.js';
+import { discoverCmlApiByProducts, fetchAttributeDataTypes, fetchProductCodes } from './insurance-org.js';
 import { splitProductPath } from './insurance-cml-merge.js';
 
 Messages.importMessagesDirectoryFromMetaUrl(import.meta.url);
@@ -87,6 +87,24 @@ export abstract class InsuranceRuleConvertCommand<R extends RuleRecord> extends 
   // When defined, eligibility is emitted as a CML `rule(...)` statement tagged with this rule
   // type instead of a `constraint`. Subclasses that want the constraint form leave it undefined.
   protected readonly ruleType?: string;
+
+  /**
+   * AttributeDefinition id -> the data type its condition values must be compared as, resolved once
+   * per run and shared by build and merge mode. Populated by {@link runConvert} before either mode
+   * builds a declaration; empty when no condition carries an attribute id.
+   */
+  protected attributeDataTypes: ReadonlyMap<string, string> = new Map();
+
+  /**
+   * Product2 ids named by some rule's ProductPath that the Product2 query did not return — the same
+   * condition {@link resolveProductCodes} already warns about per id, captured so later reporting can
+   * tell an operator that a rule is blocked permanently (the product does not exist / is not visible
+   * here) rather than blocked until the next run. Deliberately populated only on the path that emits
+   * that warning: when the query itself fails no id is recorded, so nothing can claim a product was
+   * absent when we simply never learned.
+   */
+  protected productIdsMissingFromOrg: ReadonlySet<string> = new Set();
+
   protected abstract readonly recordLabel: string;
   protected abstract readonly keyPrefix: string;
   protected abstract readonly constraintLabel: string;
@@ -123,6 +141,7 @@ export abstract class InsuranceRuleConvertCommand<R extends RuleRecord> extends 
 
     const ruleDefs = this.parseAllRecords(records);
     const { productIdToCode, productIdToName } = await this.resolveProductCodes(conn, ruleDefs);
+    this.attributeDataTypes = await this.resolveAttributeDataTypes(conn, ruleDefs);
 
     const api = ctx.cmlApi ?? (await this.discoverCmlApi(conn, ruleDefs, productIdToCode));
     const safeApi = api.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -131,15 +150,19 @@ export abstract class InsuranceRuleConvertCommand<R extends RuleRecord> extends 
       return this.runMergeConvert(ctx, conn, records, ruleDefs, productIdToCode, api, safeApi, workspaceDir);
     }
 
-    const { cmlModel, ruleKeyMapping } = buildCmlModel(
+    const { cmlModel, ruleKeyMapping, skipped } = buildCmlModel(
       ruleDefs,
       productIdToCode,
       this.keyPrefix,
       this.constraintLabel,
       this.ruleType,
-      productIdToName
+      productIdToName,
+      this.attributeDataTypes
     );
     ruleKeyMapping.forEach((m) => this.log(`  -> ${m.name} => ${m.ruleKey}`));
+    // Mirrors the merge modes' SKIPPED lines: a rule the generator refused is named with its
+    // reason, never dropped in silence.
+    skipped.forEach((s) => this.warn(`  SKIPPED ${s.name}: ${s.reason}`));
 
     const recordUpdateFile = await this.writeRecordUpdateFile(records, ruleKeyMapping, api, safeApi, workspaceDir);
 
@@ -199,7 +222,9 @@ export abstract class InsuranceRuleConvertCommand<R extends RuleRecord> extends 
     this.log(
       `  2. Activate the CML: sf cml import as-expression-set --cml-api ${api} --context-definition <CD_NAME> --target-org <org>`
     );
-    this.log(`  3. Apply the org-record changes enumerated in ${recordUpdateFile} to the target org`);
+    this.log(
+      `  3. Apply the org-record changes: sf insurance import record-updates --file ${recordUpdateFile} --target-org <org>`
+    );
 
     return { cmlFile: cmlPath, associationsFile: associationsPath, ruleKeyMapping, recordUpdateFile };
   }
@@ -284,6 +309,43 @@ export abstract class InsuranceRuleConvertCommand<R extends RuleRecord> extends 
     return parsed;
   }
 
+  /**
+   * Resolves the comparable data type of every attribute the rules reference.
+   *
+   * A condition reports `dataType: 'Picklist'`, which is not a comparable type — a Deductible whose
+   * values are 250/500/1000 sits behind a Currency picklist. Unresolved, its values are emitted
+   * quoted while the same model declares the attribute `decimal`, so the rule compares a decimal
+   * against a string and never fires.
+   *
+   * A failure here is downgraded to a warning rather than aborting the convert: without resolution
+   * every value falls back to the string-quoted path, which is the pre-existing behavior.
+   */
+  private async resolveAttributeDataTypes(
+    conn: Connection,
+    ruleDefs: Array<{ ruleDef: ParsedRuleDefinition }>
+  ): Promise<ReadonlyMap<string, string>> {
+    const attributeIds = new Set<string>();
+    for (const { ruleDef } of ruleDefs) {
+      for (const criteria of ruleDef.ruleCriteria ?? []) {
+        for (const condition of criteria.conditions ?? []) {
+          if (condition.attributeId) attributeIds.add(condition.attributeId);
+        }
+      }
+    }
+    if (attributeIds.size === 0) return new Map();
+
+    try {
+      return await fetchAttributeDataTypes(conn, attributeIds);
+    } catch (err) {
+      this.warn(
+        `Could not resolve attribute data types (${
+          err instanceof Error ? err.message : String(err)
+        }); picklist values will be compared as strings and numeric comparisons may not fire`
+      );
+      return new Map();
+    }
+  }
+
   private async resolveProductCodes(
     conn: Connection,
     ruleDefs: Array<{ record: RuleRecord }>
@@ -311,14 +373,17 @@ export abstract class InsuranceRuleConvertCommand<R extends RuleRecord> extends 
       // ids mean the Product2 row is invalid / deleted / outside the visible scope — generation
       // will silently fall back to the raw Id for that path segment, again yielding a non-matching
       // platform RuleKey. Surface this case explicitly so the operator can investigate.
+      const missingFromOrg = new Set<string>();
       for (const id of productIds) {
         if (!productIdToCode.has(id)) {
+          missingFromOrg.add(id);
           this.warn(
             `Product ${id} was not returned by Product2 query (not found, not visible, or filtered out); ` +
               'rule key for paths through this product will fall back to the raw Id and may not match the platform-generated RuleKey'
           );
         }
       }
+      this.productIdsMissingFromOrg = missingFromOrg;
       this.validateAssociationNames(productIdToName);
       return { productIdToCode, productIdToName };
     } catch (e) {
@@ -420,7 +485,9 @@ export abstract class InsuranceRuleConvertCommand<R extends RuleRecord> extends 
     this.log(
       `  2. Activate the CML: sf cml import as-expression-set --cml-api ${api} --context-definition <CD_NAME> --target-org <org>`
     );
-    this.log(`  3. Apply the org-record changes enumerated in ${recordUpdateFile} to the target org`);
+    this.log(
+      `  3. Apply the org-record changes: sf insurance import record-updates --file ${recordUpdateFile} --target-org <org>`
+    );
 
     return { cmlFile: cmlPath, associationsFile: associationsPath, ruleKeyMapping, recordUpdateFile };
   }

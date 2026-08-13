@@ -62,6 +62,14 @@
             "description": "description for cml.import"
           }
         }
+      },
+      "insurance": {
+        "description": "description for insurance",
+        "subtopics": {
+          "import": {
+            "description": "description for insurance.import"
+          }
+        }
       }
     },
     "flexibleTaxonomy": true

@@ -19,13 +19,15 @@ import {
   buildPathedRuleKey,
   buildPathedSurchargeRules,
   buildSurchargeRuleStatement,
+  buildUnderwritingConstraintRules,
   fetchExistingConstraintModel,
   fetchProductTypeTags,
   mergeSurchargeRules,
+  mergeUnderwritingConstraints,
   splitProductPath,
   SURCHARGE_RULE_ACTION,
 } from '../../../src/shared/insurance/insurance-cml-merge.js';
-import { ParsedRuleDefinition, RuleRecord } from '../../../src/shared/insurance/models.js';
+import { ParsedRuleDefinition, RuleCondition, RuleRecord } from '../../../src/shared/insurance/models.js';
 
 /**
  * Minimal curated "Gold Standard"-shaped model used as the merge fixture. Mirrors the real org
@@ -112,6 +114,13 @@ describe('splitProductPath', () => {
     expect(splitProductPath('p1')).to.deep.equal(['p1']);
   });
 
+  // ProductPath is nullable in the org even on records that carry a rule. Throwing here aborted the
+  // entire conversion run before any record could reach the empty-ProductPath skip.
+  it('returns an empty array for a null or undefined path', () => {
+    expect(splitProductPath(null)).to.deep.equal([]);
+    expect(splitProductPath(undefined)).to.deep.equal([]);
+  });
+
   it('returns an empty array for an empty string', () => {
     expect(splitProductPath('')).to.deep.equal([]);
   });
@@ -162,6 +171,27 @@ describe('buildPathedSurchargeRules', () => {
     );
   });
 
+  // Records can carry a rule with ProductPath null in the org. Building must yield an empty path so
+  // the record reaches the empty-ProductPath skip, rather than throwing and aborting the whole run.
+  it('yields empty pathProductCodes for a null ProductPath instead of throwing', () => {
+    const ruleDefs = [
+      { record: { Id: 'r1', Name: 'Auto_HighRiskTax', ProductPath: null }, ruleDef: makeRuleDef('Fee', '') },
+    ];
+
+    const build = (): ReturnType<typeof buildPathedSurchargeRules> =>
+      buildPathedSurchargeRules('SC', ruleDefs, new Map(), new Map());
+    expect(build).to.not.throw();
+
+    const [rule] = build();
+    expect(rule.pathProductCodes).to.deep.equal([]);
+
+    // And the merge then reports it as a skip rather than placing it.
+    const { placements, skips } = mergeSurchargeRules(GOLD_CML, [rule]);
+    expect(placements).to.have.length(0);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.match(/empty ProductPath|non-pathed/i);
+  });
+
   it('falls back to the product id when a segment code is unknown', () => {
     const ruleDefs = [
       { record: makeRecord('r1', 'S1', 'p1/01tUNKNOWN'), ruleDef: makeRuleDef('Fee', 'p1/01tUNKNOWN') },
@@ -187,6 +217,41 @@ describe('buildPathedSurchargeRules', () => {
     const [rule] = buildPathedSurchargeRules('SC', [{ record, ruleDef }], new Map([['p1', 'autoSilver']]), new Map());
     expect(rule.ruleKey).to.equal('SC__autoSilver__RecordName');
   });
+
+  it('uses the parent Surcharge.Code (not the apiName) as the key leaf when resolvable', () => {
+    const record = makeRecord('r1', 'Basic_Tax', 'p1');
+    const ruleDef = { name: 'Basic_Tax', apiName: 'Basic_Tax', productPath: 'p1', surchargeId: 'sc1' };
+    const [rule] = buildPathedSurchargeRules(
+      'SC',
+      [{ record, ruleDef }],
+      new Map([['p1', 'commProperty']]),
+      new Map(),
+      {
+        surchargeIdToCode: new Map([['sc1', 'basictaxcode']]),
+      }
+    );
+    // Matches the platform-generated ProductSurcharge.RuleKey (Surcharge.Code leaf), not SC__commProperty__Basic_Tax.
+    expect(rule.ruleKey).to.equal('SC__commProperty__basictaxcode');
+    expect(rule.statement).to.include('"SC__commProperty__basictaxcode"');
+  });
+
+  it('falls back to apiName and fires onSurchargeCodeFallback when the Surcharge.Code is unresolved', () => {
+    const record = makeRecord('r1', 'Basic_Tax', 'p1');
+    const ruleDef = { name: 'Basic_Tax', apiName: 'Basic_Tax', productPath: 'p1', surchargeId: 'scMissing' };
+    const missed: string[] = [];
+    const [rule] = buildPathedSurchargeRules(
+      'SC',
+      [{ record, ruleDef }],
+      new Map([['p1', 'commProperty']]),
+      new Map(),
+      {
+        surchargeIdToCode: new Map(),
+        onSurchargeCodeFallback: (name) => missed.push(name),
+      }
+    );
+    expect(rule.ruleKey).to.equal('SC__commProperty__Basic_Tax');
+    expect(missed).to.deep.equal(['Basic_Tax']);
+  });
 });
 
 describe('mergeSurchargeRules', () => {
@@ -205,6 +270,9 @@ describe('mergeSurchargeRules', () => {
     typeName,
     statement: buildSurchargeRuleStatement(declaration, ruleKey),
     referencedAttributes: [],
+    // No context tags by default: these fixtures exercise placement, not binding. The
+    // context-tag suite below builds rules that carry declarations explicitly.
+    contextTagDeclarations: [],
   });
 
   it('inserts a new rule before the closing brace of the leaf type block', () => {
@@ -301,18 +369,26 @@ type Collision {
     expect((mergedCml.match(/{/g) ?? []).length).to.equal((mergedCml.match(/}/g) ?? []).length);
   });
 
-  it('warns (without skipping) when a declaration references an attribute absent from the model', () => {
+  // The solver rejects the whole model at deploy when a reference does not resolve, taking every
+  // other rule in the ExpressionSet down with it, so an unresolvable rule must never be emitted.
+  it('withholds a rule whose declaration references an attribute absent from the model', () => {
     // Mirror real buildPathedSurchargeRules output: the referenced attribute is embedded in the
-    // statement declaration. The warning must still fire because the attribute is absent from the
-    // ORIGINAL curated model — proving the check runs against the baseline, not the post-insert text.
+    // statement declaration. The rule must still be withheld because the attribute is absent from
+    // the ORIGINAL curated model — proving the check runs against the baseline, not the post-insert
+    // text (which always contains the attribute inside the rule's own statement).
     const r = {
       ...rule('SC__autoSilver__auto__collision__FEE', 'Collision', 'NonExistentAttribute > 5'),
       referencedAttributes: ['NonExistentAttribute'],
     };
-    const { placements, attributeWarnings } = mergeSurchargeRules(GOLD_CML, [r]);
-    expect(placements).to.have.length(1);
+    const { mergedCml, placements, skips, attributeWarnings } = mergeSurchargeRules(GOLD_CML, [r]);
+    expect(placements).to.have.length(0);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.match(/undeclared attribute/);
+    expect(skips[0].reason).to.match(/NonExistentAttribute/);
     expect(attributeWarnings).to.have.length(1);
     expect(attributeWarnings[0]).to.match(/NonExistentAttribute/);
+    // The model is left exactly as found.
+    expect(mergedCml).to.equal(GOLD_CML);
   });
 
   it('does not warn when the referenced attribute is present in the model', () => {
@@ -606,10 +682,12 @@ type Collision {
     );
   });
 
-  // ---- H5 (unresolvable-leaf fallback facet): when the leaf type block is ambiguous (duplicate
-  // declaration) the warning check must not silently widen to the whole model and let a sibling-type
-  // declaration of the attribute suppress a real absent-attribute warning.
-  it('H5: a sibling-only attribute still warns even when the replace path hits an ambiguous leaf type', () => {
+  // ---- H5 (unresolvable-leaf facet): an ambiguous leaf type block means we cannot prove what a
+  // reference resolves to, so the rule is withheld — and, critically, withheld BEFORE the replace
+  // path, so a key match alone can never rewrite a curated statement in a model we cannot reason
+  // about. The reason names the ambiguity rather than blaming the attribute, because "declare
+  // SneakyAttr" is not the fix when the type block itself is duplicated.
+  it('H5: an ambiguous leaf type withholds the rule without clobbering the existing statement', () => {
     // Duplicate `type Collision` → collectTypeScopeText returns undefined (ambiguous). An existing
     // surcharge statement for the key forces the REPLACE path (which runs before type-block resolution).
     // SneakyAttr is declared ONLY on the unrelated sibling type Helper — never on any Collision block.
@@ -625,15 +703,16 @@ type Collision { int Other = [2]; }
       ...rule('SC__x__collision__FEE', 'Collision', 'SneakyAttr > 5'),
       referencedAttributes: ['SneakyAttr'],
     };
-    const { placements, attributeWarnings } = mergeSurchargeRules(model, [r]);
+    const { mergedCml, placements, skips, attributeWarnings } = mergeSurchargeRules(model, [r]);
 
-    // The existing statement is replaced in place...
-    expect(placements).to.have.length(1);
-    expect(placements[0].status).to.equal('replaced');
-    // ...but SneakyAttr is NOT visible to the Collision leaf (only declared on sibling Helper), so the
-    // absent-attribute warning must still fire. The whole-model fallback must not suppress it.
-    expect(attributeWarnings).to.have.length(1);
-    expect(attributeWarnings[0]).to.match(/SneakyAttr/);
+    expect(placements).to.have.length(0);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.match(/is ambiguous/);
+    // The attribute gate never runs, so SneakyAttr is not blamed for a type-block problem.
+    expect(attributeWarnings).to.have.length(0);
+    // CRITICAL: the rule matched an existing statement, so the withholding must happen BEFORE the
+    // replace splice — otherwise we would clobber the curated line on the way to skipping the rule.
+    expect(mergedCml).to.equal(model);
   });
 
   // ---- L1: replace happens within the correct block.
@@ -655,6 +734,51 @@ type Collision {
     // The Comprehensive comment is untouched; the replace happened in the Collision block.
     expect(mergedCml).to.include('referenced in a comment here');
     expect(mergedCml).to.include('rule(Limit > 1000, "InsuranceSurchargeRule"');
+  });
+
+  // ---- A statement carrying the rule's key but sitting in a DIFFERENT type block than the one the
+  // rule resolves to. Observed live in the autosilver org, where a medPay-keyed surcharge sits in
+  // `type Collision`. Rewriting it where it stands cements the misplacement, and — more seriously —
+  // the attribute gate proved visibility against the RESOLVED block, so the reference may not
+  // resolve where the statement actually lives, which is what takes the whole model down at deploy.
+  it('withholds a rule whose existing statement sits outside its resolved type block', () => {
+    const model = `
+type Collision {
+    int Deductible = [500];
+    int Limit = [1000];
+    rule(true, "InsuranceSurchargeRule", "SC__autoSilver__medPay__Amount1", "True");
+}
+
+type MedicalPayments {
+    int Deductible = [500];
+    int Limit = [1000];
+}
+`;
+    const r = rule('SC__autoSilver__medPay__Amount1', 'MedicalPayments', 'Deductible == 500');
+    const { mergedCml, placements, skips } = mergeSurchargeRules(model, [r]);
+
+    expect(placements).to.have.length(0);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.match(/misplaced statement/);
+    expect(skips[0].reason).to.match(/MedicalPayments/);
+    // The curated statement is left exactly where the modeller put it.
+    expect(mergedCml).to.equal(model);
+  });
+
+  it('still replaces in place when the existing statement is inside the resolved type block', () => {
+    const model = `
+type MedicalPayments {
+    int Deductible = [500];
+    rule(true, "InsuranceSurchargeRule", "SC__autoSilver__medPay__Amount1", "True");
+}
+`;
+    const r = rule('SC__autoSilver__medPay__Amount1', 'MedicalPayments', 'Deductible == 500');
+    const { mergedCml, placements, skips } = mergeSurchargeRules(model, [r]);
+
+    expect(skips).to.have.length(0);
+    expect(placements).to.have.length(1);
+    expect(placements[0].status).to.equal('replaced');
+    expect(mergedCml).to.include('rule(Deductible == 500, "InsuranceSurchargeRule"');
   });
 
   // ---- Fix #2: replace must splice ONLY the precise matched statement span (`rule(...);`), not the
@@ -790,6 +914,376 @@ describe('buildPathedSurchargeRules (referencedAttributes scoping — M7)', () =
   });
 });
 
+/**
+ * CML has no datetime primitive — `date` is the closest slot, and it has no room for a time.
+ * Emitting the timestamp anyway relies on unverified platform behavior; dropping just the offending
+ * condition is worse, because nothing downstream withholds a rule whose declaration collapsed to
+ * `true` (the first test below pins that), so the rule would arrive matching everything. Both merge
+ * paths therefore withhold the whole rule and say why, the way they already do for a rule they
+ * cannot place.
+ */
+describe('a rule carrying a datetime value CML cannot represent', () => {
+  const record: RuleRecord = { Id: 'r1', Name: 'StartRule', ProductPath: 'p1' };
+
+  const ruleWith = (dataType: string, values: string[], operator = 'Equals'): ParsedRuleDefinition => ({
+    name: 'StartRule',
+    apiName: 'StartRule',
+    productPath: 'p1',
+    ruleCriteria: [
+      { rootObjectId: 'root', conditions: [{ operator, attributeName: 'Policy_Start', dataType, values }] },
+    ],
+  });
+
+  const CURATED = 'type Driver {\n    date Policy_Start;\n}\n';
+  const codes = (): Map<string, string> => new Map([['p1', 'autoSilver']]);
+  const tags = (): Map<string, string> => new Map([['p1', 'Driver']]);
+
+  const surcharge = (ruleDef: ParsedRuleDefinition): ReturnType<typeof mergeSurchargeRules> =>
+    mergeSurchargeRules(CURATED, buildPathedSurchargeRules('SC', [{ record, ruleDef }], codes(), tags(), {}));
+
+  const underwriting = (ruleDef: ParsedRuleDefinition): ReturnType<typeof mergeUnderwritingConstraints> =>
+    mergeUnderwritingConstraints(
+      CURATED,
+      buildUnderwritingConstraintRules('UW', 'Underwriting eligibility', [{ record, ruleDef }], codes(), tags())
+    );
+
+  // The reason the withhold has to happen before the declaration is built: once
+  // buildConstraintDeclaration has answered, a rule that lost every condition is indistinguishable
+  // from one that never had any — both are `true`. That collapse used to be placed as an
+  // unconditional rule (the empty-dataType defect's mechanism, pinned here as the justification);
+  // it is now refused through this same channel, so the justification is asserted as the behavior.
+  it('is why: a rule whose conditions all drop is withheld rather than placed as `true`', () => {
+    const { mergedCml, placements, skips } = surcharge(ruleWith('Number', ['not-a-number']));
+    expect(placements).to.have.length(0);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.match(/could not be converted/);
+    expect(mergedCml).to.not.include('rule(');
+  });
+
+  it('is withheld from the surcharge merge instead of placed', () => {
+    const { mergedCml, placements, skips } = surcharge(ruleWith('Datetime', ['2026-01-01T10:00:00Z']));
+    expect(placements).to.have.length(0);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.match(/Policy_Start/);
+    expect(skips[0].reason).to.match(/2026-01-01T10:00:00Z/);
+    expect(mergedCml).to.not.include('rule(');
+  });
+
+  it('is withheld from the underwriting merge instead of placed', () => {
+    const { mergedCml, placements, skips } = underwriting(ruleWith('Datetime', ['2026-01-01T10:00:00Z']));
+    expect(placements).to.have.length(0);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.match(/Policy_Start/);
+    expect(mergedCml).to.not.include('constraint StartRule');
+  });
+
+  // The whole rule goes, not just the offending condition: dropping one condition of a multi-part
+  // rule widens what the rule matches, which is the failure mode being avoided.
+  it('takes the whole rule with it, rather than merging the conditions that did convert', () => {
+    const ruleDef: ParsedRuleDefinition = {
+      name: 'StartRule',
+      apiName: 'StartRule',
+      productPath: 'p1',
+      ruleCriteria: [
+        {
+          rootObjectId: 'root',
+          conditions: [
+            { operator: 'Equals', attributeName: 'Model', dataType: 'Text', values: ['SUV'] },
+            {
+              operator: 'Equals',
+              attributeName: 'Policy_Start',
+              dataType: 'Datetime',
+              values: ['2026-01-01T10:00:00Z'],
+            },
+          ],
+        },
+      ],
+    };
+    const { mergedCml, skips } = surcharge(ruleDef);
+    expect(skips).to.have.length(1);
+    expect(mergedCml).to.not.include('Model == "SUV"');
+  });
+
+  // A Date attribute is just as unable to hold a time, so the same guard applies to it.
+  it('applies to a Date attribute handed a timestamp, not only to a Datetime one', () => {
+    expect(surcharge(ruleWith('Date', ['2026-01-01T10:00:00Z'])).skips).to.have.length(1);
+  });
+
+  // Unchanged: a value with no time component has always converted cleanly and still must.
+  it('leaves a bare date alone', () => {
+    const { mergedCml, placements, skips } = surcharge(ruleWith('Datetime', ['2026-03-01']));
+    expect(skips).to.have.length(0);
+    expect(placements).to.have.length(1);
+    expect(mergedCml).to.include('rule(Policy_Start == "2026-03-01",');
+  });
+
+  it('leaves a bare date alone on a relational comparison too', () => {
+    const { mergedCml } = surcharge(ruleWith('Date', ['2026-03-01'], 'GreaterThan'));
+    expect(mergedCml).to.include('rule(Policy_Start > "2026-03-01",');
+  });
+});
+
+/**
+ * `strcontain()` is a string function. Applied to an attribute the model declares decimal, boolean
+ * or date, a substring test has no faithful CML form at all — the emitted `strcontain(Deductible,
+ * "500")` compares a number as text and never fires. Reuses the same withhold-and-name machinery as
+ * the datetime case above, for the same reason: a rule that quietly does nothing is worse than a
+ * rule the operator is told to migrate by hand.
+ */
+describe('a rule applying a substring test to a non-string attribute', () => {
+  const record: RuleRecord = { Id: 'r1', Name: 'DeductibleRule', ProductPath: 'p1' };
+
+  const ruleWith = (dataType: string, operator: string, values = ['500']): ParsedRuleDefinition => ({
+    name: 'DeductibleRule',
+    apiName: 'DeductibleRule',
+    productPath: 'p1',
+    ruleCriteria: [{ rootObjectId: 'root', conditions: [{ operator, attributeName: 'Deductible', dataType, values }] }],
+  });
+
+  const CURATED = 'type Driver {\n    decimal Deductible;\n}\n';
+  const codes = (): Map<string, string> => new Map([['p1', 'autoSilver']]);
+  const tags = (): Map<string, string> => new Map([['p1', 'Driver']]);
+
+  const surcharge = (ruleDef: ParsedRuleDefinition): ReturnType<typeof mergeSurchargeRules> =>
+    mergeSurchargeRules(CURATED, buildPathedSurchargeRules('SC', [{ record, ruleDef }], codes(), tags(), {}));
+
+  const underwriting = (ruleDef: ParsedRuleDefinition): ReturnType<typeof mergeUnderwritingConstraints> =>
+    mergeUnderwritingConstraints(
+      CURATED,
+      buildUnderwritingConstraintRules('UW', 'Underwriting eligibility', [{ record, ruleDef }], codes(), tags())
+    );
+
+  it('is withheld from the surcharge merge instead of placed', () => {
+    const { mergedCml, placements, skips } = surcharge(ruleWith('Currency', 'Contains'));
+    expect(placements).to.have.length(0);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.match(/Deductible/);
+    expect(skips[0].reason).to.match(/Contains/);
+    expect(mergedCml).to.not.include('strcontain');
+    expect(mergedCml).to.not.include('rule(');
+  });
+
+  it('is withheld from the underwriting merge instead of placed', () => {
+    const { mergedCml, placements, skips } = underwriting(ruleWith('Checkbox', 'DoesNotContain', ['true']));
+    expect(placements).to.have.length(0);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.match(/Deductible/);
+    expect(mergedCml).to.not.include('constraint DeductibleRule');
+  });
+
+  // Unchanged, and the case the reference org actually has: a substring test on a String attribute
+  // is representable and still converts.
+  it('leaves a substring test on a string attribute alone', () => {
+    const { mergedCml, placements, skips } = surcharge(ruleWith('Text', 'Contains', ['Severe']));
+    expect(skips).to.have.length(0);
+    expect(placements).to.have.length(1);
+    expect(mergedCml).to.include('rule(strcontain(Deductible, "Severe"),');
+  });
+});
+
+/**
+ * A rule whose criteria existed but lost every condition to a safety guard is a conversion failure
+ * reported as success: `buildConstraintDeclaration` answers `true`, and the merge places
+ * `rule(true, ...)` — a surcharge that charges every customer, or an underwriting constraint that
+ * is always satisfied. A rule with NO criteria answers `true` for the opposite reason: it genuinely
+ * applies always, and curated models carry such lines. Only the first is withheld, through the same
+ * channel as the datetime and substring refusals.
+ */
+describe('a rule whose every condition was dropped in conversion', () => {
+  const DEDUCTIBLE_ID = '0tjfiw000000CMBAA2';
+  const record: RuleRecord = { Id: 'r1', Name: 'Deductible Fee', ProductPath: 'p1' };
+
+  const ruleWith = (conditions: RuleCondition[]): ParsedRuleDefinition => ({
+    name: 'Deductible Fee',
+    apiName: 'DeductibleFee',
+    productPath: 'p1',
+    ruleCriteria: [{ rootObjectId: 'root', conditions }],
+  });
+
+  // Refused by the numeric safe-literal guard, so the rule's only condition drops.
+  const unsafeNumeric = (): RuleCondition[] => [
+    { operator: 'Equals', attributeName: 'Deductible', dataType: 'Number', values: ['not-a-number'] },
+  ];
+
+  const CURATED = 'type Driver {\n    decimal Deductible;\n}\n';
+  const codes = (): Map<string, string> => new Map([['p1', 'autoSilver']]);
+  const tags = (): Map<string, string> => new Map([['p1', 'Driver']]);
+
+  const surcharge = (
+    ruleDef: ParsedRuleDefinition,
+    attributeDataTypes?: Map<string, string>
+  ): ReturnType<typeof mergeSurchargeRules> =>
+    mergeSurchargeRules(
+      CURATED,
+      buildPathedSurchargeRules('SC', [{ record, ruleDef }], codes(), tags(), { attributeDataTypes })
+    );
+
+  const underwriting = (ruleDef: ParsedRuleDefinition): ReturnType<typeof mergeUnderwritingConstraints> =>
+    mergeUnderwritingConstraints(
+      CURATED,
+      buildUnderwritingConstraintRules('UW', 'Underwriting eligibility', [{ record, ruleDef }], codes(), tags())
+    );
+
+  it('is withheld from the surcharge merge instead of placed as an unconditional rule', () => {
+    const { mergedCml, placements, skips } = surcharge(ruleWith(unsafeNumeric()));
+    expect(placements).to.have.length(0);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.match(/DeductibleFee/);
+    expect(skips[0].reason).to.match(/could not be converted/);
+    expect(skips[0].reason).to.match(/left on the rule engine/);
+    expect(mergedCml).to.not.include('rule(');
+  });
+
+  // An always-true constraint is the same hazard in the underwriting form.
+  it('is withheld from the underwriting merge instead of placed as an always-true constraint', () => {
+    const { mergedCml, placements, skips } = underwriting(ruleWith(unsafeNumeric()));
+    expect(placements).to.have.length(0);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.match(/DeductibleFee/);
+    expect(mergedCml).to.not.include('constraint DeductibleFee');
+    expect(mergedCml).to.not.include('true');
+  });
+
+  // The measured case: a Deductible behind a Currency picklist, compared with In against a list
+  // mixing a number and a word. The numeric guard refuses 'Premium', the condition drops, and the
+  // rule used to be placed as `rule(true, ...)` — every quote, not the deductibles it names.
+  it('withholds an In list mixing a number with a value the numeric guard refuses', () => {
+    const rule = ruleWith([
+      {
+        operator: 'In',
+        attributeName: 'Deductible',
+        attributeId: DEDUCTIBLE_ID,
+        dataType: 'Picklist',
+        values: ['500', 'Premium'],
+      },
+    ]);
+    const { mergedCml, placements, skips } = surcharge(rule, new Map([[DEDUCTIBLE_ID, 'Currency']]));
+    expect(placements).to.have.length(0);
+    expect(skips).to.have.length(1);
+    expect(mergedCml).to.not.include('rule(');
+  });
+
+  // The regression guard: a rule that genuinely has no criteria still converts to `true`, which is
+  // the correct reading of it and is what curated models already contain.
+  it('still places a rule that genuinely has no criteria as `true`', () => {
+    const noCriteria: ParsedRuleDefinition = { name: 'Flat Fee', apiName: 'FlatFee', productPath: 'p1' };
+    const { mergedCml, placements, skips } = surcharge(noCriteria);
+    expect(skips).to.have.length(0);
+    expect(placements).to.have.length(1);
+    expect(mergedCml).to.include('rule(true,');
+  });
+
+  it('still places a no-criteria rule in the underwriting form too', () => {
+    const noCriteria: ParsedRuleDefinition = { name: 'Flat Fee', apiName: 'FlatFee', productPath: 'p1' };
+    const { mergedCml, placements, skips } = underwriting(noCriteria);
+    expect(skips).to.have.length(0);
+    expect(placements).to.have.length(1);
+    expect(mergedCml).to.include('constraint FlatFee = (true,');
+  });
+
+  // Out of scope for this change, and asserted so the boundary is explicit: a rule that keeps one
+  // of its conditions still merges, even though it now matches more than the source rule did.
+  it('still places a rule that lost only some of its conditions', () => {
+    const partial = ruleWith([
+      ...unsafeNumeric(),
+      { operator: 'Equals', attributeName: 'Deductible', dataType: 'Number', values: ['500'] },
+    ]);
+    const { mergedCml, placements, skips } = surcharge(partial);
+    expect(skips).to.have.length(0);
+    expect(placements).to.have.length(1);
+    expect(mergedCml).to.include('rule(Deductible == 500,');
+  });
+});
+
+describe('mergeUnderwritingConstraints (attribute-presence probe is type-sensitive)', () => {
+  const record: RuleRecord = { Id: 'r1', Name: 'AgeRule', ProductPath: 'p1' };
+  const ruleDef: ParsedRuleDefinition = {
+    name: 'AgeRule',
+    apiName: 'AgeRule',
+    productPath: 'p1',
+    ruleCriteria: [
+      {
+        rootObjectId: 'root',
+        conditions: [{ operator: 'LessThan', attributeName: 'Age', dataType: 'Number', values: ['60'] }],
+      },
+    ],
+  };
+  const rules = (): ReturnType<typeof buildUnderwritingConstraintRules> =>
+    buildUnderwritingConstraintRules(
+      'UW',
+      'Underwriting eligibility',
+      [{ record, ruleDef }],
+      new Map([['p1', 'autoSilver']]),
+      new Map([['p1', 'Driver']])
+    );
+
+  // The probe looks for `<cmlType> <attrName>` in the leaf type block, so it only recognizes a
+  // declaration whose type matches the one this converter derived. PcmGenerator declares a Number
+  // attribute `decimal`, so while insurance derived `int` the probe missed every curated Number
+  // attribute and reported it absent — a false alarm on exactly the models this tool targets.
+  it('finds a curated Number attribute PcmGenerator declared as decimal', () => {
+    const curated = 'type Driver {\n    decimal Age;\n}\n';
+    const { attributeWarnings } = mergeUnderwritingConstraints(curated, rules());
+    expect(attributeWarnings).to.deep.equal([]);
+  });
+
+  // Withholding, not warning: an unresolvable reference makes the solver reject the whole model at
+  // deploy, so placing the constraint would disable every OTHER rule in the same ExpressionSet.
+  it('withholds a constraint whose attribute the curated model really is missing', () => {
+    const curated = 'type Driver {\n    string Model;\n}\n';
+    const { mergedCml, placements, skips, attributeWarnings } = mergeUnderwritingConstraints(curated, rules());
+    expect(placements).to.have.length(0);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.match(/^undeclared attribute 'Age'/);
+    expect(attributeWarnings).to.have.length(1);
+    expect(mergedCml).to.equal(curated);
+  });
+
+  // The gate is hierarchy-aware for the same reason CML attribute visibility is: an attribute on a
+  // parent type IS referable from the child. Scoping the check to the leaf block body alone — as
+  // this path did while it only warned — would withhold a perfectly valid constraint.
+  it('places a constraint whose attribute is inherited from a parent type', () => {
+    const curated = 'type Person {\n    decimal Age;\n}\n\ntype Driver : Person {\n}\n';
+    const { placements, skips } = mergeUnderwritingConstraints(curated, rules());
+    expect(skips).to.have.length(0);
+    expect(placements).to.have.length(1);
+  });
+
+  it('places a constraint whose attribute is bound by a top-level extern', () => {
+    const curated = 'extern decimal Age;\n\ntype Driver {\n}\n';
+    const { placements, skips } = mergeUnderwritingConstraints(curated, rules());
+    expect(skips).to.have.length(0);
+    expect(placements).to.have.length(1);
+  });
+
+  // The baseline guard: a placed constraint names the attributes it references, so scanning the
+  // MUTATED model would let the first rule vouch for the second's missing reference.
+  it('does not let a placed constraint vouch for a later rule referencing the same absent attribute', () => {
+    const curated = 'type Driver {\n    decimal Age;\n}\n\ntype Vehicle {\n}\n';
+    const second: RuleRecord = { Id: 'r2', Name: 'AgeRule2', ProductPath: 'p2' };
+    const built = buildUnderwritingConstraintRules(
+      'UW',
+      'Underwriting eligibility',
+      [
+        { record, ruleDef },
+        { record: second, ruleDef: { ...ruleDef, name: 'AgeRule2', apiName: 'AgeRule2', productPath: 'p2' } },
+      ],
+      new Map([
+        ['p1', 'autoSilver'],
+        ['p2', 'autoSilver'],
+      ]),
+      new Map([
+        ['p1', 'Driver'],
+        ['p2', 'Vehicle'],
+      ])
+    );
+    const { placements, skips } = mergeUnderwritingConstraints(curated, built);
+    expect(placements.map((p) => p.rule.recordName)).to.deep.equal(['AgeRule']);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.match(/^undeclared attribute 'Age'/);
+  });
+});
+
 describe('buildPathedSurchargeRules (stage transition — M6)', () => {
   it('M6: a ruleDef with an underwritingRuleGroup lands the stage transition in the key', () => {
     const record: RuleRecord = { Id: 'r1', Name: 'Root', ProductPath: 'p1' };
@@ -870,5 +1364,213 @@ describe('fetchProductTypeTags', () => {
 describe('SURCHARGE_RULE_ACTION', () => {
   it('is the platform-recognized surcharge rule action name', () => {
     expect(SURCHARGE_RULE_ACTION).to.equal('InsuranceSurchargeRule');
+  });
+});
+
+/**
+ * Curated model carrying a hand-written top-level `extern`, mirroring the real Auto_Silver model.
+ * The extern lives OUTSIDE every type block yet is referenced from inside one, which is exactly the
+ * visibility the absent-reference gate has to understand.
+ */
+const GOLD_WITH_EXTERN = `
+@(contextPath = "SalesTransaction.UserProfile", attributeSource = "ST")
+extern string UserProfile;
+
+type AutoSilver {
+    decimal(2) totalPrice;
+
+    require(UserProfile == "Custom Standard User", medicalpayments[MedicalPayments]);
+}
+
+type MedicalPayments {
+    int Limit = [1000, 2000];
+}
+`;
+
+/** Builds one surcharge rule from a single condition, through the real descriptor builder. */
+function tagRuleFor(
+  condition: RuleCondition,
+  bindings?: Map<string, { tag: string; cmlType: string; sourceDataType: string; scope: 'transaction' | 'item' }>,
+  typeName = 'AutoSilver'
+): ReturnType<typeof buildPathedSurchargeRules> {
+  const record: RuleRecord = { Id: '1Xr000000000001', Name: 'AutoSilver_FeeMig', ProductPath: '01tRoot' };
+  const ruleDef = {
+    name: 'AutoSilver_FeeMig',
+    apiName: 'AutoSilver_FeeMig',
+    productPath: '01tRoot',
+    ruleCriteria: [{ rootObjectId: '01tRoot', conditions: [condition] }],
+  } as ParsedRuleDefinition;
+
+  return buildPathedSurchargeRules(
+    'SC',
+    [{ record, ruleDef }],
+    new Map([['01tRoot', 'autoSilver']]),
+    new Map([['01tRoot', typeName]]),
+    { contextTagBindings: bindings }
+  );
+}
+
+const END_DATE_CONDITION: RuleCondition = {
+  contextTagName: 'EndDate',
+  operator: 'Equals',
+  type: 'Tag',
+  attributeId: undefined,
+  dataType: 'Date',
+  values: ['2026-12-31'],
+};
+
+const TRANSACTION_BINDING = new Map([
+  ['EndDate', { tag: 'EndDate', cmlType: 'date', sourceDataType: 'date', scope: 'transaction' as const }],
+]);
+
+describe('mergeSurchargeRules context-tag declarations', () => {
+  it('declares a transaction-level tag as a top-level extern and places the rule', () => {
+    const rules = tagRuleFor(END_DATE_CONDITION, TRANSACTION_BINDING);
+    const { mergedCml, placements, skips } = mergeSurchargeRules(GOLD_WITH_EXTERN, rules);
+
+    expect(skips).to.deep.equal([]);
+    expect(placements).to.have.length(1);
+    expect(mergedCml).to.include('@(contextPath = "SalesTransaction.EndDate", attributeSource = "ST")');
+    expect(mergedCml).to.include('extern date EndDate;');
+    // The declaration is top level, not inside the type block that uses it.
+    expect(mergedCml.indexOf('extern date EndDate;')).to.be.lessThan(mergedCml.indexOf('type AutoSilver'));
+    // ...and the rule compares the tag against a QUOTED ISO date. Live evidence: this exact form
+    // deploys and evaluates as a date, while the unquoted `== 2026-12-31` is read as arithmetic and
+    // fails the deploy outright. Both differ from the curated model's hand-written workaround
+    // `"EndDate" == "2026-12-31"`, which compares two string constants and can never be true.
+    expect(mergedCml).to.include('rule(EndDate == "2026-12-31", "InsuranceSurchargeRule"');
+  });
+
+  it('declares an item-level tag inside the leaf type block, not as an extern', () => {
+    const condition: RuleCondition = {
+      contextTagName: 'ItemTotalPrice',
+      operator: 'GreaterThan',
+      type: 'Tag',
+      dataType: 'Currency',
+      values: ['10'],
+    };
+    const bindings = new Map([
+      [
+        'ItemTotalPrice',
+        { tag: 'ItemTotalPrice', cmlType: 'decimal(2)', sourceDataType: 'currency', scope: 'item' as const },
+      ],
+    ]);
+    const { mergedCml, skips } = mergeSurchargeRules(GOLD_WITH_EXTERN, tagRuleFor(condition, bindings));
+
+    expect(skips).to.deep.equal([]);
+    expect(mergedCml).to.include('@(tagName = "ItemTotalPrice")');
+    expect(mergedCml).to.include('decimal(2) ItemTotalPrice;');
+    expect(mergedCml).to.not.include('extern decimal(2) ItemTotalPrice');
+    // Inside the AutoSilver block: after its opening brace and before its closing one.
+    const blockStart = mergedCml.indexOf('type AutoSilver {');
+    const blockEnd = mergedCml.indexOf('\n}', blockStart);
+    const declAt = mergedCml.indexOf('decimal(2) ItemTotalPrice;');
+    expect(declAt).to.be.greaterThan(blockStart);
+    expect(declAt).to.be.lessThan(blockEnd);
+  });
+
+  it('still withholds a rule whose context tag could not be resolved', () => {
+    // No bindings: resolution failed, so the reference would be a bare undeclared identifier — which
+    // makes the solver reject the WHOLE model at deploy, not merely this one rule.
+    const { mergedCml, placements, skips } = mergeSurchargeRules(GOLD_WITH_EXTERN, tagRuleFor(END_DATE_CONDITION));
+
+    expect(placements).to.deep.equal([]);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.include("undeclared attribute 'EndDate'");
+    expect(mergedCml).to.equal(GOLD_WITH_EXTERN);
+    expect(mergedCml).to.not.include('extern date EndDate');
+  });
+
+  it('is idempotent: a second merge of the same input reproduces the same model', () => {
+    const first = mergeSurchargeRules(GOLD_WITH_EXTERN, tagRuleFor(END_DATE_CONDITION, TRANSACTION_BINDING));
+    const second = mergeSurchargeRules(first.mergedCml, tagRuleFor(END_DATE_CONDITION, TRANSACTION_BINDING));
+
+    expect(second.mergedCml).to.equal(first.mergedCml);
+    expect(second.skips).to.deep.equal([]);
+    // One declaration, not two.
+    expect(second.mergedCml.match(/extern date EndDate;/g)).to.have.length(1);
+    expect(second.mergedCml.match(/contextPath = "SalesTransaction\.EndDate"/g)).to.have.length(1);
+  });
+
+  it('is idempotent for the item form too', () => {
+    const condition: RuleCondition = {
+      contextTagName: 'ItemTotalPrice',
+      operator: 'GreaterThan',
+      type: 'Tag',
+      dataType: 'Currency',
+      values: ['10'],
+    };
+    const bindings = new Map([
+      [
+        'ItemTotalPrice',
+        { tag: 'ItemTotalPrice', cmlType: 'decimal(2)', sourceDataType: 'currency', scope: 'item' as const },
+      ],
+    ]);
+    const first = mergeSurchargeRules(GOLD_WITH_EXTERN, tagRuleFor(condition, bindings));
+    const second = mergeSurchargeRules(first.mergedCml, tagRuleFor(condition, bindings));
+
+    expect(second.mergedCml).to.equal(first.mergedCml);
+    expect(second.mergedCml.match(/@\(tagName = "ItemTotalPrice"\)/g)).to.have.length(1);
+  });
+
+  it('sanitizes the CML identifier while the annotation carries the raw tag name', () => {
+    const condition: RuleCondition = {
+      contextTagName: 'Cause Of Loss',
+      operator: 'Equals',
+      type: 'Tag',
+      dataType: 'Text',
+      values: ['Hail'],
+    };
+    const bindings = new Map([
+      ['Cause Of Loss', { tag: 'Cause Of Loss', cmlType: 'string', sourceDataType: 'string', scope: 'item' as const }],
+    ]);
+    const { mergedCml, skips } = mergeSurchargeRules(GOLD_WITH_EXTERN, tagRuleFor(condition, bindings));
+
+    expect(skips).to.deep.equal([]);
+    // The identifier is legal CML...
+    expect(mergedCml).to.include('string Cause_Of_Loss;');
+    expect(mergedCml).to.include('Cause_Of_Loss == "Hail"');
+    // ...and the true name is not lost — the annotation is what actually binds the value.
+    expect(mergedCml).to.include('@(tagName = "Cause Of Loss")');
+  });
+
+  it('does not auto-declare an Attribute condition, which is withheld as before', () => {
+    // attributeId present: a product attribute, not a context tag. Its absence usually means the
+    // rule targets a type in a different model, which auto-declaring would paper over.
+    const condition: RuleCondition = {
+      contextTagName: 'SalesTransactionItemAttribute',
+      attributeName: 'Deductible',
+      attributeId: '0tjfiw000000CMBAA2',
+      operator: 'Equals',
+      type: 'Attribute',
+      dataType: 'Text',
+      values: ['500'],
+    };
+    const bindings = new Map([
+      ['Deductible', { tag: 'Deductible', cmlType: 'string', sourceDataType: 'string', scope: 'item' as const }],
+    ]);
+    const { mergedCml, placements, skips } = mergeSurchargeRules(GOLD_WITH_EXTERN, tagRuleFor(condition, bindings));
+
+    expect(placements).to.deep.equal([]);
+    expect(skips[0].reason).to.include("undeclared attribute 'Deductible'");
+    expect(mergedCml).to.equal(GOLD_WITH_EXTERN);
+  });
+
+  it('accepts a tag the curated model already declares as a top-level extern', () => {
+    // The gate is type-scoped, and a top-level extern lives outside every type block. Without
+    // recognizing it, a rule referencing an already-correctly-bound tag would be withheld.
+    const condition: RuleCondition = {
+      contextTagName: 'UserProfile',
+      operator: 'Equals',
+      type: 'Tag',
+      dataType: 'Text',
+      values: ['Custom Standard User'],
+    };
+    const { mergedCml, placements, skips } = mergeSurchargeRules(GOLD_WITH_EXTERN, tagRuleFor(condition));
+
+    expect(skips).to.deep.equal([]);
+    expect(placements).to.have.length(1);
+    // Unresolved, so nothing new is declared — the existing extern is what makes it resolvable.
+    expect(mergedCml.match(/extern string UserProfile;/g)).to.have.length(1);
   });
 });

@@ -25,17 +25,125 @@ import {
   UnderwritingRuleGroup,
 } from './models.js';
 
+/**
+ * Source data type -> CML data type. Keyed uppercase because payloads are inconsistent about case
+ * ('Datetime' and 'DateTime' both occur in real RuleDefinitions) — the same normalization
+ * PcmGenerator's `dataTypeToCmlType` applies to its own keys.
+ *
+ * PcmGenerator declares these same attributes into the same model, so wherever both maps hold a
+ * key they must resolve it identically or one attribute ends up with two contradictory
+ * declarations. They do not otherwise mirror each other: this map additionally carries the
+ * spellings only a condition payload or an AttributePicklist produces (INTEGER, DECIMAL, DOUBLE,
+ * BOOLEAN, DATETIME), for which PcmGenerator has no entry.
+ */
+const SOURCE_DATA_TYPE_TO_CML: Record<string, string> = {
+  // decimal, not int: a Salesforce Number attribute may carry decimal places, and PcmGenerator
+  // declares one `decimal` in this same model.
+  NUMBER: CML_DATA_TYPES.DECIMAL,
+  INTEGER: CML_DATA_TYPES.INTEGER,
+  PERCENT: CML_DATA_TYPES.DECIMAL,
+  CURRENCY: CML_DATA_TYPES.DECIMAL,
+  DECIMAL: CML_DATA_TYPES.DECIMAL,
+  DOUBLE: CML_DATA_TYPES.DECIMAL,
+  BOOLEAN: CML_DATA_TYPES.BOOLEAN,
+  // 'Checkbox' is what AttributeDefinition.DataType calls a boolean attribute (AttributePicklist
+  // spells the same thing 'Boolean'), and fetchAttributeDataTypes passes it through verbatim.
+  CHECKBOX: CML_DATA_TYPES.BOOLEAN,
+  DATE: CML_DATA_TYPES.DATE,
+  DATETIME: CML_DATA_TYPES.DATE,
+  TEXT: CML_DATA_TYPES.STRING,
+  STRING: CML_DATA_TYPES.STRING,
+};
+
+/**
+ * Resolves a source data type to a CML data type. An absent or unrecognized type falls back to
+ * STRING, which quotes the value — the conservative direction, since an unquoted value reaches the
+ * curated model verbatim.
+ *
+ * The `!dataType` guard also covers the empty string. Returning '' would be neither a known type
+ * nor STRING, so the value would take the unquoted path, fail the safe-literal guard, drop its
+ * condition, and collapse the whole declaration to `true` — a rule that then applies to everything.
+ */
 function dataTypeToCml(dataType?: string): string {
-  const types: Record<string, string> = {
-    Number: CML_DATA_TYPES.INTEGER,
-    Integer: CML_DATA_TYPES.INTEGER,
-    Percent: CML_DATA_TYPES.DECIMAL,
-    Currency: CML_DATA_TYPES.DECIMAL,
-    Boolean: CML_DATA_TYPES.BOOLEAN,
-    Date: CML_DATA_TYPES.DATE,
-    DateTime: CML_DATA_TYPES.DATE,
-  };
-  return (dataType && types[dataType]) ?? CML_DATA_TYPES.STRING;
+  if (!dataType) return CML_DATA_TYPES.STRING;
+  return SOURCE_DATA_TYPE_TO_CML[dataType.trim().toUpperCase()] ?? CML_DATA_TYPES.STRING;
+}
+
+/**
+ * AttributeDefinition id -> the data type its values must be compared as, resolved from the org by
+ * {@link fetchAttributeDataTypes}.
+ *
+ * Needed because a condition reports `dataType: 'Picklist'`, and a picklist carries no comparable
+ * type of its own — a Deductible whose values are 250/500/1000 sits behind a Currency picklist.
+ * Left unresolved, its values are emitted quoted while PcmGenerator declares the attribute
+ * `decimal`, so the model compares a decimal against a string literal and the rule never fires.
+ */
+export type AttributeDataTypes = ReadonlyMap<string, string>;
+
+/**
+ * Raw context tag name -> the type the org's ContextAttribute declares for it. Structurally the
+ * subset of `ContextTagBindings` this module needs, declared here rather than imported so the
+ * generator keeps no dependency on the org-fetch layer.
+ *
+ * Needed for the same reason {@link AttributeDataTypes} is: a Tag condition's own `dataType` is a
+ * snapshot taken by the rule engine, while ContextAttribute.DataType is what the model will be made
+ * to declare. Feeding the resolved type through here — rather than only into the declaration —
+ * keeps the two in step, so a tag can never be declared `decimal(2)` and then compared as a quoted
+ * string (the never-fires mismatch `collectAttributeTypes` already guards against on the attribute
+ * path).
+ */
+export type ContextTagDataTypes = ReadonlyMap<string, { sourceDataType: string }>;
+
+/**
+ * The org is authoritative for a reference's type, so a resolved entry wins over the condition's own
+ * `dataType` snapshot: an AttributeDefinition for a condition carrying an `attributeId`, a
+ * ContextAttribute for a Tag condition (`attributeId` null, keyed by `contextTagName`). A Tag
+ * condition whose tag did not resolve still falls back to the snapshot — its rule is withheld
+ * downstream by the absent-reference gate, so the fallback only has to stay harmless, not correct.
+ */
+function conditionDataType(
+  condition: RuleCondition,
+  attributeDataTypes?: AttributeDataTypes,
+  contextTagDataTypes?: ContextTagDataTypes
+): string | undefined {
+  if (condition.attributeId) {
+    return attributeDataTypes?.get(condition.attributeId) ?? condition.dataType;
+  }
+  const tag = condition.contextTagName;
+  const resolved = tag ? contextTagDataTypes?.get(tag)?.sourceDataType : undefined;
+  return resolved ?? condition.dataType;
+}
+
+/**
+ * The context tags a rule actually EMITS a reference to — the Tag-condition counterpart of
+ * {@link collectEmittedAttributes}, and its exact discipline: a condition the safe-literal guard,
+ * an unknown operator or a missing value dropped contributes nothing, because its tag never reaches
+ * the declaration and so needs no binding.
+ *
+ * Names are returned RAW (not sanitized): the raw title is what resolves against ContextTag.Title
+ * and what the emitted `tagName` / `contextPath` annotation must carry. Sanitizing is the
+ * identifier's problem, not the binding's.
+ */
+export function collectEmittedContextTags(
+  ruleDefs: Array<{ ruleDef: { ruleCriteria?: RuleCriteria[] } }>,
+  attributeDataTypes?: AttributeDataTypes,
+  contextTagDataTypes?: ContextTagDataTypes
+): Set<string> {
+  const tags = new Set<string>();
+  for (const { ruleDef } of ruleDefs) {
+    for (const criteria of ruleDef.ruleCriteria ?? []) {
+      for (const cond of criteria.conditions ?? []) {
+        // Only a Tag condition needs a context binding. An Attribute condition (attributeId present)
+        // names a product attribute the curated model is expected to already declare, and is
+        // deliberately never auto-declared — see the merge module's absent-reference gate.
+        if (cond.attributeId) continue;
+        if (!cond.contextTagName) continue;
+        if (buildConditionExpression(cond, attributeDataTypes, contextTagDataTypes) === null) continue;
+        tags.add(cond.contextTagName);
+      }
+    }
+  }
+  return tags;
 }
 
 export function sanitizeName(name: string): string {
@@ -90,8 +198,11 @@ const ALWAYS_UNQUOTED_OPERATORS: ReadonlySet<string> = new Set([
   'GreaterThanOrEquals',
 ]);
 
-// Operators that emit a value via doubleQuotedIfNeeded — unquoted unless cmlDataType === STRING.
-const VALUE_EQUALITY_OPERATORS: ReadonlySet<string> = new Set(['Equals', 'NotEquals']);
+// Operators whose values are emitted unquoted unless cmlDataType === STRING. Equals/NotEquals go
+// through doubleQuotedIfNeeded; In/NotIn expand into a chain of `==` comparisons that follows the
+// same rule. In/NotIn are also the only multi-value operators here, so the guard below has to clear
+// every element of the list, not just the first.
+const VALUE_EQUALITY_OPERATORS: ReadonlySet<string> = new Set(['Equals', 'NotEquals', 'In', 'NotIn']);
 
 function isSafeNumericLiteral(value: string): boolean {
   return /^-?\d+(\.\d+)?$/.test(value.trim());
@@ -101,10 +212,19 @@ function isSafeBooleanLiteral(value: string): boolean {
   return /^(true|false)$/.test(value.trim());
 }
 
-// Bare date / datetime literal: YYYY-MM-DD optionally followed by an ISO-8601 time component. No
-// parens, operators, or whitespace that could break out of the unquoted slot.
+// Bare date literal: YYYY-MM-DD and nothing else. No parens, operators, or whitespace that could
+// break out of the unquoted slot — and no time component, because the only slot CML offers is
+// `date`, which cannot hold one (see {@link isDateTimeLiteral}).
 function isSafeDateLiteral(value: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?)?$/.test(value.trim());
+  return /^\d{4}-\d{2}-\d{2}$/.test(value.trim());
+}
+
+// A bare date carrying an ISO-8601 time component. Well-formed, but unrepresentable: CML's
+// primitives are boolean/date/decimal/double/int/string/string[] — there is no datetime and no
+// time. PcmGenerator takes the same view from the other side, filtering Datetime attributes out of
+// the model entirely rather than declaring them as something else.
+function isDateTimeLiteral(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$/.test(value.trim());
 }
 
 // A value is safe to emit unquoted only if it is a bare literal of the target CML type. Anything
@@ -147,7 +267,159 @@ export function isSafeAssociationReferenceValue(value: string): boolean {
   return !/[,'"\\\r\n]/.test(value);
 }
 
-function buildConditionExpression(condition: RuleCondition): string | null {
+/**
+ * Whether this operator/dataType pair emits its RHS UNQUOTED. Relational operators always do;
+ * Equals/NotEquals do whenever the cmlDataType is not STRING. On the unquoted path every value must
+ * be a bare safe literal; otherwise the value would land in the curated model verbatim and could
+ * inject CML or produce a type-unsafe comparison. A failing value drops the condition (callers
+ * filter nulls), exactly as an unknown operator or missing value does.
+ */
+function emitsUnquoted(op: string, cmlDataType: string): boolean {
+  // DATE is the exception to "non-string emits bare", and it is not a style choice: an unquoted ISO
+  // literal does not compile against a `date` variable. Verified against a live model — `EndDate ==
+  // 2026-12-31` is folded to a constant and rejected with `false cannot be converted to the
+  // constraint`, and `EndDate > 2020-01-01` reports `Operator greatThan is not supported between
+  // DateExternalVar(EndDate) and DecimalConst(-2020.0000)`: the compiler reads the bare literal as
+  // arithmetic, not a date. Either one fails the DEPLOY, which takes down the whole model and every
+  // rule in it. The quoted form is a true date comparison — `> "2020-01-01"` / `> "2030-01-01"`
+  // ordered correctly against a live `2027-07-25` and tracked the field when it changed.
+  if (cmlDataType === CML_DATA_TYPES.DATE) return false;
+  return (
+    ALWAYS_UNQUOTED_OPERATORS.has(op) || (VALUE_EQUALITY_OPERATORS.has(op) && cmlDataType !== CML_DATA_TYPES.STRING)
+  );
+}
+
+// Operators the shared emitter turns into a CML `strcontain(...)` call — a string function, with no
+// numeric, boolean or date counterpart.
+const SUBSTRING_OPERATORS: ReadonlySet<string> = new Set(['Contains', 'DoesNotContain']);
+
+/**
+ * The reasons, if any, why a rule cannot be converted faithfully — one per offending condition.
+ * A rule with any reason must be SKIPPED with those reasons reported, never partially converted.
+ *
+ * Dropping just the offending condition is not an option: `buildConstraintDeclaration` returns
+ * `true` once every condition of a criteria is gone, and nothing downstream withholds a rule whose
+ * declaration is `true`, so a rule that lost its conditions arrives matching everything. That is
+ * the empty-`dataType` defect, and the guard exists so a new cause cannot re-create it. Dropping
+ * one condition of several is no better — it widens what the rule matches.
+ *
+ * Two of the three causes today are a condition CML has no primitive for.
+ *
+ * A date-typed condition whose value carries a time: CML has no datetime primitive, so the
+ * alternatives were to emit a timestamp into a `date` slot (platform behavior unverified) or to
+ * silently truncate it to its date part (changes what the rule matches, with no signal).
+ *
+ * A substring test (Contains / DoesNotContain) on an attribute that is not a string: `strcontain`
+ * is a string function, and against a `decimal`, `boolean` or `date` attribute there is nothing
+ * faithful to emit — quoting the value produces the never-fires type mismatch, and unquoting it is
+ * not a substring test at all.
+ *
+ * In both cases declining the rule and saying so beats emitting something that quietly does nothing.
+ *
+ * The third reason is not about one condition but about the rule as a whole: a rule whose criteria
+ * existed and lost EVERY condition — see {@link collapsesToUnconditional}. It is raised here rather
+ * than through a second mechanism because this function is the single point all three skip-reason
+ * collectors (`buildCmlModel`, `buildPathedSurchargeRules`, `buildUnderwritingConstraintRules`)
+ * already consult, so every caller withholds the rule the same way and a future caller cannot get
+ * half the behaviour.
+ */
+export function findUnconvertibleConditions(
+  // `apiName` / `name` are read only to name the rule in the whole-rule reason below; every real
+  // caller passes a ParsedRuleDefinition, which carries both.
+  ruleDef: { ruleCriteria?: RuleCriteria[]; apiName?: string; name?: string },
+  attributeDataTypes?: AttributeDataTypes,
+  contextTagDataTypes?: ContextTagDataTypes
+): string[] {
+  const reasons: string[] = [];
+  for (const criteria of ruleDef.ruleCriteria ?? []) {
+    for (const condition of criteria.conditions ?? []) {
+      // An unknown operator or a missing value already drops the condition for reasons this guard
+      // does not own; only classify conditions that would otherwise have emitted.
+      if (!isKnownOperator(condition.operator)) continue;
+      const values = condition.values ?? [];
+      if (values.length === 0) continue;
+      const cmlDataType = dataTypeToCml(conditionDataType(condition, attributeDataTypes, contextTagDataTypes));
+      const attrName = condition.attributeName ?? condition.contextTagName ?? 'unknown';
+
+      if (SUBSTRING_OPERATORS.has(condition.operator) && cmlDataType !== CML_DATA_TYPES.STRING) {
+        reasons.push(
+          `condition on '${attrName}' applies the substring test '${condition.operator}' to an attribute the model ` +
+            `declares ${cmlDataType}, which CML cannot represent — strcontain() is a string function, and there is ` +
+            'no numeric, boolean or date counterpart. Converting the rule would have to compare the value as text ' +
+            'against a non-text attribute, which imports cleanly and never fires, so the rule is left on the rule ' +
+            'engine. Re-model the condition as an equality or range comparison, or migrate this rule by hand.'
+        );
+        continue;
+      }
+
+      // Applies to every date-typed condition, quoted or not. It once keyed off the unquoted path
+      // because that was the only path a date took; now that dates are quoted, keying off it would
+      // silence the check entirely and let a timestamp through as a quoted string.
+      if (cmlDataType !== CML_DATA_TYPES.DATE) continue;
+      const offending = values.find((v) => isDateTimeLiteral(v));
+      if (!offending) continue;
+      reasons.push(
+        `condition on '${attrName}' compares the timestamp '${offending.trim()}', which CML cannot represent — it ` +
+          'has no datetime primitive, and a `date` cannot carry a time. Converting the rule would have to drop the ' +
+          'time and change what it matches, so the rule is left on the rule engine. Re-model the condition against ' +
+          'a date-only attribute, or migrate this rule by hand.'
+      );
+    }
+  }
+
+  // Checked last, and only when nothing above spoke: a condition-specific refusal already says why
+  // the rule is withheld, so the whole-rule reason would just repeat it less usefully.
+  if (reasons.length === 0 && collapsesToUnconditional(ruleDef, attributeDataTypes, contextTagDataTypes)) {
+    const ruleName = ruleDef.apiName ?? ruleDef.name ?? 'unknown';
+    reasons.push(
+      `the conditions of rule '${ruleName}' could not be converted — every one of them was dropped (an ` +
+        'unrecognized operator, a missing value, or a value the safe-literal / quotable-string guards ' +
+        'refused), leaving nothing to compare. Converting the rule would emit the unconditional ' +
+        'declaration `true`, which matches every quote rather than the set the rule selects, so the rule ' +
+        'is left on the rule engine. Correct the offending condition values or operators and re-run, or ' +
+        'migrate this rule by hand.'
+    );
+  }
+
+  return reasons;
+}
+
+/**
+ * Whether every condition of a rule that HAD conditions was dropped, leaving
+ * {@link buildConstraintDeclaration} nothing to build from.
+ *
+ * That function answers `'true'` from two places that mean opposite things. A rule with no criteria
+ * genuinely applies always, and curated models contain such lines — that `true` is correct. A rule
+ * whose criteria existed but lost every expression is a conversion FAILURE reported as success: the
+ * rule is placed as `rule(true, ...)` (or an always-satisfied constraint) and matches every quote.
+ * For a surcharge that means charging every customer. Only the second is a reason to withhold, and
+ * by the time the declaration exists the two are indistinguishable, so the distinction is drawn
+ * here from the criteria themselves.
+ *
+ * A criteria carrying no conditions dropped nothing either, so a rule made only of those is the
+ * genuinely-applies-always case in a different spelling, not a failure — hence the condition count
+ * rather than a `ruleCriteria.length` test.
+ *
+ * Losing SOME conditions is a related but distinct defect and deliberately out of scope: a criteria
+ * ANDs its conditions, so dropping one widens what the rule matches without collapsing it. That
+ * rule still emits.
+ */
+function collapsesToUnconditional(
+  ruleDef: { ruleCriteria?: RuleCriteria[] },
+  attributeDataTypes?: AttributeDataTypes,
+  contextTagDataTypes?: ContextTagDataTypes
+): boolean {
+  const criteria = ruleDef.ruleCriteria ?? [];
+  const conditionCount = criteria.reduce((total, c) => total + (c.conditions?.length ?? 0), 0);
+  if (conditionCount === 0) return false;
+  return criteria.every((c) => buildCriteriaExpression(c, attributeDataTypes, contextTagDataTypes) === null);
+}
+
+function buildConditionExpression(
+  condition: RuleCondition,
+  attributeDataTypes?: AttributeDataTypes,
+  contextTagDataTypes?: ContextTagDataTypes
+): string | null {
   if (!isKnownOperator(condition.operator)) return null;
 
   const op = condition.operator;
@@ -156,18 +428,17 @@ function buildConditionExpression(condition: RuleCondition): string | null {
   }
 
   const values = condition.values ?? [];
-  const cmlDataType = dataTypeToCml(condition.dataType);
+  const cmlDataType = dataTypeToCml(conditionDataType(condition, attributeDataTypes, contextTagDataTypes));
 
-  // Determine whether this operator/dataType pair emits its RHS UNQUOTED. Relational operators
-  // always do; Equals/NotEquals do whenever the cmlDataType is not STRING. On the unquoted path we
-  // require every value to be a bare safe literal; otherwise the value would land in the curated
-  // model verbatim and could inject CML or produce a type-unsafe comparison. A failing value drops
-  // the condition (the caller filters nulls), exactly as an unknown operator or missing value does.
-  const emitsUnquoted =
-    ALWAYS_UNQUOTED_OPERATORS.has(op) || (VALUE_EQUALITY_OPERATORS.has(op) && cmlDataType !== CML_DATA_TYPES.STRING);
-
-  if (emitsUnquoted) {
+  if (emitsUnquoted(op, cmlDataType)) {
     if (!values.every((v) => isSafeUnquotedLiteral(v, cmlDataType))) {
+      return null;
+    }
+  } else if (cmlDataType === CML_DATA_TYPES.DATE) {
+    // A date is quoted (see {@link emitsUnquoted}) but is NOT a free-form string: the quotes make
+    // the compiler accept anything, so `EndDate == "next tuesday"` would deploy and never fire.
+    // Hold it to the same bare-date shape the unquoted path demanded.
+    if (!values.every(isSafeDateLiteral)) {
       return null;
     }
   } else if (!values.every(isSafeQuotableString)) {
@@ -176,15 +447,27 @@ function buildConditionExpression(condition: RuleCondition): string | null {
   }
 
   const attrName = sanitizeName(condition.attributeName ?? condition.contextTagName ?? 'unknown');
-  return convertToCmlExpression(attrName, op, condition.values, cmlDataType);
+
+  // The shared emitter quotes only `string`, and never quotes a relational RHS at all — it is shared
+  // with the Revenue Cloud generator, whose date attributes are declared in-type rather than as the
+  // externs this evidence covers, so teaching it about dates would change a path this proof does not
+  // reach. Quote here instead. Safe to do by hand: isSafeDateLiteral above admits only YYYY-MM-DD,
+  // so there is nothing for escapeQuotes to escape.
+  const emitValues =
+    cmlDataType === CML_DATA_TYPES.DATE && values.length > 0 ? values.map((v) => `"${v.trim()}"`) : condition.values;
+  return convertToCmlExpression(attrName, op, emitValues, cmlDataType);
 }
 
-function buildCriteriaExpression(criteria: RuleCriteria): string | null {
+function buildCriteriaExpression(
+  criteria: RuleCriteria,
+  attributeDataTypes?: AttributeDataTypes,
+  contextTagDataTypes?: ContextTagDataTypes
+): string | null {
   const parts: string[] = [];
 
   if (criteria.conditions) {
     for (const condition of criteria.conditions) {
-      const expr = buildConditionExpression(condition);
+      const expr = buildConditionExpression(condition, attributeDataTypes, contextTagDataTypes);
       if (expr) parts.push(expr);
     }
   }
@@ -192,12 +475,26 @@ function buildCriteriaExpression(criteria: RuleCriteria): string | null {
   return parts.length > 0 ? parts.join(' && ') : null;
 }
 
-export function buildConstraintDeclaration(ruleDef: { ruleCriteria?: RuleCriteria[] }): string {
+/**
+ * Both `'true'` returns below are deliberate and stay total — the function must answer for any
+ * input, because merge mode builds a rule's statement before deciding whether to place it, and
+ * throwing here would bypass a caller's skip handling. Only the FIRST is a faithful conversion (a
+ * rule with no criteria really does always apply). The second means every expression was dropped,
+ * which {@link findUnconvertibleConditions} classifies as unconvertible so the callers that collect
+ * skip reasons withhold the rule instead of placing this declaration.
+ */
+export function buildConstraintDeclaration(
+  ruleDef: { ruleCriteria?: RuleCriteria[] },
+  attributeDataTypes?: AttributeDataTypes,
+  contextTagDataTypes?: ContextTagDataTypes
+): string {
   if (!ruleDef.ruleCriteria || ruleDef.ruleCriteria.length === 0) {
     return 'true';
   }
 
-  const expressions = ruleDef.ruleCriteria.map(buildCriteriaExpression).filter((e): e is string => e !== null);
+  const expressions = ruleDef.ruleCriteria
+    .map((criteria) => buildCriteriaExpression(criteria, attributeDataTypes, contextTagDataTypes))
+    .filter((e): e is string => e !== null);
 
   if (expressions.length === 0) return 'true';
   if (expressions.length === 1) return expressions[0];
@@ -226,12 +523,16 @@ export function collectAttributes(ruleDefs: Array<{ ruleDef: { ruleCriteria?: Ru
  * noise on exactly the inputs the guard sanitized. Unlike `collectAttributes`, names are returned
  * sanitized to match how they appear in the emitted declaration.
  */
-export function collectEmittedAttributes(ruleDefs: Array<{ ruleDef: { ruleCriteria?: RuleCriteria[] } }>): Set<string> {
+export function collectEmittedAttributes(
+  ruleDefs: Array<{ ruleDef: { ruleCriteria?: RuleCriteria[] } }>,
+  attributeDataTypes?: AttributeDataTypes,
+  contextTagDataTypes?: ContextTagDataTypes
+): Set<string> {
   const attrs = new Set<string>();
   for (const { ruleDef } of ruleDefs) {
     for (const criteria of ruleDef.ruleCriteria ?? []) {
       for (const cond of criteria.conditions ?? []) {
-        if (buildConditionExpression(cond) === null) continue;
+        if (buildConditionExpression(cond, attributeDataTypes, contextTagDataTypes) === null) continue;
         const name = cond.attributeName ?? cond.contextTagName;
         if (name) attrs.add(sanitizeName(name));
       }
@@ -241,13 +542,17 @@ export function collectEmittedAttributes(ruleDefs: Array<{ ruleDef: { ruleCriter
 }
 
 /**
- * Derives the real CML data type for each collected attribute from its condition `dataType`.
- * When an attribute appears with more than one distinct CML type (a conflict), or its type is
- * unknown, it falls back to STRING. Returned alongside (not replacing) the Set from
- * collectAttributes, which merge mode still depends on.
+ * Derives the real CML data type for each collected attribute from its resolved data type (falling
+ * back to the condition's own `dataType`). When an attribute appears with more than one distinct CML
+ * type (a conflict), or its type is unknown, it falls back to STRING. Returned alongside (not
+ * replacing) the Set from collectAttributes, which merge mode still depends on.
+ *
+ * Shares `conditionDataType` with the declaration builder so an attribute is never declared as one
+ * type and then compared as another.
  */
 export function collectAttributeTypes(
-  ruleDefs: Array<{ ruleDef: { ruleCriteria?: RuleCriteria[] } }>
+  ruleDefs: Array<{ ruleDef: { ruleCriteria?: RuleCriteria[] } }>,
+  attributeDataTypes?: AttributeDataTypes
 ): Map<string, string> {
   const types = new Map<string, string>();
   const conflicting = new Set<string>();
@@ -256,7 +561,7 @@ export function collectAttributeTypes(
       for (const cond of criteria.conditions ?? []) {
         const name = cond.attributeName ?? cond.contextTagName;
         if (!name) continue;
-        const cmlType = dataTypeToCml(cond.dataType);
+        const cmlType = dataTypeToCml(conditionDataType(cond, attributeDataTypes));
         const existing = types.get(name);
         if (existing === undefined) {
           types.set(name, cmlType);
@@ -271,6 +576,9 @@ export function collectAttributeTypes(
   }
   return types;
 }
+
+/** A rule withheld from the built model, with the reason to report to the operator. */
+export type SkippedRule = { recordId: string; name: string; reason: string };
 
 export function buildCmlModel(
   ruleDefs: Array<{ record: RuleRecord; ruleDef: ParsedRuleDefinition }>,
@@ -287,17 +595,29 @@ export function buildCmlModel(
   // drops the binding. Optional + last so the legacy (code-as-reference) call sites stay valid; the
   // convert layer supplies only Names that passed isSafeAssociationReferenceValue, hence the
   // unconditional ProductCode fallback below for any product missing a safe Name.
-  productIdToName?: Map<string, string>
-): { cmlModel: CmlModel; ruleKeyMapping: RuleKeyEntry[] } {
+  productIdToName?: Map<string, string>,
+  // Org-resolved attribute types, so a picklist attribute is declared and compared as the type
+  // behind the picklist (e.g. decimal for a Currency picklist) rather than degrading to string.
+  attributeDataTypes?: AttributeDataTypes
+): { cmlModel: CmlModel; ruleKeyMapping: RuleKeyEntry[]; skipped: SkippedRule[] } {
   const cmlModel = new CmlModel();
+  const skipped: SkippedRule[] = [];
 
   const rulesByProduct = new Map<string, Array<{ record: RuleRecord; ruleDef: ParsedRuleDefinition }>>();
   for (const entry of ruleDefs) {
+    // Withheld here rather than at declaration time so an unconvertible rule contributes neither a
+    // constraint nor a ruleKeyMapping entry — the record is then never flipped to the constraint
+    // engine, leaving the rule live on the rule engine instead of disabled with nothing behind it.
+    const unconvertible = findUnconvertibleConditions(entry.ruleDef, attributeDataTypes);
+    if (unconvertible.length > 0) {
+      skipped.push({ recordId: entry.record.Id, name: entry.record.Name, reason: unconvertible.join(' ') });
+      continue;
+    }
     // Trim the root segment so leading/trailing whitespace can't split one product into two
     // groups, and skip a rule with a blank ProductPath (it can't be nested under any product)
     // instead of materializing an empty-named type. Mirrors the trimming in
     // collectAllProductIds / collectRootProductIds.
-    const rootProductId = entry.record.ProductPath.split('/')[0]?.trim();
+    const rootProductId = (entry.record.ProductPath ?? '').split('/')[0]?.trim();
     if (!rootProductId) continue;
     if (!rulesByProduct.has(rootProductId)) {
       rulesByProduct.set(rootProductId, []);
@@ -313,7 +633,7 @@ export function buildCmlModel(
     const productType = new CmlType(typeName, undefined, undefined);
 
     const attrs = collectAttributes(productRules);
-    const attrTypes = collectAttributeTypes(productRules);
+    const attrTypes = collectAttributeTypes(productRules, attributeDataTypes);
     for (const attrName of attrs) {
       const cmlType = attrTypes.get(attrName) ?? CML_DATA_TYPES.STRING;
       productType.addAttribute(new CmlAttribute(null, sanitizeName(attrName), cmlType));
@@ -324,7 +644,7 @@ export function buildCmlModel(
       const stageTransition = buildStageTransition(ruleDef.underwritingRuleGroup);
       const ruleKey = generateRuleKey(keyPrefix, productCode, apiName, stageTransition);
 
-      const declaration = buildConstraintDeclaration(ruleDef);
+      const declaration = buildConstraintDeclaration(ruleDef, attributeDataTypes);
       const constraint = ruleType
         ? CmlConstraint.createRuleConstraint(declaration, ruleType, ruleKey, 'True')
         : new CmlConstraint(CONSTRAINT_TYPES.CONSTRAINT, declaration, `"${constraintLabel}: ${record.Name}"`);
@@ -346,5 +666,5 @@ export function buildCmlModel(
     );
   }
 
-  return { cmlModel, ruleKeyMapping };
+  return { cmlModel, ruleKeyMapping, skipped };
 }

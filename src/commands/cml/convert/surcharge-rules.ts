@@ -27,9 +27,12 @@ import {
   buildPathedSurchargeRules,
   fetchExistingConstraintModel,
   fetchProductTypeTags,
+  fetchSurchargeCodes,
   mergeSurchargeRules,
   splitProductPath,
+  UNCONVERTIBLE_SKIP_PREFIX,
 } from '../../../shared/insurance/insurance-cml-merge.js';
+import { ContextTagBindings, fetchContextTagBindings } from '../../../shared/insurance/insurance-context-tags.js';
 
 Messages.importMessagesDirectoryFromMetaUrl(import.meta.url);
 const messages = Messages.loadMessages('@salesforce/plugin-bre-to-cml', 'cml.convert.surcharge-rules');
@@ -116,6 +119,18 @@ export default class CmlConvertSurchargeRules extends InsuranceRuleConvertComman
     }
     const productIdToType = await fetchProductTypeTags(conn, productIds);
 
+    // The platform derives the RuleKey leaf from the parent Surcharge.Code (carried as `surchargeId`
+    // in each RuleDefinition), NOT the rule apiName. Resolve those Codes so the emitted CML rule key
+    // matches the platform-generated ProductSurcharge.RuleKey exactly; otherwise the surcharge
+    // imports cleanly but never fires ("No active rule model found").
+    const surchargeIds = new Set<string>();
+    for (const { ruleDef } of ruleDefs) {
+      if (ruleDef.surchargeId) surchargeIds.add(ruleDef.surchargeId);
+    }
+    const surchargeIdToCode = await fetchSurchargeCodes(conn, surchargeIds);
+
+    const contextTagBindings = await this.resolveContextTagBindings(conn, ruleDefs, api);
+
     // Capture the ProductCode path per surcharge so the emitted update file can carry it (same
     // mapping buildPathedSurchargeRules uses for the rule key). Drift here would desync the platform
     // RuleKey, so it is recorded for the apply-time check rather than discarded.
@@ -126,7 +141,15 @@ export default class CmlConvertSurchargeRules extends InsuranceRuleConvertComman
       this.surchargeProductCodes.set(record.Id, codes);
     }
 
-    const rules = buildPathedSurchargeRules(this.keyPrefix, ruleDefs, productIdToCode, productIdToType);
+    const rules = buildPathedSurchargeRules(this.keyPrefix, ruleDefs, productIdToCode, productIdToType, {
+      surchargeIdToCode,
+      attributeDataTypes: this.attributeDataTypes,
+      contextTagBindings,
+      onSurchargeCodeFallback: (recordName) =>
+        this.warn(
+          `Could not resolve Surcharge.Code for ${recordName}; rule key leaf derived from apiName and may not match the platform-generated RuleKey (surcharge may silently not fire)`
+        ),
+    });
     rules.forEach((r) => this.log(`  -> ${r.recordName} => ${r.ruleKey} (type: ${r.typeName ?? 'UNRESOLVED'})`));
 
     const { mergedCml, placements, skips, attributeWarnings } = mergeSurchargeRules(existing.cmlText, rules);
@@ -144,11 +167,24 @@ export default class CmlConvertSurchargeRules extends InsuranceRuleConvertComman
     // they're staring at one duplicate or fifty missing-type-tag rules. Buckets match the merge
     // module's skip-reason vocabulary; anything that doesn't match a known reason falls into "other".
     if (skips.length > 0) {
-      const counts = { duplicate: 0, emptyPath: 0, noTypeTag: 0, typeBlockMissing: 0, typeBlockAmbiguous: 0, other: 0 };
+      const counts = {
+        duplicate: 0,
+        emptyPath: 0,
+        noTypeTag: 0,
+        typeBlockMissing: 0,
+        typeBlockAmbiguous: 0,
+        unconvertible: 0,
+        undeclaredAttribute: 0,
+        misplaced: 0,
+        other: 0,
+      };
       for (const s of skips) {
-        if (s.reason.startsWith('duplicate pathed rule key')) counts.duplicate += 1;
+        if (s.reason.startsWith(UNCONVERTIBLE_SKIP_PREFIX)) counts.unconvertible += 1;
+        else if (s.reason.startsWith('duplicate pathed rule key')) counts.duplicate += 1;
         else if (s.reason.startsWith('empty ProductPath')) counts.emptyPath += 1;
         else if (s.reason.startsWith('no CML type tag')) counts.noTypeTag += 1;
+        else if (s.reason.startsWith('undeclared attribute')) counts.undeclaredAttribute += 1;
+        else if (s.reason.startsWith('misplaced statement')) counts.misplaced += 1;
         else if (s.reason.includes('not found in existing model')) counts.typeBlockMissing += 1;
         else if (s.reason.includes('is ambiguous')) counts.typeBlockAmbiguous += 1;
         else counts.other += 1;
@@ -156,7 +192,9 @@ export default class CmlConvertSurchargeRules extends InsuranceRuleConvertComman
       this.log(
         `Skip breakdown: ${counts.duplicate} duplicate-key, ${counts.emptyPath} empty-ProductPath, ` +
           `${counts.noTypeTag} no-type-tag, ${counts.typeBlockMissing} type-block-missing, ` +
-          `${counts.typeBlockAmbiguous} type-block-ambiguous, ${counts.other} other`
+          `${counts.typeBlockAmbiguous} type-block-ambiguous, ${counts.unconvertible} unconvertible, ` +
+          `${counts.undeclaredAttribute} undeclared-attribute, ${counts.misplaced} misplaced-statement, ` +
+          `${counts.other} other`
       );
     }
 
@@ -209,5 +247,52 @@ export default class CmlConvertSurchargeRules extends InsuranceRuleConvertComman
       expectedRuleKey: m.ruleKey,
       productCodes: this.surchargeProductCodes.get(m.recordId),
     }));
+  }
+
+  /**
+   * Resolves every context tag the surcharge rules reference against the ContextDefinition(s) this
+   * CML model is bound to, so a `Tag` condition can be DECLARED rather than emitted as a bare
+   * undeclared identifier (which makes the solver reject the entire model at deploy).
+   *
+   * Fails closed on every axis. A lookup error, an unbound model, an unresolvable tag or an
+   * ambiguous one all yield no binding, which leaves the rule to the absent-reference gate — the
+   * behaviour that existed before this resolution did. That asymmetry is deliberate: nothing at
+   * deploy validates a context binding, so a wrong one is silent, while a withheld rule is visible
+   * in the skip breakdown and simply stays on the rule engine.
+   */
+  private async resolveContextTagBindings(
+    conn: Connection,
+    ruleDefs: ParsedRuleEntry[],
+    api: string
+  ): Promise<ContextTagBindings> {
+    const tagNames = new Set<string>();
+    for (const { ruleDef } of ruleDefs) {
+      for (const criteria of ruleDef.ruleCriteria ?? []) {
+        for (const condition of criteria.conditions ?? []) {
+          // Only a Tag condition (no attributeId) is a context reference. An Attribute condition
+          // names a product attribute and is never auto-declared.
+          if (!condition.attributeId && condition.contextTagName) tagNames.add(condition.contextTagName);
+        }
+      }
+    }
+    if (tagNames.size === 0) return new Map();
+
+    try {
+      const bindings = await fetchContextTagBindings(conn, api, tagNames);
+      for (const tag of tagNames) {
+        if (bindings.has(tag)) continue;
+        this.warn(
+          `Could not resolve context tag '${tag}' against the context definition bound to '${api}'; any rule referencing it will be withheld rather than emitted as an undeclared reference`
+        );
+      }
+      return bindings;
+    } catch (err) {
+      this.warn(
+        `Could not resolve context tags (${
+          err instanceof Error ? err.message : String(err)
+        }); rules referencing a context tag will be withheld`
+      );
+      return new Map();
+    }
   }
 }

@@ -58,6 +58,18 @@ sf plugins
 
 ## Commands
 
+> **Review generated files before you import them or apply them to records.** Everything this plugin
+> emits — the `.cml` model, the association CSV, and the `_SurchargeUpdate.json` /
+> `_UnderwritingUpdate.json` record-update plans — is the output of an automated conversion of your
+> org's BRE data. Verifying that it expresses the logic you intend is your responsibility, not the
+> plugin's. Two things are worth checking in particular. Conversion skips rules it cannot place and
+> reports each one as a `SKIPPED` warning, so a generated model can be incomplete even when the
+> command succeeds. And the import commands change the org: `as-expression-set` replaces the active
+> model, and `record-updates` writes to records, where flipping `RuleEngineType` to
+> `ConstraintEngine` stops the platform evaluating that record's BRE rules. Preview with
+> `--dry-run`, read the preview rather than confirming past it, and validate the migrated rules
+> behave as expected in a sandbox before running any of this against production.
+
 ### Insurance: merging surcharge rules into an existing model
 
 `cml convert surcharge-rules` **always** merges generated surcharge rules into an org's existing
@@ -65,12 +77,49 @@ curated `ConstraintModel` — nesting each rule into its leaf product type with 
 pathed rule key — rather than building a fresh, flat model. It requires an existing CML model for the
 resolved CML API.
 
+> **Prerequisite:** each surcharge's parent `Surcharge.Code` must be set (non-null). The platform
+> derives the leaf segment of the auto-generated `ProductSurcharge.RuleKey` from `Surcharge.Code`, and
+> a surcharge with a null Code cannot be flipped to `ConstraintEngine` (the org raises a save-hook
+> error). Populate `Surcharge.Code` before converting.
+
+After importing the merged CML with `sf cml import as-expression-set`, apply the emitted `_SurchargeUpdate.json` (flips `RuleEngineType` → `ConstraintEngine`) with `sf insurance import record-updates`:
+
+```
+$ sf insurance import record-updates --file data/SURCHARGE_CML_SurchargeUpdate.json --target-org myOrg --dry-run
+$ sf insurance import record-updates --file data/SURCHARGE_CML_SurchargeUpdate.json --target-org myOrg
+```
+
+The first run previews every planned change and writes nothing. The second prints the same preview and
+asks for confirmation before applying; pass `--no-prompt` to skip the prompt in automation. The command
+re-reads each record before writing, verifies its Name against the file, skips records that already
+match (so re-running is safe), and reads back the platform-regenerated `RuleKey` to confirm the
+surcharge will actually fire. Import the CML **before** applying the record updates — the RuleKey is
+regenerated against the active model.
+
+The same command applies an `_UnderwritingUpdate.json` file emitted by `sf cml convert underwriting-rules`.
+
+You can also apply the flip directly with the Salesforce CLI — run one `sf data update record` call per
+surcharge listed in `_SurchargeUpdate.json`, using the `id` from that file to set `RuleEngineType` →
+`ConstraintEngine`:
+
+```
+$ sf data update record \
+    --sobject ProductSurcharge \
+    --record-id <ID_FROM_SURCHARGEUPDATE_JSON> \
+    --values "RuleEngineType=ConstraintEngine" \
+    --target-org myOrg
+```
+
+The platform regenerates `ProductSurcharge.RuleKey` on save, which requires the parent `Surcharge.Code`
+to be non-null (per the prerequisite above).
+
 <!-- commands -->
 
 - [`sf cml convert prod-cfg-rules`](#sf-cml-convert-prod-cfg-rules)
 - [`sf cml convert surcharge-rules`](#sf-cml-convert-surcharge-rules)
 - [`sf cml convert underwriting-rules`](#sf-cml-convert-underwriting-rules)
 - [`sf cml import as-expression-set`](#sf-cml-import-as-expression-set)
+- [`sf insurance import record-updates`](#sf-insurance-import-record-updates)
 
 ## `sf cml convert prod-cfg-rules`
 
@@ -165,8 +214,14 @@ DESCRIPTION
   file-only and never writes to the org. It requires an existing CML model to merge into and outputs a .cml file with
   the full merged model, a header-only \_Associations.csv file, a \_RuleKeyMapping.json with the ProductSurcharge ID to
   RuleKey mapping, and a \_SurchargeUpdate.json file enumerating the org-record changes. Review the files, then apply
-  the CML with `sf cml import as-expression-set` and apply the org-record changes enumerated in the
-  \_SurchargeUpdate.json file to the org separately (in that order).
+  the CML with `sf cml import as-expression-set` and apply the \_SurchargeUpdate.json file with `sf insurance import
+  record-updates` (in that order — the platform regenerates ProductSurcharge.RuleKey against the active model when
+  RuleEngineType flips).
+
+  The parent Surcharge's Code field must be set (non-null): the platform derives the leaf segment of the auto-generated
+  ProductSurcharge.RuleKey from Surcharge.Code, so the converter uses it to build a matching rule key. A surcharge whose
+  parent Surcharge has a null Code cannot be flipped to ConstraintEngine (the org raises a save-hook error) and will not
+  convert correctly — populate Surcharge.Code before converting.
 
 EXAMPLES
   $ sf cml convert surcharge-rules --cml-api SURCHARGE_CML --target-org myOrg
@@ -208,8 +263,8 @@ DESCRIPTION
   command is file-only and never writes to the org: it outputs a .cml file with the constraint model, an
   \_Associations.csv file for ExpressionSetConstraintObj records, a \_RuleKeyMapping.json with the UnderwritingRule ID
   to RuleKey mapping, and a \_UnderwritingUpdate.json file enumerating the org-record changes. Review the files, then
-  apply the CML with `sf cml import as-expression-set` and apply the org-record changes enumerated in the
-  \_UnderwritingUpdate.json file to the org separately.
+  apply the CML with `sf cml import as-expression-set` and apply the \_UnderwritingUpdate.json file with `sf insurance
+  import record-updates`.
 
 EXAMPLES
   $ sf cml convert underwriting-rules --cml-api UW_CML --target-org myOrg
@@ -250,6 +305,64 @@ DESCRIPTION
 
 EXAMPLES
   $ sf cml import as-expression-set --cml-api MY_TEST --context-definition PricingTransactionCD2 --workspace-dir data --target-org tgtOrg
+```
+
+## `sf insurance import record-updates`
+
+Applies a record-update file emitted by a cml convert command to the target org.
+
+```
+USAGE
+  $ sf insurance import record-updates -o <value> -f <value> [--json] [--flags-dir <value>] [--api-version <value>] [-p]
+  [--dry-run]
+
+FLAGS
+  -f, --file=<value>         (required) Path to the record-update JSON file emitted by a cml convert command.
+  -o, --target-org=<value>   (required) Username or alias of the target org. Not required if the `target-org`
+                             configuration variable is already set.
+  -p, --no-prompt            Don't prompt for confirmation before applying the changes.
+      --api-version=<value>  Override the api version used for api requests made by this command
+      --dry-run              Show the planned changes and exit without writing anything to the org.
+
+GLOBAL FLAGS
+  --flags-dir=<value>  Import flag values from a directory.
+  --json               Format output as json.
+
+DESCRIPTION
+  Applies a record-update file emitted by a cml convert command to the target org.
+
+  Reads a `<cmlApi>_SurchargeUpdate.json` or `<cmlApi>_UnderwritingUpdate.json` file — the reviewable record-update plan
+  emitted by `sf cml convert surcharge-rules` / `sf cml convert underwriting-rules` — and applies its changes to the
+  org. Convert is file-only and never writes to the org; this command is the apply step.
+
+  The file is treated as untrusted input: it is structurally validated, every record is re-read from the org before
+  anything is written, and each record's Name (plus the rule apiName for underwriting rule updates) is cross-checked
+  against the file so an edited id cannot retarget a different record. Records whose org values already match are
+  skipped, which makes re-running the command safe and idempotent.
+
+  Before applying, the command prints every planned field-level change and asks for confirmation. Use --dry-run to
+  review the plan without writing, and --no-prompt to apply without confirmation in automation. Changes are applied in
+  order and are not rolled back, so a mid-apply failure can leave the org partially migrated; re-running is safe because
+  already-applied records are skipped.
+
+  Import the merged CML with `sf cml import as-expression-set` BEFORE applying a surcharge record-update file. The
+  platform regenerates ProductSurcharge.RuleKey when RuleEngineType flips, and this command verifies that regenerated
+  key against the key the CML rule was emitted under. That regeneration also requires the parent Surcharge.Code to be
+  non-null — a surcharge whose parent Surcharge has a null Code cannot be flipped to ConstraintEngine and the org raises
+  a save-hook error.
+
+EXAMPLES
+  Review the planned changes without writing anything:
+
+    $ sf insurance import record-updates --file data/SURCHARGE_CML_SurchargeUpdate.json --target-org myOrg --dry-run
+
+  Apply the changes, confirming the preview interactively:
+
+    $ sf insurance import record-updates --file data/SURCHARGE_CML_SurchargeUpdate.json --target-org myOrg
+
+  Apply the changes without a confirmation prompt, for automation:
+
+    $ sf insurance import record-updates --file data/UW_CML_UnderwritingUpdate.json --target-org myOrg --no-prompt
 ```
 
 <!-- commandsstop -->

@@ -17,6 +17,7 @@ import { expect } from 'chai';
 import {
   convertToCmlExpression,
   escapeQuotes,
+  generateInCmlExpression,
   isKnownOperator,
   operatorRequiresValues,
 } from '../../src/shared/cml-operators.js';
@@ -87,6 +88,36 @@ describe('convertToCmlExpression', () => {
     expect(convertToCmlExpression('Model', 'NotIn', ['SUV', 'Sedan'], 'string')).to.equal(
       '!(Model == "SUV" || Model == "Sedan")'
     );
+  });
+
+  // In/NotIn expand into a chain of `==` comparisons, so they must follow the same quoting rule
+  // Equals already follows: quoting a value against a non-string attribute compares a number to a
+  // string literal, and the comparison never fires.
+  it('In emits values unquoted when the type is not string', () => {
+    expect(convertToCmlExpression('Deductible', 'In', ['500', '1000'], 'decimal')).to.equal(
+      '(Deductible == 500 || Deductible == 1000)'
+    );
+  });
+
+  it('NotIn emits values unquoted when the type is not string', () => {
+    expect(convertToCmlExpression('Deductible', 'NotIn', ['500', '1000'], 'decimal')).to.equal(
+      '!(Deductible == 500 || Deductible == 1000)'
+    );
+  });
+
+  it('In emits boolean and date values unquoted too', () => {
+    expect(convertToCmlExpression('IsActive', 'In', ['true', 'false'], 'boolean')).to.equal(
+      '(IsActive == true || IsActive == false)'
+    );
+    expect(convertToCmlExpression('EffDate', 'In', ['2026-03-01'], 'date')).to.equal('(EffDate == 2026-03-01)');
+  });
+
+  // An absent dataType means "unknown", and the conservative direction for unknown is to quote —
+  // an unquoted value reaches the curated model verbatim. This also keeps generateInCmlExpression's
+  // behavior unchanged for any caller that passes no type.
+  it('In keeps quoting when no data type is supplied', () => {
+    expect(convertToCmlExpression('Model', 'In', ['SUV', 'Sedan'])).to.equal('(Model == "SUV" || Model == "Sedan")');
+    expect(generateInCmlExpression('Model', ['SUV'])).to.equal('Model == "SUV"');
   });
 
   it('IsNull and IsNotNull need no values', () => {
