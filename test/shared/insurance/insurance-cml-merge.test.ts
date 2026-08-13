@@ -270,6 +270,9 @@ describe('mergeSurchargeRules', () => {
     typeName,
     statement: buildSurchargeRuleStatement(declaration, ruleKey),
     referencedAttributes: [],
+    // No context tags by default: these fixtures exercise placement, not binding. The
+    // context-tag suite below builds rules that carry declarations explicitly.
+    contextTagDeclarations: [],
   });
 
   it('inserts a new rule before the closing brace of the leaf type block', () => {
@@ -1267,5 +1270,210 @@ describe('fetchProductTypeTags', () => {
 describe('SURCHARGE_RULE_ACTION', () => {
   it('is the platform-recognized surcharge rule action name', () => {
     expect(SURCHARGE_RULE_ACTION).to.equal('InsuranceSurchargeRule');
+  });
+});
+
+/**
+ * Curated model carrying a hand-written top-level `extern`, mirroring the real Auto_Silver model.
+ * The extern lives OUTSIDE every type block yet is referenced from inside one, which is exactly the
+ * visibility the absent-reference gate has to understand.
+ */
+const GOLD_WITH_EXTERN = `
+@(contextPath = "SalesTransaction.UserProfile", attributeSource = "ST")
+extern string UserProfile;
+
+type AutoSilver {
+    decimal(2) totalPrice;
+
+    require(UserProfile == "Custom Standard User", medicalpayments[MedicalPayments]);
+}
+
+type MedicalPayments {
+    int Limit = [1000, 2000];
+}
+`;
+
+/** Builds one surcharge rule from a single condition, through the real descriptor builder. */
+function tagRuleFor(
+  condition: RuleCondition,
+  bindings?: Map<string, { tag: string; cmlType: string; sourceDataType: string; scope: 'transaction' | 'item' }>,
+  typeName = 'AutoSilver'
+): ReturnType<typeof buildPathedSurchargeRules> {
+  const record: RuleRecord = { Id: '1Xr000000000001', Name: 'AutoSilver_FeeMig', ProductPath: '01tRoot' };
+  const ruleDef = {
+    name: 'AutoSilver_FeeMig',
+    apiName: 'AutoSilver_FeeMig',
+    productPath: '01tRoot',
+    ruleCriteria: [{ rootObjectId: '01tRoot', conditions: [condition] }],
+  } as ParsedRuleDefinition;
+
+  return buildPathedSurchargeRules(
+    'SC',
+    [{ record, ruleDef }],
+    new Map([['01tRoot', 'autoSilver']]),
+    new Map([['01tRoot', typeName]]),
+    { contextTagBindings: bindings }
+  );
+}
+
+const END_DATE_CONDITION: RuleCondition = {
+  contextTagName: 'EndDate',
+  operator: 'Equals',
+  type: 'Tag',
+  attributeId: undefined,
+  dataType: 'Date',
+  values: ['2026-12-31'],
+};
+
+const TRANSACTION_BINDING = new Map([
+  ['EndDate', { tag: 'EndDate', cmlType: 'date', sourceDataType: 'date', scope: 'transaction' as const }],
+]);
+
+describe('mergeSurchargeRules context-tag declarations', () => {
+  it('declares a transaction-level tag as a top-level extern and places the rule', () => {
+    const rules = tagRuleFor(END_DATE_CONDITION, TRANSACTION_BINDING);
+    const { mergedCml, placements, skips } = mergeSurchargeRules(GOLD_WITH_EXTERN, rules);
+
+    expect(skips).to.deep.equal([]);
+    expect(placements).to.have.length(1);
+    expect(mergedCml).to.include('@(contextPath = "SalesTransaction.EndDate", attributeSource = "ST")');
+    expect(mergedCml).to.include('extern date EndDate;');
+    // The declaration is top level, not inside the type block that uses it.
+    expect(mergedCml.indexOf('extern date EndDate;')).to.be.lessThan(mergedCml.indexOf('type AutoSilver'));
+    // ...and the rule itself compares the tag unquoted, as a date rather than as a string literal.
+    expect(mergedCml).to.include('rule(EndDate == 2026-12-31, "InsuranceSurchargeRule"');
+  });
+
+  it('declares an item-level tag inside the leaf type block, not as an extern', () => {
+    const condition: RuleCondition = {
+      contextTagName: 'ItemTotalPrice',
+      operator: 'GreaterThan',
+      type: 'Tag',
+      dataType: 'Currency',
+      values: ['10'],
+    };
+    const bindings = new Map([
+      [
+        'ItemTotalPrice',
+        { tag: 'ItemTotalPrice', cmlType: 'decimal(2)', sourceDataType: 'currency', scope: 'item' as const },
+      ],
+    ]);
+    const { mergedCml, skips } = mergeSurchargeRules(GOLD_WITH_EXTERN, tagRuleFor(condition, bindings));
+
+    expect(skips).to.deep.equal([]);
+    expect(mergedCml).to.include('@(tagName = "ItemTotalPrice")');
+    expect(mergedCml).to.include('decimal(2) ItemTotalPrice;');
+    expect(mergedCml).to.not.include('extern decimal(2) ItemTotalPrice');
+    // Inside the AutoSilver block: after its opening brace and before its closing one.
+    const blockStart = mergedCml.indexOf('type AutoSilver {');
+    const blockEnd = mergedCml.indexOf('\n}', blockStart);
+    const declAt = mergedCml.indexOf('decimal(2) ItemTotalPrice;');
+    expect(declAt).to.be.greaterThan(blockStart);
+    expect(declAt).to.be.lessThan(blockEnd);
+  });
+
+  it('still withholds a rule whose context tag could not be resolved', () => {
+    // No bindings: resolution failed, so the reference would be a bare undeclared identifier — which
+    // makes the solver reject the WHOLE model at deploy, not merely this one rule.
+    const { mergedCml, placements, skips } = mergeSurchargeRules(GOLD_WITH_EXTERN, tagRuleFor(END_DATE_CONDITION));
+
+    expect(placements).to.deep.equal([]);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.include("undeclared attribute 'EndDate'");
+    expect(mergedCml).to.equal(GOLD_WITH_EXTERN);
+    expect(mergedCml).to.not.include('extern date EndDate');
+  });
+
+  it('is idempotent: a second merge of the same input reproduces the same model', () => {
+    const first = mergeSurchargeRules(GOLD_WITH_EXTERN, tagRuleFor(END_DATE_CONDITION, TRANSACTION_BINDING));
+    const second = mergeSurchargeRules(first.mergedCml, tagRuleFor(END_DATE_CONDITION, TRANSACTION_BINDING));
+
+    expect(second.mergedCml).to.equal(first.mergedCml);
+    expect(second.skips).to.deep.equal([]);
+    // One declaration, not two.
+    expect(second.mergedCml.match(/extern date EndDate;/g)).to.have.length(1);
+    expect(second.mergedCml.match(/contextPath = "SalesTransaction\.EndDate"/g)).to.have.length(1);
+  });
+
+  it('is idempotent for the item form too', () => {
+    const condition: RuleCondition = {
+      contextTagName: 'ItemTotalPrice',
+      operator: 'GreaterThan',
+      type: 'Tag',
+      dataType: 'Currency',
+      values: ['10'],
+    };
+    const bindings = new Map([
+      [
+        'ItemTotalPrice',
+        { tag: 'ItemTotalPrice', cmlType: 'decimal(2)', sourceDataType: 'currency', scope: 'item' as const },
+      ],
+    ]);
+    const first = mergeSurchargeRules(GOLD_WITH_EXTERN, tagRuleFor(condition, bindings));
+    const second = mergeSurchargeRules(first.mergedCml, tagRuleFor(condition, bindings));
+
+    expect(second.mergedCml).to.equal(first.mergedCml);
+    expect(second.mergedCml.match(/@\(tagName = "ItemTotalPrice"\)/g)).to.have.length(1);
+  });
+
+  it('sanitizes the CML identifier while the annotation carries the raw tag name', () => {
+    const condition: RuleCondition = {
+      contextTagName: 'Cause Of Loss',
+      operator: 'Equals',
+      type: 'Tag',
+      dataType: 'Text',
+      values: ['Hail'],
+    };
+    const bindings = new Map([
+      ['Cause Of Loss', { tag: 'Cause Of Loss', cmlType: 'string', sourceDataType: 'string', scope: 'item' as const }],
+    ]);
+    const { mergedCml, skips } = mergeSurchargeRules(GOLD_WITH_EXTERN, tagRuleFor(condition, bindings));
+
+    expect(skips).to.deep.equal([]);
+    // The identifier is legal CML...
+    expect(mergedCml).to.include('string Cause_Of_Loss;');
+    expect(mergedCml).to.include('Cause_Of_Loss == "Hail"');
+    // ...and the true name is not lost — the annotation is what actually binds the value.
+    expect(mergedCml).to.include('@(tagName = "Cause Of Loss")');
+  });
+
+  it('does not auto-declare an Attribute condition, which is withheld as before', () => {
+    // attributeId present: a product attribute, not a context tag. Its absence usually means the
+    // rule targets a type in a different model, which auto-declaring would paper over.
+    const condition: RuleCondition = {
+      contextTagName: 'SalesTransactionItemAttribute',
+      attributeName: 'Deductible',
+      attributeId: '0tjfiw000000CMBAA2',
+      operator: 'Equals',
+      type: 'Attribute',
+      dataType: 'Text',
+      values: ['500'],
+    };
+    const bindings = new Map([
+      ['Deductible', { tag: 'Deductible', cmlType: 'string', sourceDataType: 'string', scope: 'item' as const }],
+    ]);
+    const { mergedCml, placements, skips } = mergeSurchargeRules(GOLD_WITH_EXTERN, tagRuleFor(condition, bindings));
+
+    expect(placements).to.deep.equal([]);
+    expect(skips[0].reason).to.include("undeclared attribute 'Deductible'");
+    expect(mergedCml).to.equal(GOLD_WITH_EXTERN);
+  });
+
+  it('accepts a tag the curated model already declares as a top-level extern', () => {
+    // The gate is type-scoped, and a top-level extern lives outside every type block. Without
+    // recognizing it, a rule referencing an already-correctly-bound tag would be withheld.
+    const condition: RuleCondition = {
+      contextTagName: 'UserProfile',
+      operator: 'Equals',
+      type: 'Tag',
+      dataType: 'Text',
+      values: ['Custom Standard User'],
+    };
+    const { mergedCml, placements, skips } = mergeSurchargeRules(GOLD_WITH_EXTERN, tagRuleFor(condition));
+
+    expect(skips).to.deep.equal([]);
+    expect(placements).to.have.length(1);
+    // Unresolved, so nothing new is declared — the existing extern is what makes it resolvable.
+    expect(mergedCml.match(/extern string UserProfile;/g)).to.have.length(1);
   });
 });

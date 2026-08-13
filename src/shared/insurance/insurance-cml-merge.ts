@@ -22,11 +22,13 @@ import {
   buildConstraintDeclaration,
   collectAttributeTypes,
   collectEmittedAttributes,
+  collectEmittedContextTags,
   findUnconvertibleConditions,
   sanitizeName,
   buildStageTransition,
 } from './insurance-rule-generator.js';
 import { quoteSoqlIdList } from './insurance-org.js';
+import { ContextTagBindings } from './insurance-context-tags.js';
 
 /**
  * MERGE MODE (insurance-only): instead of building a fresh single-type CML and PATCH-replacing
@@ -48,6 +50,30 @@ import { quoteSoqlIdList } from './insurance-org.js';
 
 export const SURCHARGE_RULE_ACTION = 'InsuranceSurchargeRule';
 
+/**
+ * A context-tag reference the merge will DECLARE into the model so the rule's expression resolves.
+ *
+ * Only a BRE `Tag` condition (`attributeId` null) produces one of these, and only when the tag
+ * resolved unambiguously against the org's context metadata (see insurance-context-tags.ts). An
+ * `Attribute` condition never does: those name product attributes the curated model is expected to
+ * already declare, and auto-declaring one would paper over the real cause — usually that the rule
+ * targets a type belonging to a different model.
+ */
+export type ContextTagDeclaration = {
+  /** Raw ContextTag.Title, e.g. `Cause Of Loss`. Carried verbatim by the emitted annotation. */
+  tag: string;
+  /**
+   * `sanitizeName(tag)`, so the CML identifier stays legal even when the title contains spaces or
+   * punctuation. The TRUE name is never lost — it travels in the `tagName` / `contextPath`
+   * annotation, which is what actually binds the value.
+   */
+  identifier: string;
+  /** CML declaration type from ContextAttribute.DataType (e.g. `date`, `decimal(2)`). */
+  cmlType: string;
+  /** Which binding form to emit: a top-level `extern`, or an in-type `@(tagName = ...)`. */
+  scope: 'transaction' | 'item';
+};
+
 export type PathedSurchargeRule = {
   recordId: string;
   recordName: string;
@@ -67,6 +93,13 @@ export type PathedSurchargeRule = {
   statement: string;
   /** Sanitized attribute names referenced by the rule declaration (for visibility warnings). */
   referencedAttributes: string[];
+  /**
+   * The context-tag references this rule needs, resolved against the org. The merge declares each
+   * one that the model does not already carry, and treats it as visible for the absent-reference
+   * gate. A tag that did NOT resolve is deliberately absent from this list, so it stays invisible to
+   * the gate and its rule is withheld exactly as before.
+   */
+  contextTagDeclarations: ContextTagDeclaration[];
   /**
    * Set when {@link findUnconvertibleConditions} found something in this rule CML cannot express.
    * The merge refuses such a rule outright — `statement` is built anyway (the shapes stay uniform)
@@ -372,6 +405,21 @@ function joinReasons(reasons: string[]): string | undefined {
   return reasons.length > 0 ? `${UNCONVERTIBLE_SKIP_PREFIX}: ${reasons.join(' ')}` : undefined;
 }
 
+/**
+ * Whether a context tag title is safe to place verbatim inside the double-quoted slot of a
+ * `@(tagName = "...")` / `@(contextPath = "...")` annotation. Titles legitimately contain spaces
+ * ("Cause Of Loss"), but a quote, backslash or newline would break out of the literal and land raw
+ * in the curated model, so those are refused rather than escaped — the same reject-don't-escape
+ * stance {@link isSafeQuotableString} takes for condition values.
+ *
+ * A refused tag contributes no declaration, so the absent-reference gate withholds its rule. The
+ * fetch layer already declines to query such a title, making this defence in depth for a
+ * hand-constructed binding map.
+ */
+function isSafeCmlAnnotationValue(value: string): boolean {
+  return value.trim().length > 0 && !/["\\\r\n]/.test(value);
+}
+
 /** Builds the `rule(...)` statement for a surcharge, using the same constraint generator as build mode. */
 export function buildSurchargeRuleStatement(declaration: string, ruleKey: string): string {
   return CmlConstraint.createRuleConstraint(declaration, SURCHARGE_RULE_ACTION, ruleKey, 'True').generateCml();
@@ -393,6 +441,12 @@ export type BuildPathedSurchargeRulesOptions = {
    * curated model already declares it — against a quoted string, and the surcharge never fires.
    */
   attributeDataTypes?: AttributeDataTypes;
+  /**
+   * Raw context tag -> its org-resolved binding (see {@link fetchContextTagBindings}). Absent or
+   * empty means no tag resolves, which leaves every Tag-condition rule to the absent-reference gate
+   * — the behaviour before context-tag resolution existed, and still the correct fallback.
+   */
+  contextTagBindings?: ContextTagBindings;
 };
 
 /**
@@ -423,12 +477,23 @@ export function buildPathedSurchargeRules(
     const leafProductId = segments[segments.length - 1];
     const typeName = leafProductId ? productIdToType.get(leafProductId) : undefined;
 
-    const declaration = buildConstraintDeclaration(ruleDef, options.attributeDataTypes);
+    const tagTypes = options.contextTagBindings;
+    const declaration = buildConstraintDeclaration(ruleDef, options.attributeDataTypes, tagTypes);
     const statement = buildSurchargeRuleStatement(declaration, ruleKey);
     // M7: only attributes from conditions that actually emitted CML (non-null buildConditionExpression)
     // count as "referenced". Attributes from conditions the safe-literal guard / unknown-operator
     // filter dropped never appear in the declaration, so warning about them would be spurious noise.
-    const referencedAttributes = Array.from(collectEmittedAttributes([{ ruleDef }], options.attributeDataTypes));
+    const referencedAttributes = Array.from(
+      collectEmittedAttributes([{ ruleDef }], options.attributeDataTypes, tagTypes)
+    );
+    // Same discipline for tags, then narrowed to the ones that actually resolved: an unresolved tag
+    // contributes no declaration, so it stays absent from the model and its rule is withheld.
+    const contextTagDeclarations = Array.from(
+      collectEmittedContextTags([{ ruleDef }], options.attributeDataTypes, tagTypes)
+    )
+      .map((tag) => options.contextTagBindings?.get(tag))
+      .filter((b): b is NonNullable<typeof b> => b !== undefined && isSafeCmlAnnotationValue(b.tag))
+      .map((b) => ({ tag: b.tag, identifier: sanitizeName(b.tag), cmlType: b.cmlType, scope: b.scope }));
 
     return {
       recordId: record.Id,
@@ -439,7 +504,8 @@ export function buildPathedSurchargeRules(
       typeName,
       statement,
       referencedAttributes,
-      unconvertibleReason: joinReasons(findUnconvertibleConditions(ruleDef, options.attributeDataTypes)),
+      contextTagDeclarations,
+      unconvertibleReason: joinReasons(findUnconvertibleConditions(ruleDef, options.attributeDataTypes, tagTypes)),
     };
   });
 }
@@ -596,7 +662,7 @@ export function mergeSurchargeRules(existingCml: string, rules: PathedSurchargeR
     // [Fix #1] One comment-blanked view of the current `cml` reused by both the replace-anchor
     // search and the type-block search this iteration. Recomputed per-iteration because a prior
     // rule's splice may have mutated `cml`.
-    const scan = blankComments(cml);
+    let scan = blankComments(cml);
 
     // Resolved BEFORE the replace path, for two reasons. It lets the attribute gate below report an
     // accurate cause (an unresolvable leaf scope makes every attribute look absent, so running the
@@ -604,7 +670,7 @@ export function mergeSurchargeRules(existingCml: string, rules: PathedSurchargeR
     // the operator off to declare an attribute in a type that does not exist). And a rule whose
     // leaf type we cannot pin down must not rewrite a curated statement on the strength of a key
     // match alone.
-    const block = findTypeBlock(cml, rule.typeName, scan);
+    let block = findTypeBlock(cml, rule.typeName, scan);
     if (!block) {
       skips.push({ rule, reason: `type block '${rule.typeName}' not found in existing model` });
       continue;
@@ -630,6 +696,25 @@ export function mergeSurchargeRules(existingCml: string, rules: PathedSurchargeR
         reason: `undeclared attribute ${names} referenced by ${rule.recordName}; withheld because the solver rejects the whole model at deploy, disabling every rule in it`,
       });
       continue;
+    }
+
+    // The rule is going to be placed, so its resolved context tags must be declared first — the gate
+    // above passed them precisely because this runs. Declaring here (rather than after placement)
+    // also means a later rule sees the declaration and does not add a second one.
+    const withDeclarations = applyContextTagDeclarations(cml, rule, eol);
+    if (withDeclarations !== cml) {
+      // Every offset computed above is now stale, so re-derive them against the spliced text before
+      // the replace/insert below uses them.
+      cml = withDeclarations;
+      scan = blankComments(cml);
+      block = findTypeBlock(cml, rule.typeName, scan);
+      if (!block || 'ambiguous' in block) {
+        skips.push({
+          rule,
+          reason: `type block '${rule.typeName}' could not be re-resolved after declaring context tags for ${rule.recordName}`,
+        });
+        continue;
+      }
     }
 
     // C2/M4/L1: only a REAL surcharge `rule(...)` statement carrying this exact key in the
@@ -959,6 +1044,128 @@ export function blankComments(cml: string): string {
  * spliced in. Checking the post-insertion text would always find the attribute inside the rule's own
  * just-inserted declaration (which sanitizes attribute names identically), suppressing every warning.
  */
+/**
+ * A length-preserving view of `scan` with the BODY of every `type ... { ... }` block blanked, so a
+ * search can be restricted to the model's top level (where `extern` declarations live). Offsets are
+ * preserved, so an index found in this view still slices the real cml correctly.
+ *
+ * `matchClosingBrace` runs against the raw cml because it is comment-aware; the returned span is
+ * then blanked in the scan view. `lastIndex` is advanced past each block so a `type` nested inside
+ * another block is not scanned as a second top-level declaration.
+ */
+function blankTypeBlockBodies(cml: string, scan: string): string {
+  const out = scan.split('');
+  const re = /(^|\n)[ \t]*type[ \t]+[A-Za-z_]\w*\b[^{;]*\{/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(scan)) !== null) {
+    const openIdx = scan.indexOf('{', m.index);
+    if (openIdx < 0) continue;
+    const closeIdx = matchClosingBrace(cml, openIdx);
+    if (closeIdx === undefined) continue;
+    for (let i = openIdx; i <= closeIdx; i++) out[i] = ' ';
+    re.lastIndex = closeIdx;
+  }
+  return out.join('');
+}
+
+/**
+ * Matches a real top-level `extern <type> <identifier>;` declaration. Deliberately anchored on the
+ * `extern` keyword rather than accepting any bare mention: this pattern is what lets the
+ * absent-reference gate treat an identifier as visible, and a false positive there would let an
+ * undeclared reference through — which takes the whole model down at deploy. `<type>` may carry a
+ * scale (`decimal(2)`) or be an array (`string[]`).
+ */
+function externDeclarationPattern(identifier: string): RegExp {
+  return new RegExp(
+    `\\bextern\\s+[A-Za-z_]\\w*\\s*(?:\\(\\s*\\d+\\s*\\)|\\[\\s*\\])?\\s+${escapeRegExp(identifier)}\\s*;`
+  );
+}
+
+/**
+ * Matches a declaration of `identifier` in any CML slot — `<type> <identifier>;` or
+ * `<type> <identifier> = ...`. Used ONLY for idempotency (do not emit a second declaration of
+ * something already declared), never to satisfy the absent-reference gate, so the looser shape is
+ * safe: at worst it suppresses a duplicate the model did not need.
+ */
+function declarationPattern(identifier: string): RegExp {
+  return new RegExp(`\\b[A-Za-z_]\\w*\\s*(?:\\(\\s*\\d+\\s*\\)|\\[\\s*\\])?\\s+${escapeRegExp(identifier)}\\s*[;=]`);
+}
+
+/**
+ * Where a new top-level `extern` belongs: immediately after the last existing top-level extern (so
+ * the bindings stay grouped as the curated models write them), else immediately before the first
+ * top-level `type` header, else at end of file. Returns an index into `cml`.
+ */
+function findExternInsertIndex(cml: string, scan: string): number {
+  const topLevel = blankTypeBlockBodies(cml, scan);
+
+  const externRe = /\bextern\b[^;]*;/g;
+  let lastExternEnd = -1;
+  let m: RegExpExecArray | null;
+  while ((m = externRe.exec(topLevel)) !== null) lastExternEnd = m.index + m[0].length;
+  if (lastExternEnd >= 0) return lastExternEnd;
+
+  const typeMatch = /(^|\n)[ \t]*type[ \t]+[A-Za-z_]\w*/.exec(topLevel);
+  if (typeMatch) return typeMatch.index + (typeMatch[1] ? typeMatch[1].length : 0);
+
+  return cml.length;
+}
+
+/**
+ * Declares every context-tag reference this rule needs that the model does not already carry, and
+ * returns the updated CML.
+ *
+ * Two binding forms, chosen by the tag's position in the context tree (see
+ * insurance-context-tags.ts). Both mirror declarations a human already hand-wrote into the curated
+ * Auto_Silver model, which is the only evidence available that each form is correct.
+ *
+ * A transaction-level tag becomes a top-level
+ * `@(contextPath = "SalesTransaction.<Tag>", attributeSource = "ST") extern <type> <identifier>;`.
+ * An item-level tag becomes `@(tagName = "<Tag>") <type> <identifier>;` inside the leaf type block.
+ *
+ * The item-level declaration is placed just after the leaf block's opening brace rather than before
+ * its closing one (where rule statements go), so a declaration always precedes the statements that
+ * use it and the two insert paths cannot interleave confusingly.
+ *
+ * Idempotent: an identifier already declared — as a top-level extern for the transaction form, or
+ * anywhere in the leaf type block's own scope INCLUDING its `: Parent` ancestry for the item form —
+ * is left alone, so re-running the converter reproduces the same file.
+ */
+function applyContextTagDeclarations(cml: string, rule: PathedSurchargeRule, eol: string): string {
+  let out = cml;
+
+  for (const decl of rule.contextTagDeclarations) {
+    // Recomputed per declaration: each splice moves every offset after it.
+    const scan = blankComments(out);
+
+    if (decl.scope === 'transaction') {
+      if (externDeclarationPattern(decl.identifier).test(blankTypeBlockBodies(out, scan))) continue;
+      const at = findExternInsertIndex(out, scan);
+      const annotation = `@(contextPath = "SalesTransaction.${decl.tag}", attributeSource = "ST")`;
+      const statement = `${annotation}${eol}extern ${decl.cmlType} ${decl.identifier};`;
+      // Appending after an existing extern only needs a leading newline; landing before a `type`
+      // header or at EOF needs to keep the following text on its own line.
+      const insertion = at > 0 && out[at - 1] === ';' ? `${eol}${statement}` : `${statement}${eol}${eol}`;
+      out = out.slice(0, at) + insertion + out.slice(at);
+      continue;
+    }
+
+    // Item scope. The caller has already resolved and validated the leaf type block, so a failure
+    // to re-find it here can only mean the model changed under us; skip rather than guess a home.
+    if (!rule.typeName) continue;
+    const block = findTypeBlock(out, rule.typeName, scan);
+    if (!block || 'ambiguous' in block) continue;
+    const visible = collectTypeScopeText(out, rule.typeName, undefined, scan) ?? '';
+    if (declarationPattern(decl.identifier).test(visible)) continue;
+
+    const at = block.openIdx + 1;
+    const statement = `${eol}    @(tagName = "${decl.tag}")${eol}    ${decl.cmlType} ${decl.identifier};`;
+    out = out.slice(0, at) + statement + out.slice(at);
+  }
+
+  return out;
+}
+
 function findAbsentAttributes(baseCml: string, rule: PathedSurchargeRule, baseScan?: string): string[] {
   const absent: string[] = [];
   // H5/M3: scope the presence check to the leaf type block plus its `: Parent` ancestry, with
@@ -975,9 +1182,23 @@ function findAbsentAttributes(baseCml: string, rule: PathedSurchargeRule, baseSc
   // cannot prove visible is reported, never silently suppressed.
   const scope = rule.typeName ? collectTypeScopeText(baseCml, rule.typeName, undefined, baseScan) ?? '' : '';
 
+  // A context tag that resolved against the org is about to be DECLARED by
+  // {@link applyContextTagDeclarations}, so it is visible by the time the model is deployed even
+  // though the baseline text does not mention it. Only resolved tags appear here — an unresolved one
+  // is absent from this set on purpose, so it still fails the check and its rule is still withheld.
+  const willDeclare = new Set(rule.contextTagDeclarations.map((d) => d.identifier));
+
+  // Type-scoped visibility misses a TOP-LEVEL `extern`, which lives outside every type block yet is
+  // referable from inside one (the curated model's own `extern string UserProfile` is used inside
+  // `type AutoSilver`). Without this, a rule referencing an already-correctly-bound tag would be
+  // withheld for an attribute that is in fact declared. Matched on the anchored `extern` form only.
+  const topLevel = blankTypeBlockBodies(baseCml, baseScan ?? blankComments(baseCml));
+
   for (const attr of rule.referencedAttributes) {
-    const present = new RegExp(`\\b${escapeRegExp(attr)}\\b`).test(scope);
-    if (!present) absent.push(attr);
+    if (willDeclare.has(attr)) continue;
+    if (new RegExp(`\\b${escapeRegExp(attr)}\\b`).test(scope)) continue;
+    if (externDeclarationPattern(attr).test(topLevel)) continue;
+    absent.push(attr);
   }
 
   return absent;

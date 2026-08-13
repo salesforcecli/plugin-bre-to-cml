@@ -81,13 +81,69 @@ function dataTypeToCml(dataType?: string): string {
 export type AttributeDataTypes = ReadonlyMap<string, string>;
 
 /**
- * The org's AttributeDefinition is authoritative for an attribute's type, so a resolved entry wins
- * over the condition's own `dataType` snapshot. Conditions keyed only by contextTagName carry no
- * attribute id and always fall back to the snapshot.
+ * Raw context tag name -> the type the org's ContextAttribute declares for it. Structurally the
+ * subset of `ContextTagBindings` this module needs, declared here rather than imported so the
+ * generator keeps no dependency on the org-fetch layer.
+ *
+ * Needed for the same reason {@link AttributeDataTypes} is: a Tag condition's own `dataType` is a
+ * snapshot taken by the rule engine, while ContextAttribute.DataType is what the model will be made
+ * to declare. Feeding the resolved type through here — rather than only into the declaration —
+ * keeps the two in step, so a tag can never be declared `decimal(2)` and then compared as a quoted
+ * string (the never-fires mismatch `collectAttributeTypes` already guards against on the attribute
+ * path).
  */
-function conditionDataType(condition: RuleCondition, attributeDataTypes?: AttributeDataTypes): string | undefined {
-  const resolved = condition.attributeId ? attributeDataTypes?.get(condition.attributeId) : undefined;
+export type ContextTagDataTypes = ReadonlyMap<string, { sourceDataType: string }>;
+
+/**
+ * The org is authoritative for a reference's type, so a resolved entry wins over the condition's own
+ * `dataType` snapshot: an AttributeDefinition for a condition carrying an `attributeId`, a
+ * ContextAttribute for a Tag condition (`attributeId` null, keyed by `contextTagName`). A Tag
+ * condition whose tag did not resolve still falls back to the snapshot — its rule is withheld
+ * downstream by the absent-reference gate, so the fallback only has to stay harmless, not correct.
+ */
+function conditionDataType(
+  condition: RuleCondition,
+  attributeDataTypes?: AttributeDataTypes,
+  contextTagDataTypes?: ContextTagDataTypes
+): string | undefined {
+  if (condition.attributeId) {
+    return attributeDataTypes?.get(condition.attributeId) ?? condition.dataType;
+  }
+  const tag = condition.contextTagName;
+  const resolved = tag ? contextTagDataTypes?.get(tag)?.sourceDataType : undefined;
   return resolved ?? condition.dataType;
+}
+
+/**
+ * The context tags a rule actually EMITS a reference to — the Tag-condition counterpart of
+ * {@link collectEmittedAttributes}, and its exact discipline: a condition the safe-literal guard,
+ * an unknown operator or a missing value dropped contributes nothing, because its tag never reaches
+ * the declaration and so needs no binding.
+ *
+ * Names are returned RAW (not sanitized): the raw title is what resolves against ContextTag.Title
+ * and what the emitted `tagName` / `contextPath` annotation must carry. Sanitizing is the
+ * identifier's problem, not the binding's.
+ */
+export function collectEmittedContextTags(
+  ruleDefs: Array<{ ruleDef: { ruleCriteria?: RuleCriteria[] } }>,
+  attributeDataTypes?: AttributeDataTypes,
+  contextTagDataTypes?: ContextTagDataTypes
+): Set<string> {
+  const tags = new Set<string>();
+  for (const { ruleDef } of ruleDefs) {
+    for (const criteria of ruleDef.ruleCriteria ?? []) {
+      for (const cond of criteria.conditions ?? []) {
+        // Only a Tag condition needs a context binding. An Attribute condition (attributeId present)
+        // names a product attribute the curated model is expected to already declare, and is
+        // deliberately never auto-declared — see the merge module's absent-reference gate.
+        if (cond.attributeId) continue;
+        if (!cond.contextTagName) continue;
+        if (buildConditionExpression(cond, attributeDataTypes, contextTagDataTypes) === null) continue;
+        tags.add(cond.contextTagName);
+      }
+    }
+  }
+  return tags;
 }
 
 export function sanitizeName(name: string): string {
@@ -262,7 +318,8 @@ export function findUnconvertibleConditions(
   // `apiName` / `name` are read only to name the rule in the whole-rule reason below; every real
   // caller passes a ParsedRuleDefinition, which carries both.
   ruleDef: { ruleCriteria?: RuleCriteria[]; apiName?: string; name?: string },
-  attributeDataTypes?: AttributeDataTypes
+  attributeDataTypes?: AttributeDataTypes,
+  contextTagDataTypes?: ContextTagDataTypes
 ): string[] {
   const reasons: string[] = [];
   for (const criteria of ruleDef.ruleCriteria ?? []) {
@@ -272,7 +329,7 @@ export function findUnconvertibleConditions(
       if (!isKnownOperator(condition.operator)) continue;
       const values = condition.values ?? [];
       if (values.length === 0) continue;
-      const cmlDataType = dataTypeToCml(conditionDataType(condition, attributeDataTypes));
+      const cmlDataType = dataTypeToCml(conditionDataType(condition, attributeDataTypes, contextTagDataTypes));
       const attrName = condition.attributeName ?? condition.contextTagName ?? 'unknown';
 
       if (SUBSTRING_OPERATORS.has(condition.operator) && cmlDataType !== CML_DATA_TYPES.STRING) {
@@ -300,7 +357,7 @@ export function findUnconvertibleConditions(
 
   // Checked last, and only when nothing above spoke: a condition-specific refusal already says why
   // the rule is withheld, so the whole-rule reason would just repeat it less usefully.
-  if (reasons.length === 0 && collapsesToUnconditional(ruleDef, attributeDataTypes)) {
+  if (reasons.length === 0 && collapsesToUnconditional(ruleDef, attributeDataTypes, contextTagDataTypes)) {
     const ruleName = ruleDef.apiName ?? ruleDef.name ?? 'unknown';
     reasons.push(
       `the conditions of rule '${ruleName}' could not be converted — every one of them was dropped (an ` +
@@ -337,15 +394,20 @@ export function findUnconvertibleConditions(
  */
 function collapsesToUnconditional(
   ruleDef: { ruleCriteria?: RuleCriteria[] },
-  attributeDataTypes?: AttributeDataTypes
+  attributeDataTypes?: AttributeDataTypes,
+  contextTagDataTypes?: ContextTagDataTypes
 ): boolean {
   const criteria = ruleDef.ruleCriteria ?? [];
   const conditionCount = criteria.reduce((total, c) => total + (c.conditions?.length ?? 0), 0);
   if (conditionCount === 0) return false;
-  return criteria.every((c) => buildCriteriaExpression(c, attributeDataTypes) === null);
+  return criteria.every((c) => buildCriteriaExpression(c, attributeDataTypes, contextTagDataTypes) === null);
 }
 
-function buildConditionExpression(condition: RuleCondition, attributeDataTypes?: AttributeDataTypes): string | null {
+function buildConditionExpression(
+  condition: RuleCondition,
+  attributeDataTypes?: AttributeDataTypes,
+  contextTagDataTypes?: ContextTagDataTypes
+): string | null {
   if (!isKnownOperator(condition.operator)) return null;
 
   const op = condition.operator;
@@ -354,7 +416,7 @@ function buildConditionExpression(condition: RuleCondition, attributeDataTypes?:
   }
 
   const values = condition.values ?? [];
-  const cmlDataType = dataTypeToCml(conditionDataType(condition, attributeDataTypes));
+  const cmlDataType = dataTypeToCml(conditionDataType(condition, attributeDataTypes, contextTagDataTypes));
 
   if (emitsUnquoted(op, cmlDataType)) {
     if (!values.every((v) => isSafeUnquotedLiteral(v, cmlDataType))) {
@@ -369,12 +431,16 @@ function buildConditionExpression(condition: RuleCondition, attributeDataTypes?:
   return convertToCmlExpression(attrName, op, condition.values, cmlDataType);
 }
 
-function buildCriteriaExpression(criteria: RuleCriteria, attributeDataTypes?: AttributeDataTypes): string | null {
+function buildCriteriaExpression(
+  criteria: RuleCriteria,
+  attributeDataTypes?: AttributeDataTypes,
+  contextTagDataTypes?: ContextTagDataTypes
+): string | null {
   const parts: string[] = [];
 
   if (criteria.conditions) {
     for (const condition of criteria.conditions) {
-      const expr = buildConditionExpression(condition, attributeDataTypes);
+      const expr = buildConditionExpression(condition, attributeDataTypes, contextTagDataTypes);
       if (expr) parts.push(expr);
     }
   }
@@ -392,14 +458,15 @@ function buildCriteriaExpression(criteria: RuleCriteria, attributeDataTypes?: At
  */
 export function buildConstraintDeclaration(
   ruleDef: { ruleCriteria?: RuleCriteria[] },
-  attributeDataTypes?: AttributeDataTypes
+  attributeDataTypes?: AttributeDataTypes,
+  contextTagDataTypes?: ContextTagDataTypes
 ): string {
   if (!ruleDef.ruleCriteria || ruleDef.ruleCriteria.length === 0) {
     return 'true';
   }
 
   const expressions = ruleDef.ruleCriteria
-    .map((criteria) => buildCriteriaExpression(criteria, attributeDataTypes))
+    .map((criteria) => buildCriteriaExpression(criteria, attributeDataTypes, contextTagDataTypes))
     .filter((e): e is string => e !== null);
 
   if (expressions.length === 0) return 'true';
@@ -431,13 +498,14 @@ export function collectAttributes(ruleDefs: Array<{ ruleDef: { ruleCriteria?: Ru
  */
 export function collectEmittedAttributes(
   ruleDefs: Array<{ ruleDef: { ruleCriteria?: RuleCriteria[] } }>,
-  attributeDataTypes?: AttributeDataTypes
+  attributeDataTypes?: AttributeDataTypes,
+  contextTagDataTypes?: ContextTagDataTypes
 ): Set<string> {
   const attrs = new Set<string>();
   for (const { ruleDef } of ruleDefs) {
     for (const criteria of ruleDef.ruleCriteria ?? []) {
       for (const cond of criteria.conditions ?? []) {
-        if (buildConditionExpression(cond, attributeDataTypes) === null) continue;
+        if (buildConditionExpression(cond, attributeDataTypes, contextTagDataTypes) === null) continue;
         const name = cond.attributeName ?? cond.contextTagName;
         if (name) attrs.add(sanitizeName(name));
       }
