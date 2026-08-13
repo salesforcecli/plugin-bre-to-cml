@@ -296,7 +296,7 @@ describe('cml convert surcharge-rules', () => {
     expect(warnOutput()).to.include('Could not resolve Surcharge.Code for Collision Fee');
   });
 
-  it('surfaces both a skip and an attribute warning (neither is silent)', async () => {
+  it('withholds the undeclared-attribute rule and surfaces both skips (neither is silent)', async () => {
     stubOrgConnection(
       mockConnection({
         existingCml: GOLD_CML,
@@ -311,7 +311,8 @@ describe('cml convert surcharge-rules', () => {
     );
     await writeSurchargeFile([
       {
-        // Resolves to Collision, but references GhostAttr which is absent from the model => WARN.
+        // Resolves to Collision, but references GhostAttr which is absent from the model. Emitting
+        // it would make the solver reject the entire model at deploy => WITHHELD.
         Id: 'a0p000000000001',
         Name: 'Ghost Attr Fee',
         ProductPath: '01tROOT00000000001/01tCOLL00000000001',
@@ -333,18 +334,20 @@ describe('cml convert surcharge-rules', () => {
     const result = await runCommand();
 
     const warns = warnOutput();
-    // The skip is surfaced as a warning with a clear reason.
+    // Each skip is surfaced as a warning with a clear reason.
     expect(warns).to.match(/SKIPPED Orphan Fee/);
-    // The absent-attribute warning is surfaced.
+    expect(warns).to.match(/SKIPPED Ghost Attr Fee/);
+    expect(warns).to.match(/undeclared attribute/);
+    // The absent attribute is named, so the operator knows what to declare.
     expect(warns).to.match(/ATTRIBUTE/);
     expect(warns).to.match(/GhostAttr/);
+    expect(logOutput()).to.match(/1 undeclared-attribute/);
 
-    // Only the resolvable rule made it into the mapping (the orphan was skipped, not placed).
-    expect(result.ruleKeyMapping).to.have.length(1);
-    expect(result.ruleKeyMapping[0].name).to.equal('Ghost Attr Fee');
+    // Neither rule was placed, so the mapping is empty.
+    expect(result.ruleKeyMapping).to.have.length(0);
 
     const mergedCml = await fs.readFile(result.cmlFile, 'utf8');
-    expect(mergedCml).to.include('SC__autoSilver__collision__GhostAttrFee');
+    expect(mergedCml).to.not.include('GhostAttrFee');
     expect(mergedCml).to.not.include('OrphanFee');
   });
 

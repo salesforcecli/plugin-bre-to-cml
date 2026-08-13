@@ -366,18 +366,26 @@ type Collision {
     expect((mergedCml.match(/{/g) ?? []).length).to.equal((mergedCml.match(/}/g) ?? []).length);
   });
 
-  it('warns (without skipping) when a declaration references an attribute absent from the model', () => {
+  // The solver rejects the whole model at deploy when a reference does not resolve, taking every
+  // other rule in the ExpressionSet down with it, so an unresolvable rule must never be emitted.
+  it('withholds a rule whose declaration references an attribute absent from the model', () => {
     // Mirror real buildPathedSurchargeRules output: the referenced attribute is embedded in the
-    // statement declaration. The warning must still fire because the attribute is absent from the
-    // ORIGINAL curated model — proving the check runs against the baseline, not the post-insert text.
+    // statement declaration. The rule must still be withheld because the attribute is absent from
+    // the ORIGINAL curated model — proving the check runs against the baseline, not the post-insert
+    // text (which always contains the attribute inside the rule's own statement).
     const r = {
       ...rule('SC__autoSilver__auto__collision__FEE', 'Collision', 'NonExistentAttribute > 5'),
       referencedAttributes: ['NonExistentAttribute'],
     };
-    const { placements, attributeWarnings } = mergeSurchargeRules(GOLD_CML, [r]);
-    expect(placements).to.have.length(1);
+    const { mergedCml, placements, skips, attributeWarnings } = mergeSurchargeRules(GOLD_CML, [r]);
+    expect(placements).to.have.length(0);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.match(/undeclared attribute/);
+    expect(skips[0].reason).to.match(/NonExistentAttribute/);
     expect(attributeWarnings).to.have.length(1);
     expect(attributeWarnings[0]).to.match(/NonExistentAttribute/);
+    // The model is left exactly as found.
+    expect(mergedCml).to.equal(GOLD_CML);
   });
 
   it('does not warn when the referenced attribute is present in the model', () => {
@@ -671,10 +679,12 @@ type Collision {
     );
   });
 
-  // ---- H5 (unresolvable-leaf fallback facet): when the leaf type block is ambiguous (duplicate
-  // declaration) the warning check must not silently widen to the whole model and let a sibling-type
-  // declaration of the attribute suppress a real absent-attribute warning.
-  it('H5: a sibling-only attribute still warns even when the replace path hits an ambiguous leaf type', () => {
+  // ---- H5 (unresolvable-leaf facet): an ambiguous leaf type block means we cannot prove what a
+  // reference resolves to, so the rule is withheld — and, critically, withheld BEFORE the replace
+  // path, so a key match alone can never rewrite a curated statement in a model we cannot reason
+  // about. The reason names the ambiguity rather than blaming the attribute, because "declare
+  // SneakyAttr" is not the fix when the type block itself is duplicated.
+  it('H5: an ambiguous leaf type withholds the rule without clobbering the existing statement', () => {
     // Duplicate `type Collision` → collectTypeScopeText returns undefined (ambiguous). An existing
     // surcharge statement for the key forces the REPLACE path (which runs before type-block resolution).
     // SneakyAttr is declared ONLY on the unrelated sibling type Helper — never on any Collision block.
@@ -690,15 +700,16 @@ type Collision { int Other = [2]; }
       ...rule('SC__x__collision__FEE', 'Collision', 'SneakyAttr > 5'),
       referencedAttributes: ['SneakyAttr'],
     };
-    const { placements, attributeWarnings } = mergeSurchargeRules(model, [r]);
+    const { mergedCml, placements, skips, attributeWarnings } = mergeSurchargeRules(model, [r]);
 
-    // The existing statement is replaced in place...
-    expect(placements).to.have.length(1);
-    expect(placements[0].status).to.equal('replaced');
-    // ...but SneakyAttr is NOT visible to the Collision leaf (only declared on sibling Helper), so the
-    // absent-attribute warning must still fire. The whole-model fallback must not suppress it.
-    expect(attributeWarnings).to.have.length(1);
-    expect(attributeWarnings[0]).to.match(/SneakyAttr/);
+    expect(placements).to.have.length(0);
+    expect(skips).to.have.length(1);
+    expect(skips[0].reason).to.match(/is ambiguous/);
+    // The attribute gate never runs, so SneakyAttr is not blamed for a type-block problem.
+    expect(attributeWarnings).to.have.length(0);
+    // CRITICAL: the rule matched an existing statement, so the withholding must happen BEFORE the
+    // replace splice — otherwise we would clobber the curated line on the way to skipping the rule.
+    expect(mergedCml).to.equal(model);
   });
 
   // ---- L1: replace happens within the correct block.

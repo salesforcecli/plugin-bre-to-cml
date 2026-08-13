@@ -598,6 +598,40 @@ export function mergeSurchargeRules(existingCml: string, rules: PathedSurchargeR
     // rule's splice may have mutated `cml`.
     const scan = blankComments(cml);
 
+    // Resolved BEFORE the replace path, for two reasons. It lets the attribute gate below report an
+    // accurate cause (an unresolvable leaf scope makes every attribute look absent, so running the
+    // gate first would blame a missing attribute for what is really a missing type block, sending
+    // the operator off to declare an attribute in a type that does not exist). And a rule whose
+    // leaf type we cannot pin down must not rewrite a curated statement on the strength of a key
+    // match alone.
+    const block = findTypeBlock(cml, rule.typeName, scan);
+    if (!block) {
+      skips.push({ rule, reason: `type block '${rule.typeName}' not found in existing model` });
+      continue;
+    }
+    if ('ambiguous' in block) {
+      skips.push({
+        rule,
+        reason: `type block '${rule.typeName}' is ambiguous (multiple/duplicate declarations) in existing model; skipping ${rule.recordName} rather than guessing`,
+      });
+      continue;
+    }
+
+    // Runs BEFORE both the replace splice and the insert, so a rule we are going to withhold can
+    // never clobber a curated statement on its way out. Emitting an undeclared reference does not
+    // just produce a dead rule: the solver refuses to deploy the whole model, taking every other
+    // rule in the ExpressionSet down with it.
+    const absent = findAbsentAttributes(baseCml, rule, baseScan);
+    if (absent.length > 0) {
+      const names = absent.map((a) => `'${a}'`).join(', ');
+      attributeWarnings.push(`${rule.recordName}: declaration references ${names}, absent from the model`);
+      skips.push({
+        rule,
+        reason: `undeclared attribute ${names} referenced by ${rule.recordName}; withheld because the solver rejects the whole model at deploy, disabling every rule in it`,
+      });
+      continue;
+    }
+
     // C2/M4/L1: only a REAL surcharge `rule(...)` statement carrying this exact key in the
     // action-scope slot counts as "present". A bare quoted-key substring inside an unrelated rule's
     // value, a longer key, or a comment must NOT trigger a destructive line replace.
@@ -613,20 +647,6 @@ export function mergeSurchargeRules(existingCml: string, rules: PathedSurchargeR
       cml = cml.slice(0, stmt.start) + rule.statement + cml.slice(stmt.end);
       placements.push({ rule, status: 'replaced' });
       placedKeys.add(rule.ruleKey);
-      collectAttributeWarning(baseCml, rule, attributeWarnings, baseScan);
-      continue;
-    }
-
-    const block = findTypeBlock(cml, rule.typeName, scan);
-    if (!block) {
-      skips.push({ rule, reason: `type block '${rule.typeName}' not found in existing model` });
-      continue;
-    }
-    if ('ambiguous' in block) {
-      skips.push({
-        rule,
-        reason: `type block '${rule.typeName}' is ambiguous (multiple/duplicate declarations) in existing model; skipping ${rule.recordName} rather than guessing`,
-      });
       continue;
     }
 
@@ -636,7 +656,6 @@ export function mergeSurchargeRules(existingCml: string, rules: PathedSurchargeR
     cml = cml.slice(0, block.closeIdx) + insertion + cml.slice(block.closeIdx);
     placements.push({ rule, status: 'inserted' });
     placedKeys.add(rule.ruleKey);
-    collectAttributeWarning(baseCml, rule, attributeWarnings, baseScan);
   }
 
   return { mergedCml: cml, placements, skips, attributeWarnings };
@@ -651,13 +670,11 @@ export function mergeSurchargeRules(existingCml: string, rules: PathedSurchargeR
  * statement (from the `constraint` keyword through the terminating `;`) is replaced in place
  * (idempotent — re-running the merge with the same input reproduces the same output).
  * - Otherwise the statement is inserted just before the closing brace of the leaf `type` block.
- * - Before placing a rule's constraint, any of its `referencedAttributes` not already declared
- * anywhere in the leaf `type` block are auto-inserted (as `<cmlType> <attrName>;`) right after
- * the block's opening brace, and reported via `attributeWarnings` so the caller can log them —
- * unlike surcharge merge (which only WARNS about missing attributes, since injecting into the
- * curated model there was judged too risky for a `rule(...)` action statement), underwriting
- * constraints reference attributes that must resolve for the constraint to compile, so the
- * declaration is added rather than merely flagged.
+ * - Any of a rule's `referencedAttributes` not already declared anywhere in the leaf `type` block
+ * are reported via `attributeWarnings`; the curated model is never mutated to add them. NOTE: this
+ * is weaker than the surcharge merge, which WITHHOLDS such a rule outright — an unresolvable
+ * reference makes the solver reject the whole model at deploy, so warning here still lets a
+ * model-wide outage through. See findAbsentAttributes.
  *
  * Rules with a blank ProductPath, no resolved leaf type tag, an ambiguous/duplicate type block, or
  * an intra-run duplicate (typeName, constraintName) pair are skipped (reported, never silently
@@ -927,21 +944,23 @@ export function blankComments(cml: string): string {
 }
 
 /**
- * Surfaces (does not auto-fix) rule declarations that reference an attribute not present anywhere in
- * the curated model. In merge mode we never inject `string <attr>;` into the curated model, so an
- * unknown attribute would fail to compile on import — better to warn the engineer than to mangle the
- * Gold Standard. Attributes already present are trusted to be visible via the coverage type hierarchy.
+ * Returns the attributes a rule's declaration references that are not present anywhere in the
+ * curated model. In merge mode we never inject `string <attr>;` into the curated model, so an
+ * unknown attribute cannot resolve. Attributes already present are trusted to be visible via the
+ * coverage type hierarchy.
+ *
+ * The caller withholds any rule this reports on. Measured in sdb38-ins on 12 Aug 2026: a bare
+ * undeclared reference is not merely a rule that fails to fire — the solver rejects the ENTIRE
+ * model at deploy (`Couldn't find attribute 'TotalAmount' in AutoSilver`), which disables every
+ * other rule in the same ExpressionSet and makes the surcharge API return 500. Import and
+ * activation do not validate, so nothing catches it before first use in production.
  *
  * IMPORTANT: `baseCml` must be the ORIGINAL model text, captured before any surcharge statement was
  * spliced in. Checking the post-insertion text would always find the attribute inside the rule's own
  * just-inserted declaration (which sanitizes attribute names identically), suppressing every warning.
  */
-function collectAttributeWarning(
-  baseCml: string,
-  rule: PathedSurchargeRule,
-  warnings: string[],
-  baseScan?: string
-): void {
+function findAbsentAttributes(baseCml: string, rule: PathedSurchargeRule, baseScan?: string): string[] {
+  const absent: string[] = [];
   // H5/M3: scope the presence check to the leaf type block plus its `: Parent` ancestry, with
   // comments and string literals stripped. CML attribute visibility is hierarchy-scoped, so an
   // unscoped whole-file `\battr\b` test gives false negatives (an attribute named only in a comment,
@@ -958,10 +977,10 @@ function collectAttributeWarning(
 
   for (const attr of rule.referencedAttributes) {
     const present = new RegExp(`\\b${escapeRegExp(attr)}\\b`).test(scope);
-    if (!present) {
-      warnings.push(`${rule.recordName}: declaration references '${attr}' which is absent from the model`);
-    }
+    if (!present) absent.push(attr);
   }
+
+  return absent;
 }
 
 /**

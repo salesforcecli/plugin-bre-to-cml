@@ -170,6 +170,7 @@ export default class CmlConvertSurchargeRules extends InsuranceRuleConvertComman
         typeBlockMissing: 0,
         typeBlockAmbiguous: 0,
         unconvertible: 0,
+        undeclaredAttribute: 0,
         other: 0,
       };
       for (const s of skips) {
@@ -177,6 +178,7 @@ export default class CmlConvertSurchargeRules extends InsuranceRuleConvertComman
         else if (s.reason.startsWith('duplicate pathed rule key')) counts.duplicate += 1;
         else if (s.reason.startsWith('empty ProductPath')) counts.emptyPath += 1;
         else if (s.reason.startsWith('no CML type tag')) counts.noTypeTag += 1;
+        else if (s.reason.startsWith('undeclared attribute')) counts.undeclaredAttribute += 1;
         else if (s.reason.includes('not found in existing model')) counts.typeBlockMissing += 1;
         else if (s.reason.includes('is ambiguous')) counts.typeBlockAmbiguous += 1;
         else counts.other += 1;
@@ -185,7 +187,7 @@ export default class CmlConvertSurchargeRules extends InsuranceRuleConvertComman
         `Skip breakdown: ${counts.duplicate} duplicate-key, ${counts.emptyPath} empty-ProductPath, ` +
           `${counts.noTypeTag} no-type-tag, ${counts.typeBlockMissing} type-block-missing, ` +
           `${counts.typeBlockAmbiguous} type-block-ambiguous, ${counts.unconvertible} unconvertible, ` +
-          `${counts.other} other`
+          `${counts.undeclaredAttribute} undeclared-attribute, ${counts.other} other`
       );
     }
 
