@@ -1,3 +1,9 @@
+## [1.3.1](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.3.0...1.3.1) (2026-10-09)
+
+### Bug Fixes
+
+- **deps:** bump undici from 8.10.0 to 8.11.2 ([0741c8a](https://github.com/salesforcecli/plugin-bre-to-cml/commit/0741c8a35b3d54e8687ad77490daf1fa540d617a))
+
 # [1.3.0](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.2.17...1.3.0) (2026-08-08)
 
 ### Features
