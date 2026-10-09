@@ -1,3 +1,9 @@
+## [1.3.2](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.3.1...1.3.2) (2026-10-09)
+
+### Bug Fixes
+
+- **deps:** bump fast-copy from 3.0.2 to 3.1.0 ([1d2eeae](https://github.com/salesforcecli/plugin-bre-to-cml/commit/1d2eeae35ae380e8464a685f4023f0e3bb7032cc))
+
 ## [1.3.1](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.3.0...1.3.1) (2026-10-09)
 
 ### Bug Fixes
