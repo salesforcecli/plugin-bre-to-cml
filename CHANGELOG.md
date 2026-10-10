@@ -1,3 +1,9 @@
+## [1.3.7](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.3.6...1.3.7) (2026-10-10)
+
+### Bug Fixes
+
+- **deps:** bump browserslist from 4.25.1 to 4.28.9 ([a6994cf](https://github.com/salesforcecli/plugin-bre-to-cml/commit/a6994cf7c32e724e261284f9a0f025ccaa6dfe4b))
+
 ## [1.3.6](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.3.5...1.3.6) (2026-10-10)
 
 ### Bug Fixes
