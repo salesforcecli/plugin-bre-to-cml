@@ -1,3 +1,9 @@
+## [1.3.11](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.3.10...1.3.11) (2026-10-25)
+
+### Bug Fixes
+
+- **deps:** bump fast-uri from 3.1.8 to 3.1.9 ([5c368a5](https://github.com/salesforcecli/plugin-bre-to-cml/commit/5c368a51083fae5d11c19e7fd75a02440c0b6352))
+
 ## [1.3.10](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.3.9...1.3.10) (2026-10-25)
 
 ### Bug Fixes
