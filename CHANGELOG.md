@@ -1,3 +1,9 @@
+## [1.3.10](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.3.9...1.3.10) (2026-10-25)
+
+### Bug Fixes
+
+- **deps:** bump zod from 4.1.13 to 4.6.7 ([6efd027](https://github.com/salesforcecli/plugin-bre-to-cml/commit/6efd027dcdbd8fc451888e3c04373b07c35f209f))
+
 ## [1.3.9](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.3.8...1.3.9) (2026-10-24)
 
 ### Bug Fixes
