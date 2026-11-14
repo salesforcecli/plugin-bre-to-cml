@@ -1,3 +1,9 @@
+## [1.3.12](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.3.11...1.3.12) (2026-11-14)
+
+### Bug Fixes
+
+- **deps:** bump js-yaml from 3.14.1 to 3.15.2 ([a289307](https://github.com/salesforcecli/plugin-bre-to-cml/commit/a2893072cea357907c8b6d3d3c382022bb1ab58a))
+
 ## [1.3.11](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.3.10...1.3.11) (2026-10-25)
 
 ### Bug Fixes
