@@ -1,3 +1,9 @@
+## [1.3.13](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.3.12...1.3.13) (2026-11-15)
+
+### Bug Fixes
+
+- **deps:** bump brace-expansion from 1.1.12 to 1.1.22 ([1a24141](https://github.com/salesforcecli/plugin-bre-to-cml/commit/1a2414198c0ed9f08c5cbbce1f8d5d534c5c5990))
+
 ## [1.3.12](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.3.11...1.3.12) (2026-11-14)
 
 ### Bug Fixes
