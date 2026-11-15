@@ -1,3 +1,9 @@
+## [1.3.15](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.3.14...1.3.15) (2026-11-15)
+
+### Bug Fixes
+
+- **deps:** bump csv-parse from 7.0.2 to 7.0.3 ([88d3884](https://github.com/salesforcecli/plugin-bre-to-cml/commit/88d388411ba6f57a9712054bfc376a88349271ca))
+
 ## [1.3.14](https://github.com/salesforcecli/plugin-bre-to-cml/compare/1.3.13...1.3.14) (2026-11-15)
 
 ### Bug Fixes
